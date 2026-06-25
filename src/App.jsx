@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
-const VERSION = "v3.1";
+const VERSION = "v6";
 const STORAGE_KEY = "tradememo_results";
 
 const SYSTEM_PROMPT = `당신은 주식 매매내역 이미지 분석 전문가입니다.
@@ -35,9 +35,9 @@ const SYSTEM_PROMPT = `당신은 주식 매매내역 이미지 분석 전문가�
 }`;
 
 async function callVision(base64, mediaType) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/analyze", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": process.env.REACT_APP_ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 1000,
@@ -59,9 +59,9 @@ async function callVision(base64, mediaType) {
 }
 
 async function callMerge(results) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("/api/analyze", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": process.env.REACT_APP_ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 1000,
