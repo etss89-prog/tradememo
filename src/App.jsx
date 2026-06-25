@@ -148,11 +148,27 @@ export default function App() {
     } catch {}
   }, []);
 
+  // 이미지를 최대 1500px 너비로 압축해서 base64 반환
   const toBase64 = (file) => new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result.split(",")[1]);
-    r.onerror = rej;
-    r.readAsDataURL(file);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX_WIDTH = 1500;
+        const scale = img.width > MAX_WIDTH ? MAX_WIDTH / img.width : 1;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+        res(compressed);
+      };
+      img.onerror = rej;
+      img.src = e.target.result;
+    };
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
   });
 
   function checkPin() {
@@ -170,7 +186,7 @@ export default function App() {
     const items = await Promise.all(valid.map(async f => ({
       id: Date.now() + Math.random(),
       base64: await toBase64(f),
-      mediaType: f.type || "image/jpeg",
+      mediaType: "image/jpeg",
       preview: URL.createObjectURL(f),
       result: null, loading: false, error: null,
     })));
