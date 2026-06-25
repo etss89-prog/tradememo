@@ -1,120 +1,130 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
+const VERSION = "v3.1";
 const STORAGE_KEY = "tradememo_results";
 
-const VISION_PROMPT = `당신은 주식 매매내역 이미지 분석 전문가입니다.
-이미지가 길거나 글씨가 작아도 모든 거래를 빠짐없이 읽어내세요.
-각 행에서 날짜, 종목명, 매수/매도 구분, 체결수량, 체결단가를 추출하세요.
-순수 JSON만 반환하고 마크다운 코드블록 없이 출력하세요.
+const SYSTEM_PROMPT = `당신은 주식 매매내역 이미지 분석 전문가입니다.
+이미지에서 날짜, 종목명, 매수/매도 구분, 체결수량, 체결단가를 모두 추출하세요.
+글씨가 작거나 이미지가 길어도 모든 행을 빠짐없이 읽어내세요.
+반드시 순수 JSON만 반환하고 마크다운 코드블록 없이 출력하세요.
 
+응답 형식:
 {
-  "summary": "전체 거래 요약 (한국어)",
+  "summary": "전체 거래 요약",
   "stocks": [
     {
       "ticker": "종목명",
       "trades": [
-        { "date": "YYYY-MM-DD", "type": "매수 또는 매도", "price": 체결단가숫자, "quantity": 수량숫자, "total": 가격x수량 }
+        { "date": "YYYY-MM-DD", "type": "매수", "price": 13780, "quantity": 50, "total": 689000 }
       ],
-      "avgBuyPrice": 가중평균매수단가숫자,
-      "currentHolding": 보유수량숫자,
-      "totalInvested": 총매수금액숫자,
-      "totalSold": 총매도금액숫자또는0,
-      "realizedPnL": 실현손익숫자또는0,
+      "avgBuyPrice": 13780,
+      "currentHolding": 50,
+      "totalInvested": 689000,
+      "totalSold": 0,
+      "realizedPnL": 0,
       "insight": "한 줄 인사이트"
     }
   ],
   "totalStats": {
-    "totalInvested": 총투자금합계,
-    "totalRealized": 총실현손익,
-    "tradeCount": 총거래횟수,
-    "stockCount": 종목수
+    "totalInvested": 689000,
+    "totalRealized": 0,
+    "tradeCount": 1,
+    "stockCount": 1
   }
 }`;
 
-const MERGE_PROMPT = `여러 분석 결과를 하나로 통합하세요. 중복 제거, 같은 종목 합산, 가중평균 단가 계산. 순수 JSON만 반환.`;
-
-async function callClaude(messages) {
+async function callVision(base64, mediaType) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-api-key": process.env.REACT_APP_ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 1000,
-      messages,
+      system: SYSTEM_PROMPT,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+          { type: "text", text: "이 증권 앱 매매내역 화면에서 모든 거래를 추출해주세요." }
+        ]
+      }]
     }),
   });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
+  if (!res.ok) throw new Error(`API ${res.status}`);
   const data = await res.json();
-  const text = data.content?.map((b) => b.text || "").join("") || "";
+  const text = data.content?.map(b => b.text || "").join("") || "";
+  const clean = text.replace(/```json|```/g, "").trim();
+  return JSON.parse(clean);
+}
+
+async function callMerge(results) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": process.env.REACT_APP_ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      system: "여러 분석 결과를 하나로 통합하세요. 중복 제거, 같은 종목 합산, 가중평균 단가 계산. 순수 JSON만 반환.",
+      messages: [{
+        role: "user",
+        content: "다음 데이터를 통합해주세요:\n" + JSON.stringify(results)
+      }]
+    }),
+  });
+  const data = await res.json();
+  const text = data.content?.map(b => b.text || "").join("") || "";
   return JSON.parse(text.replace(/```json|```/g, "").trim());
 }
 
-// 이미지를 세로로 N등분해서 base64 배열로 반환
-function sliceImageToChunks(base64, mediaType, maxHeightRatio = 1.8) {
-  return new Promise((resolve, reject) => {
+function sliceImage(base64, mediaType) {
+  return new Promise((resolve) => {
     const img = new window.Image();
     img.onload = () => {
       const { naturalWidth: w, naturalHeight: h } = img;
-      const ratio = h / w;
-      if (ratio <= maxHeightRatio) {
+      // 세로/가로 비율이 2배 미만이면 분할 안함
+      if (h < w * 2) {
         resolve([{ base64, mediaType }]);
         return;
       }
-      // 몇 등분할지 계산 (최대 6조각)
-      const n = Math.min(Math.ceil(ratio / maxHeightRatio), 6);
+      const n = Math.min(Math.ceil(h / (w * 1.5)), 6);
       const sliceH = Math.ceil(h / n);
       const chunks = [];
       for (let i = 0; i < n; i++) {
-        const canvas = document.createElement("canvas");
         const actualH = Math.min(sliceH, h - i * sliceH);
         if (actualH <= 0) break;
+        const canvas = document.createElement("canvas");
         canvas.width = w;
         canvas.height = actualH;
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, -(i * sliceH));
-        const sliced = canvas.toDataURL(mediaType || "image/jpeg", 0.92).split(",")[1];
-        chunks.push({ base64: sliced, mediaType: mediaType || "image/jpeg" });
+        chunks.push({ base64: canvas.toDataURL(mediaType, 0.95).split(",")[1], mediaType });
       }
-      resolve(chunks);
+      resolve(chunks.length > 0 ? chunks : [{ base64, mediaType }]);
     };
-    img.onerror = reject;
-    img.src = `data:${mediaType || "image/jpeg"};base64,${base64}`;
+    img.onerror = () => resolve([{ base64, mediaType }]);
+    img.src = `data:${mediaType};base64,${base64}`;
   });
 }
 
 async function analyzeImage(base64, mediaType) {
-  const chunks = await sliceImageToChunks(base64, mediaType);
+  const chunks = await sliceImage(base64, mediaType);
   if (chunks.length === 1) {
-    // 단일 이미지 분석
-    return await callClaude([{
-      role: "user",
-      content: [
-        { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-        { type: "text", text: "이 증권 앱 매매내역 화면에서 모든 거래를 추출해주세요.\n\n" + VISION_PROMPT }
-      ]
-    }]);
+    return await callVision(chunks[0].base64, chunks[0].mediaType);
   }
-  // 조각별 분석 후 병합
+  // 조각별 순차 분석
   const results = [];
   for (const chunk of chunks) {
     try {
-      const r = await callClaude([{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: chunk.mediaType, data: chunk.base64 } },
-          { type: "text", text: "이 이미지 조각에서 매매 거래 내역을 모두 추출하세요. 거래가 없으면 stocks를 빈 배열로 반환.\n\n" + VISION_PROMPT }
-        ]
-      }]);
-      if (r.stocks?.length > 0) results.push(r);
-    } catch {}
+      const r = await callVision(chunk.base64, chunk.mediaType);
+      if (r?.stocks?.length > 0) results.push(r);
+    } catch (e) {
+      console.warn("chunk failed", e);
+    }
   }
   if (results.length === 0) throw new Error("인식 실패");
   if (results.length === 1) return results[0];
-  return await callClaude([{
-    role: "user",
-    content: MERGE_PROMPT + "\n\n" + JSON.stringify(results)
-  }]);
+  return await callMerge(results);
 }
 
 export default function App() {
@@ -171,7 +181,7 @@ export default function App() {
       try {
         const result = await analyzeImage(item.base64, item.mediaType);
         setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, result } : i));
-      } catch {
+      } catch (e) {
         setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, error: "인식 실패. 다시 시도해주세요." } : i));
       }
     }
@@ -183,13 +193,13 @@ export default function App() {
     let final = valid[0];
     if (valid.length > 1) {
       setMerging(true);
-      try { final = await callClaude([{ role: "user", content: MERGE_PROMPT + "\n\n" + JSON.stringify(valid) }]); } catch {}
+      try { final = await callMerge(valid); } catch {}
       setMerging(false);
     }
     setMergedResult(final);
     setSavedResult(final);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(final));
-    alert("✅ 저장 완료! 지인들이 링크에서 바로 볼 수 있어요.");
+    alert("✅ 저장 완료!");
   }
 
   function clearAll() {
@@ -224,7 +234,6 @@ export default function App() {
 
   return (
     <div style={S.page}>
-      {/* PIN 모달 */}
       {showPin && (
         <div style={S.overlay}>
           <div style={S.modal}>
@@ -242,11 +251,11 @@ export default function App() {
         </div>
       )}
 
-      {/* 헤더 */}
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 26 }}>📸</span>
           <span style={S.logoText}>TradeMemo</span>
+          <span style={S.verBadge}>{VERSION}</span>
           {isAdmin
             ? <button style={S.adminTag} onClick={() => setIsAdmin(false)}>관리자 ✕</button>
             : <button style={S.loginTag} onClick={() => setShowPin(true)}>관리자 로그인</button>}
@@ -254,7 +263,6 @@ export default function App() {
         <p style={S.sub}>{isAdmin ? "📤 이미지 올려서 분석 후 저장하세요" : "📊 최신 매매기록을 확인하세요"}</p>
       </div>
 
-      {/* 관리자 업로드 영역 */}
       {isAdmin && (
         <>
           <div style={{ ...S.drop, ...(dragOver ? S.dropOn : {}) }}
@@ -266,7 +274,7 @@ export default function App() {
               onChange={e => addFiles(e.target.files)} />
             <div style={{ fontSize: 36, marginBottom: 8 }}>📱</div>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>캡처 이미지 업로드</div>
-            <div style={{ fontSize: 13, color: "#64748b" }}>길쭉한 스크롤 캡처 자동 분할 분석 · 여러 장 동시 가능</div>
+            <div style={{ fontSize: 13, color: "#64748b" }}>길쭉한 스크롤 캡처 자동 분할 · 여러 장 동시 가능</div>
           </div>
 
           {images.length > 0 && (
@@ -280,7 +288,7 @@ export default function App() {
                   <div style={{ padding: "8px 10px", fontSize: 12 }}>
                     {img.loading && <span style={{ color: "#f59e0b" }}>⏳ 분석 중…</span>}
                     {img.error && <span style={{ color: "#ef4444" }}>⚠️ {img.error}</span>}
-                    {img.result && !img.loading && <span style={{ color: "#4ade80" }}>✅ {img.result.stocks?.length}개 종목</span>}
+                    {img.result && !img.loading && <span style={{ color: "#4ade80" }}>✅ {img.result.stocks?.length}개 종목 인식</span>}
                   </div>
                 </div>
               ))}
@@ -298,14 +306,12 @@ export default function App() {
         </>
       )}
 
-      {/* 결과 */}
       {display ? (
         <>
           <div style={S.banner}>
             <span>💡</span>
             <span style={{ fontSize: 14, color: "#93c5fd", lineHeight: 1.6 }}>{display.summary}</span>
           </div>
-
           <div style={S.stats}>
             {[
               { label: "종목 수", val: `${display.totalStats?.stockCount ?? display.stocks?.length}개` },
@@ -319,7 +325,6 @@ export default function App() {
               </div>
             ))}
           </div>
-
           <div style={S.tabs}>
             {["all", "holding", "sold"].map(t => (
               <button key={t} style={{ ...S.tab, ...(activeTab === t ? S.tabOn : {}) }} onClick={() => setActiveTab(t)}>
@@ -327,7 +332,6 @@ export default function App() {
               </button>
             ))}
           </div>
-
           {filtered?.map((stock, i) => (
             <div key={i} style={S.stockCard}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -367,11 +371,10 @@ export default function App() {
               {stock.insight && <div style={S.insight}>💬 {stock.insight}</div>}
             </div>
           ))}
-
           <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 20, marginTop: 12 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>공유 텍스트</div>
             <pre style={{ background: "#0a0f1e", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "#94a3b8", whiteSpace: "pre-wrap", marginBottom: 12, border: "1px solid #1e293b", fontFamily: "monospace" }}>{shareText()}</pre>
-            <button style={S.btnMain} onClick={() => { navigator.clipboard.writeText(shareText()).then(() => { setShareMsg("✅ 복사됐어요!"); setTimeout(() => setShareMsg(""), 2500); }); }}>📋 텍스트 복사</button>
+            <button style={S.btnMain} onClick={() => navigator.clipboard.writeText(shareText()).then(() => { setShareMsg("✅ 복사됐어요!"); setTimeout(() => setShareMsg(""), 2500); })}>📋 텍스트 복사</button>
             {shareMsg && <p style={{ color: "#4ade80", fontSize: 13, marginTop: 8 }}>{shareMsg}</p>}
           </div>
         </>
@@ -389,8 +392,9 @@ export default function App() {
 const S = {
   page: { minHeight: "100vh", background: "#0a0f1e", color: "#e2e8f0", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", padding: "24px 16px 60px", maxWidth: 720, margin: "0 auto" },
   header: { textAlign: "center", marginBottom: 24 },
-  logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" },
+  logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" },
   logoText: { fontSize: 24, fontWeight: 700, background: "linear-gradient(90deg,#60a5fa,#a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+  verBadge: { background: "#0f172a", color: "#475569", border: "1px solid #1e293b", borderRadius: 6, padding: "2px 7px", fontSize: 11, fontWeight: 600 },
   loginTag: { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" },
   adminTag: { background: "#1e3a5f", color: "#60a5fa", border: "1px solid #3b82f6", borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" },
   sub: { color: "#64748b", fontSize: 14, margin: 0 },
