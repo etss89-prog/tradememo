@@ -13,8 +13,35 @@ export default async function handler(req, res) {
     const { image } = req.body;
     if (!image) return res.status(400).json({ error: 'No image provided' });
 
-    const SYSTEM = `당신은 주식 매매내역 이미지 분석 전문가입니다. 날짜, 종목명, 매수/매도, 체결수량, 체결단가를 추출하세요. 순수 JSON만 반환하세요.
-{"summary":"요약","stocks":[{"ticker":"종목명","trades":[{"date":"YYYY-MM-DD","type":"매수또는매도","price":숫자,"quantity":숫자,"total":숫자}],"avgBuyPrice":숫자,"currentHolding":숫자,"totalInvested":숫자,"totalSold":숫자,"realizedPnL":숫자,"insight":"인사이트"}],"totalStats":{"totalInvested":숫자,"totalRealized":숫자,"tradeCount":숫자,"stockCount":숫자}}`;
+    const SYSTEM = `You are a Korean stock trading record analyzer. Extract ALL trading records from the image.
+Return ONLY valid JSON, no other text. Use this exact format:
+{
+  "summary": "거래 요약",
+  "stocks": [
+    {
+      "ticker": "종목명",
+      "trades": [
+        { "date": "YYYY-MM-DD", "type": "매수", "price": 12345, "quantity": 10, "total": 123450 }
+      ],
+      "avgBuyPrice": 12345,
+      "currentHolding": 10,
+      "totalInvested": 123450,
+      "totalSold": 0,
+      "realizedPnL": 0,
+      "insight": "인사이트"
+    }
+  ],
+  "totalStats": {
+    "totalInvested": 123450,
+    "totalRealized": 0,
+    "tradeCount": 1,
+    "stockCount": 1
+  }
+}
+Rules:
+- type must be exactly "매수" or "매도"
+- all number fields must be numbers not strings
+- do not include any text before or after the JSON`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -31,7 +58,7 @@ export default async function handler(req, res) {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-            { type: 'text', text: '이 증권 앱 매매내역에서 모든 거래를 추출해주세요.' }
+            { type: 'text', text: 'Extract all trading records from this Korean stock app screenshot. Return only valid JSON.' }
           ]
         }]
       }),
@@ -39,17 +66,20 @@ export default async function handler(req, res) {
 
     const data = await response.json();
     if (data.error) return res.status(500).json({ error: data.error.message });
-    
+
     const text = data.content?.map(b => b.text || '').join('') || '';
-    // JSON 블록만 추출 (앞뒤 텍스트 제거)
+    
+    // Extract JSON more robustly
     const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return res.status(500).json({ error: 'JSON not found in response' });
-    try {
-  const parsed = JSON.parse(jsonMatch[0]);
-  return res.status(200).json(parsed);
-} catch(e) {
-  return res.status(500).json({ error: e.message, raw: text.substring(0, 500) });
-}
+    if (!jsonMatch) return res.status(500).json({ error: 'No JSON found in response', raw: text.substring(0, 200) });
+    
+    // Clean common JSON issues
+    let jsonStr = jsonMatch[0]
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ') // remove control chars
+      .replace(/,\s*}/g, '}')  // trailing commas in objects
+      .replace(/,\s*]/g, ']'); // trailing commas in arrays
+
+    const parsed = JSON.parse(jsonStr);
     return res.status(200).json(parsed);
 
   } catch (error) {
