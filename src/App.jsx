@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v2.5";
+const VERSION = "v2.6";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -117,7 +117,7 @@ function PortfolioChart({ data, isAdmin }) {
         </svg>
         <div style={{ flex: 1 }}>
           {(() => {
-            const MAX = 19;
+            const MAX = 29;
             const shown = slices.slice(0, MAX);
             const rest = slices.slice(MAX);
             const restPct = rest.reduce((sum, r) => sum + r.pct, 0);
@@ -125,25 +125,20 @@ function PortfolioChart({ data, isAdmin }) {
             const half = Math.ceil(all.length / 2);
             const col1 = all.slice(0, half);
             const col2 = all.slice(half);
+            const ColItem = ({ s }) => (
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600, width: 72, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
+                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, width: 28, textAlign: "right" }}>{s.pct}%</span>
+              </div>
+            );
             return (
-              <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ display: "flex", gap: 10 }}>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {col1.map((s, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600 }}>{s.ticker}</span>
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, marginLeft: 3 }}>{s.pct}%</span>
-                    </div>
-                  ))}
+                  {col1.map((s, i) => <ColItem key={i} s={s} />)}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {col2.map((s, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600 }}>{s.ticker}</span>
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, marginLeft: 3 }}>{s.pct}%</span>
-                    </div>
-                  ))}
+                  {col2.map((s, i) => <ColItem key={i} s={s} />)}
                 </div>
               </div>
             );
