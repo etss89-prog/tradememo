@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.1";
+const VERSION = "v1.2";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -83,7 +83,8 @@ export default function App() {
   const [allRecords, setAllRecords] = useState([]); // [{date, result}]
   const [merging, setMerging] = useState(false);
   const [activeTab, setActiveTab] = useState("buy");
-  const [selectedDate, setSelectedDate] = useState("전체");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [shareMsg, setShareMsg] = useState("");
   const [viewerPinInput, setViewerPinInput] = useState("");
   const [viewerPinError, setViewerPinError] = useState("");
@@ -154,18 +155,31 @@ export default function App() {
     setAllRecords([]);
   }
 
-  const dates = ["전체", ...allRecords.map(r => r.date).sort().reverse()];
-  const filteredRecords = selectedDate === "전체" ? allRecords : allRecords.filter(r => r.date === selectedDate);
+  // 전체 거래에서 날짜 범위 추출
+  const allTradesFlat = allRecords.flatMap(r => r.result?.stocks || []).flatMap(s => s.trades || []);
+  const tradeDates = [...new Set(allTradesFlat.map(t => t.date))].sort();
+  const minDate = tradeDates[0] || "";
+  const maxDate = tradeDates[tradeDates.length - 1] || "";
 
-  // Merge filtered records - only include trades within selected date
-  const allStocks = filteredRecords.flatMap(r => r.result?.stocks || []);
+  // 날짜 범위 필터링
+  const isInRange = (date) => {
+    if (!startDate && !endDate) return true;
+    if (startDate && endDate) return date >= startDate && date <= endDate;
+    if (startDate) return date >= startDate;
+    if (endDate) return date <= endDate;
+    return true;
+  };
+
+  // 모든 기록에서 날짜 범위에 맞는 거래만 필터링해서 종목별 합산
+  const allStocks = allRecords.flatMap(r => r.result?.stocks || []);
   const mergedStocks = Object.values(allStocks.reduce((acc, s) => {
+    const filteredTrades = s.trades.filter(t => isInRange(t.date));
+    if (filteredTrades.length === 0) return acc;
     if (!acc[s.ticker]) {
-      acc[s.ticker] = { ...s, trades: [...s.trades] };
+      acc[s.ticker] = { ...s, trades: [...filteredTrades] };
     } else {
-      acc[s.ticker].trades = [...acc[s.ticker].trades, ...s.trades];
+      acc[s.ticker].trades = [...acc[s.ticker].trades, ...filteredTrades];
     }
-    // Recalculate based on filtered trades
     const buyTrades = acc[s.ticker].trades.filter(t => t.type === "매수");
     const sellTrades = acc[s.ticker].trades.filter(t => t.type === "매도");
     const totalBuyQty = buyTrades.reduce((sum, t) => sum + t.quantity, 0);
@@ -270,19 +284,33 @@ export default function App() {
 
       {isViewer && allRecords.length > 0 && (
         <>
-          {/* 날짜 필터 */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>📅 조회 기간 선택</div>
-            <div style={{ overflowX: "auto", paddingBottom: 4 }}>
-              <div style={{ display: "flex", gap: 8, minWidth: "max-content" }}>
-                {dates.map(d => (
-                  <button key={d} onClick={() => setSelectedDate(d)}
-                    style={{ ...S.dateBtn, ...(selectedDate === d ? S.dateBtnOn : {}) }}>
-                    {d === "전체" ? "📋 전체" : `📅 ${d}`}
-                  </button>
-                ))}
+          {/* 날짜 범위 필터 */}
+          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>📅 조회 기간 설정</div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                <span style={{ fontSize: 10, color: "#475569" }}>시작일</span>
+                <input type="date" value={startDate} min={minDate} max={endDate || maxDate}
+                  onChange={e => setStartDate(e.target.value)}
+                  style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
               </div>
+              <div style={{ color: "#475569", marginTop: 16 }}>~</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                <span style={{ fontSize: 10, color: "#475569" }}>종료일</span>
+                <input type="date" value={endDate} min={startDate || minDate} max={maxDate}
+                  onChange={e => setEndDate(e.target.value)}
+                  style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
+              </div>
+              <button onClick={() => { setStartDate(""); setEndDate(""); }}
+                style={{ ...S.btnSub, marginTop: 16, padding: "6px 12px", fontSize: 12 }}>
+                전체
+              </button>
             </div>
+            {(startDate || endDate) && (
+              <div style={{ fontSize: 11, color: "#6366f1", marginTop: 8 }}>
+                📌 {startDate || minDate} ~ {endDate || maxDate} 기간 조회 중
+              </div>
+            )}
           </div>
 
           {/* 매수/매도 탭 */}
