@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v2.3";
+const VERSION = "v2.4";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -414,9 +414,7 @@ export default function App() {
             <div style={{ fontSize: 11, color: "#64748b" }}>증권앱 보유종목 화면 캡처 업로드</div>
           </button>
 
-          {allRecords.length > 0 && (
-            <button style={{ ...S.btnDanger, width: "100%", marginBottom: 16 }} onClick={clearAll}>🗑️ 전체 기록 삭제</button>
-          )}
+          <button style={{ ...S.btnDanger, width: "100%", marginBottom: 16 }} onClick={clearAll}>🗑️ 전체 기록 삭제</button>
         </>
       )}
 
