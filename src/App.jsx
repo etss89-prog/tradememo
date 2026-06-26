@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
-const ADMIN_PIN = "1234";
+const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9";
+const VERSION = "v10";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -48,16 +48,23 @@ function PieChart({ data, title }) {
     <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 16, marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>{title}</div>
       <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-        <svg viewBox="0 0 100 100" style={{ width: 110, height: 110, flexShrink: 0 }}>
+        <svg viewBox="0 0 100 100" style={{ width: 100, height: 100, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
         </svg>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", gap: 4, marginBottom: 6, paddingBottom: 4, borderBottom: "1px solid #1e293b" }}>
+            <span style={{ flex: 2, fontSize: 10, color: "#475569" }}>종목명</span>
+            <span style={{ flex: 1, fontSize: 10, color: "#475569", textAlign: "center" }}>비중</span>
+            <span style={{ flex: 1, fontSize: 10, color: "#475569", textAlign: "right" }}>평단</span>
+          </div>
           {slices.map((s, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-              <span style={{ color: "#e2e8f0", fontWeight: 600, minWidth: 70 }}>{s.ticker}</span>
-              <span style={{ color: "#64748b" }}>{s.avgPrice?.toLocaleString()}원</span>
-              <span style={{ color: s.color, marginLeft: "auto" }}>{s.pct}%</span>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, marginBottom: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 2 }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+                <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{s.ticker}</span>
+              </div>
+              <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center" }}>{s.pct}%</span>
+              <span style={{ flex: 1, color: "#94a3b8", textAlign: "right" }}>{s.avgPrice?.toLocaleString()}원</span>
             </div>
           ))}
         </div>
@@ -78,6 +85,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("buy");
   const [selectedDate, setSelectedDate] = useState("전체");
   const [shareMsg, setShareMsg] = useState("");
+  const [viewerPinInput, setViewerPinInput] = useState("");
+  const [viewerPinError, setViewerPinError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
 
@@ -86,6 +95,11 @@ export default function App() {
       if (d.records) setAllRecords(d.records);
     }).catch(() => {});
   }, []);
+
+  function checkViewerPin() {
+    if (viewerPinInput === VIEWER_PIN) { setIsViewer(true); setViewerPinInput(""); setViewerPinError(""); }
+    else { setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); }
+  }
 
   function checkPin() {
     if (pinInput === ADMIN_PIN) { setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError(""); }
@@ -199,13 +213,13 @@ export default function App() {
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 24 }}>📸</span>
-          <span style={S.logoText}>TradeMemo</span>
+          <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {isAdmin ? <button style={S.adminTag} onClick={() => { setIsAdmin(false); setIsViewer(false); }}>관리자 ✕</button>
             : isViewer ? <button style={S.adminTag} onClick={() => { setIsViewer(false); }}>조회중 ✕</button>
             : <button style={S.loginTag} onClick={() => setShowPin(true)}>코드 입력</button>}
         </div>
-        <p style={S.sub}>{isAdmin ? "📤 이미지 올려서 분석 후 저장" : isViewer ? "📊 매매기록 조회 중" : "🔒 코드를 입력해주세요"}</p>
+        <p style={S.sub}>{isAdmin ? "📤 이미지 올려서 분석 후 저장" : isViewer ? "📊 존버 매매기록 조회 중" : ""}</p>
       </div>
 
       {isAdmin && isViewer && (
@@ -340,11 +354,29 @@ export default function App() {
       )}
 
       {!isViewer && (
-        <div style={{ textAlign: "center", padding: "60px 20px" }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
-          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>조회 코드가 필요해요</div>
-          <div style={{ fontSize: 14, color: "#64748b", marginBottom: 20 }}>우측 상단 버튼을 눌러 코드를 입력하세요</div>
-          <button style={S.btnMain} onClick={() => setShowPin(true)}>코드 입력하기</button>
+        <div style={{ textAlign: "center", padding: "40px 20px" }}>
+          <div style={{ fontSize: 64, marginBottom: 8 }}>🐜</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>존버일기장</div>
+          <div style={{ fontSize: 13, color: "#f59e0b", fontWeight: 700, marginBottom: 24, lineHeight: 1.6 }}>
+            존버는 승리한다.<br/>왜냐하면 승리하기 때문이다.
+          </div>
+          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 24, maxWidth: 320, margin: "0 auto" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>📋 조회 코드 입력</div>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>지인 공유용 코드를 입력하세요</div>
+            <input
+              style={{ ...S.pinInput, marginBottom: 12 }}
+              type="password"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="코드 입력"
+              value={viewerPinInput}
+              onChange={e => setViewerPinInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && checkViewerPin()}
+            />
+            {viewerPinError && <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>{viewerPinError}</div>}
+            <button style={{ ...S.btnMain, width: "100%" }} onClick={checkViewerPin}>입장하기</button>
+          </div>
+          <div style={{ marginTop: 40, fontSize: 11, color: "#334155" }}>관리자는 우측 상단 버튼을 이용하세요</div>
         </div>
       )}
       {isViewer && allRecords.length === 0 && !isAdmin && (
