@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v10";
+const VERSION = "v1.1";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -156,19 +156,25 @@ export default function App() {
 
   const dates = ["전체", ...allRecords.map(r => r.date).sort().reverse()];
   const filteredRecords = selectedDate === "전체" ? allRecords : allRecords.filter(r => r.date === selectedDate);
-  
-  // Merge all filtered records into one display
+
+  // Merge filtered records - only include trades within selected date
   const allStocks = filteredRecords.flatMap(r => r.result?.stocks || []);
   const mergedStocks = Object.values(allStocks.reduce((acc, s) => {
-    if (!acc[s.ticker]) acc[s.ticker] = { ...s, trades: [...s.trades] };
-    else {
+    if (!acc[s.ticker]) {
+      acc[s.ticker] = { ...s, trades: [...s.trades] };
+    } else {
       acc[s.ticker].trades = [...acc[s.ticker].trades, ...s.trades];
-      const buyTrades = acc[s.ticker].trades.filter(t => t.type === "매수");
-      const totalQty = buyTrades.reduce((s, t) => s + t.quantity, 0);
-      const totalAmt = buyTrades.reduce((s, t) => s + t.price * t.quantity, 0);
-      acc[s.ticker].avgBuyPrice = totalQty ? Math.round(totalAmt / totalQty) : 0;
-      acc[s.ticker].totalInvested = buyTrades.reduce((s, t) => s + t.total, 0);
     }
+    // Recalculate based on filtered trades
+    const buyTrades = acc[s.ticker].trades.filter(t => t.type === "매수");
+    const sellTrades = acc[s.ticker].trades.filter(t => t.type === "매도");
+    const totalBuyQty = buyTrades.reduce((sum, t) => sum + t.quantity, 0);
+    const totalBuyAmt = buyTrades.reduce((sum, t) => sum + t.price * t.quantity, 0);
+    const totalSellQty = sellTrades.reduce((sum, t) => sum + t.quantity, 0);
+    acc[s.ticker].avgBuyPrice = totalBuyQty ? Math.round(totalBuyAmt / totalBuyQty) : 0;
+    acc[s.ticker].totalInvested = buyTrades.reduce((sum, t) => sum + t.total, 0);
+    acc[s.ticker].totalSold = sellTrades.reduce((sum, t) => sum + t.total, 0);
+    acc[s.ticker].currentHolding = totalBuyQty - totalSellQty;
     return acc;
   }, {}));
 
@@ -265,14 +271,17 @@ export default function App() {
       {isViewer && allRecords.length > 0 && (
         <>
           {/* 날짜 필터 */}
-          <div style={{ overflowX: "auto", marginBottom: 12 }}>
-            <div style={{ display: "flex", gap: 8, paddingBottom: 4 }}>
-              {dates.map(d => (
-                <button key={d} onClick={() => setSelectedDate(d)}
-                  style={{ ...S.dateBtn, ...(selectedDate === d ? S.dateBtnOn : {}) }}>
-                  {d}
-                </button>
-              ))}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>📅 조회 기간 선택</div>
+            <div style={{ overflowX: "auto", paddingBottom: 4 }}>
+              <div style={{ display: "flex", gap: 8, minWidth: "max-content" }}>
+                {dates.map(d => (
+                  <button key={d} onClick={() => setSelectedDate(d)}
+                    style={{ ...S.dateBtn, ...(selectedDate === d ? S.dateBtnOn : {}) }}>
+                    {d === "전체" ? "📋 전체" : `📅 ${d}`}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
