@@ -40,8 +40,15 @@ export default async function handler(req, res) {
     const data = await response.json();
     if (data.error) return res.status(500).json({ error: data.error.message });
     
-    const text = data.content?.map(b => b.text || '').join('') || '';
-    return res.status(200).json({ raw: text });
+   const text = data.content?.map(b => b.text || '').join('') || '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/s);
+    if (!jsonMatch) return res.status(500).json({ error: 'JSON not found', raw: text });
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return res.status(200).json(parsed);
+    } catch(e) {
+      return res.status(500).json({ error: e.message, raw: text.substring(0, 500) });
+    }
 
   } catch (error) {
     return res.status(500).json({ error: error.message });
