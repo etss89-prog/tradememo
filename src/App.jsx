@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v2.4";
+const VERSION = "v2.5";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -109,8 +109,8 @@ function PortfolioChart({ data, isAdmin }) {
       <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>📊 현재 포트폴리오</div>
 
       {/* 도넛 + 숏 서머리 */}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
-        <svg viewBox="0 0 100 100" style={{ width: 140, height: 140, flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 16 }}>
+        <svg viewBox="0 0 100 100" style={{ width: 170, height: 170, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
           <text x="50" y="48" textAnchor="middle" fill="#94a3b8" fontSize="6">포트폴리오</text>
           <text x="50" y="57" textAnchor="middle" fill="#e2e8f0" fontSize="6" fontWeight="700">{slices.length}종목</text>
@@ -126,22 +126,22 @@ function PortfolioChart({ data, isAdmin }) {
             const col1 = all.slice(0, half);
             const col2 = all.slice(half);
             return (
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {col1.map((s, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
                       <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, flexShrink: 0 }}>{s.pct}%</span>
+                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600 }}>{s.ticker}</span>
+                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, marginLeft: 3 }}>{s.pct}%</span>
                     </div>
                   ))}
                 </div>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {col2.map((s, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
                       <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
-                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, flexShrink: 0 }}>{s.pct}%</span>
+                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600 }}>{s.ticker}</span>
+                      <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, marginLeft: 3 }}>{s.pct}%</span>
                     </div>
                   ))}
                 </div>
