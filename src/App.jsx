@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4";
+const VERSION = "v1.5";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -365,14 +365,17 @@ export default function App() {
           )}
 
           {/* 포트폴리오 이미지 업로드 */}
-          <div style={{ background: "#111827", border: "1px dashed #334155", borderRadius: 12, padding: 14, marginBottom: 12, cursor: "pointer", textAlign: "center" }}
-            onClick={() => portfolioRef.current?.click()}>
-            <input ref={portfolioRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => e.target.files[0] && analyzePortfolio(e.target.files[0])} />
+          <input ref={portfolioRef} type="file" accept="image/*" style={{ display: "none" }}
+            onChange={e => { if (e.target.files[0]) { analyzePortfolio(e.target.files[0]); e.target.value = ""; } }} />
+          <button
+            style={{ width: "100%", background: "#111827", border: "1px dashed #334155", borderRadius: 12, padding: 14, marginBottom: 12, cursor: "pointer", textAlign: "center", color: "#e2e8f0" }}
+            onClick={() => portfolioRef.current?.click()}
+            disabled={portfolioLoading}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
               {portfolioLoading ? "⏳ 포트폴리오 분석 중…" : "📈 현재 포트폴리오 이미지 업로드"}
             </div>
             <div style={{ fontSize: 11, color: "#64748b" }}>증권앱 보유종목 화면 캡처 업로드</div>
-          </div>
+          </button>
 
           {allRecords.length > 0 && (
             <button style={{ ...S.btnDanger, width: "100%", marginBottom: 16 }} onClick={clearAll}>🗑️ 전체 기록 삭제</button>
