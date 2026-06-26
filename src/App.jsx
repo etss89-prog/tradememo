@@ -1,141 +1,83 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
-const ADMIN_PIN = "4254";
-const VERSION = "v7";
+const ADMIN_PIN = "1234";
 const STORAGE_KEY = "tradememo_results";
+const VERSION = "v8";
 
 const SYSTEM_PROMPT = `당신은 주식 매매내역 이미지 분석 전문가입니다.
 이미지에서 날짜, 종목명, 매수/매도 구분, 체결수량, 체결단가를 모두 추출하세요.
-글씨가 작거나 이미지가 길어도 모든 행을 빠짐없이 읽어내세요.
-반드시 순수 JSON만 반환하고 마크다운 코드블록 없이 출력하세요.
+순수 JSON만 반환하고 마크다운 없이 출력하세요.
 
-응답 형식:
 {
   "summary": "전체 거래 요약",
   "stocks": [
     {
       "ticker": "종목명",
       "trades": [
-        { "date": "YYYY-MM-DD", "type": "매수", "price": 13780, "quantity": 50, "total": 689000 }
+        { "date": "YYYY-MM-DD", "type": "매수 또는 매도", "price": 숫자, "quantity": 숫자, "total": 숫자 }
       ],
-      "avgBuyPrice": 13780,
-      "currentHolding": 50,
-      "totalInvested": 689000,
-      "totalSold": 0,
-      "realizedPnL": 0,
+      "avgBuyPrice": 숫자,
+      "currentHolding": 숫자,
+      "totalInvested": 숫자,
+      "totalSold": 숫자,
+      "realizedPnL": 숫자,
       "insight": "한 줄 인사이트"
     }
   ],
   "totalStats": {
-    "totalInvested": 689000,
-    "totalRealized": 0,
-    "tradeCount": 1,
-    "stockCount": 1
+    "totalInvested": 숫자,
+    "totalRealized": 숫자,
+    "tradeCount": 숫자,
+    "stockCount": 숫자
   }
 }`;
 
-let _cachedKey = null;
-async function getApiKey() {
-  if (_cachedKey) return _cachedKey;
-  const r = await fetch("/api/key");
-  const d = await r.json();
-  _cachedKey = d.key;
-  return _cachedKey;
-}
-
-async function callClaude(body) {
-  const apiKey = await getApiKey();
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`API ${res.status}`);
-  const data = await res.json();
-  const text = data.content?.map(b => b.text || "").join("") || "";
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
-}
-
-async function callVision(base64, mediaType) {
-  return callClaude({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1000,
-    system: SYSTEM_PROMPT,
-    messages: [{
-      role: "user",
-      content: [
-        { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-        { type: "text", text: "이 증권 앱 매매내역 화면에서 모든 거래를 추출해주세요." }
-      ]
-    }]
-  });
-}
-
-async function callMerge(results) {
-  return callClaude({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1000,
-    system: "여러 분석 결과를 하나로 통합하세요. 중복 제거, 같은 종목 합산, 가중평균 단가 계산. 순수 JSON만 반환.",
-    messages: [{
-      role: "user",
-      content: "다음 데이터를 통합해주세요:\n" + JSON.stringify(results)
-    }]
-  });
-}
-
-function sliceImage(base64, mediaType) {
-  return new Promise((resolve) => {
-    const img = new window.Image();
-    img.onload = () => {
-      const { naturalWidth: w, naturalHeight: h } = img;
-      // 세로/가로 비율이 2배 미만이면 분할 안함
-      if (h < w * 2) {
-        resolve([{ base64, mediaType }]);
-        return;
-      }
-      const n = Math.min(Math.ceil(h / (w * 1.5)), 6);
-      const sliceH = Math.ceil(h / n);
-      const chunks = [];
-      for (let i = 0; i < n; i++) {
-        const actualH = Math.min(sliceH, h - i * sliceH);
-        if (actualH <= 0) break;
+// 이미지를 800px로 압축해서 base64 반환
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 800;
+        const scale = img.width > MAX ? MAX / img.width : 1;
         const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = actualH;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, -(i * sliceH));
-        chunks.push({ base64: canvas.toDataURL(mediaType, 0.95).split(",")[1], mediaType });
-      }
-      resolve(chunks.length > 0 ? chunks : [{ base64, mediaType }]);
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
     };
-    img.onerror = () => resolve([{ base64, mediaType }]);
-    img.src = `data:${mediaType};base64,${base64}`;
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
 }
 
-async function analyzeImage(base64, mediaType) {
-  const chunks = await sliceImage(base64, mediaType);
-  if (chunks.length === 1) {
-    return await callVision(chunks[0].base64, chunks[0].mediaType);
+async function analyzeImage(base64) {
+  const res = await fetch("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image: base64 }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err);
   }
-  // 조각별 순차 분석
-  const results = [];
-  for (const chunk of chunks) {
-    try {
-      const r = await callVision(chunk.base64, chunk.mediaType);
-      if (r?.stocks?.length > 0) results.push(r);
-    } catch (e) {
-      console.warn("chunk failed", e);
-    }
-  }
-  if (results.length === 0) throw new Error("인식 실패");
-  if (results.length === 1) return results[0];
-  return await callMerge(results);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+async function mergeResults(results) {
+  const res = await fetch("/api/merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ results }),
+  });
+  const data = await res.json();
+  return data;
 }
 
 export default function App() {
@@ -159,29 +101,6 @@ export default function App() {
     } catch {}
   }, []);
 
-  // 이미지를 최대 1500px 너비로 압축해서 base64 반환
-  const toBase64 = (file) => new Promise((res, rej) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const MAX_WIDTH = 1500;
-        const scale = img.width > MAX_WIDTH ? MAX_WIDTH / img.width : 1;
-        const canvas = document.createElement("canvas");
-        canvas.width = Math.round(img.width * scale);
-        canvas.height = Math.round(img.height * scale);
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const compressed = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-        res(compressed);
-      };
-      img.onerror = rej;
-      img.src = e.target.result;
-    };
-    reader.onerror = rej;
-    reader.readAsDataURL(file);
-  });
-
   function checkPin() {
     if (pinInput === ADMIN_PIN) {
       setIsAdmin(true); setShowPin(false); setPinInput(""); setPinError("");
@@ -194,22 +113,24 @@ export default function App() {
     if (!isAdmin) return;
     const valid = Array.from(files).filter(f => f.type.startsWith("image/"));
     if (!valid.length) return;
-    const items = await Promise.all(valid.map(async f => ({
+
+    const items = valid.map(f => ({
       id: Date.now() + Math.random(),
-      base64: await toBase64(f),
-      mediaType: "image/jpeg",
       preview: URL.createObjectURL(f),
+      file: f,
       result: null, loading: false, error: null,
-    })));
+    }));
     setImages(prev => [...prev, ...items]);
     setMergedResult(null);
+
     for (const item of items) {
       setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: true } : i));
       try {
-        const result = await analyzeImage(item.base64, item.mediaType);
+        const base64 = await compressImage(item.file);
+        const result = await analyzeImage(base64);
         setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, result } : i));
-      } catch (e) {
-        setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, error: "인식 실패. 다시 시도해주세요." } : i));
+      } catch(e) {
+        setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, error: "인식 실패: " + e.message } : i));
       }
     }
   }, [isAdmin]);
@@ -220,7 +141,7 @@ export default function App() {
     let final = valid[0];
     if (valid.length > 1) {
       setMerging(true);
-      try { final = await callMerge(valid); } catch {}
+      try { final = await mergeResults(valid); } catch {}
       setMerging(false);
     }
     setMergedResult(final);
@@ -301,7 +222,7 @@ export default function App() {
               onChange={e => addFiles(e.target.files)} />
             <div style={{ fontSize: 36, marginBottom: 8 }}>📱</div>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>캡처 이미지 업로드</div>
-            <div style={{ fontSize: 13, color: "#64748b" }}>길쭉한 스크롤 캡처 자동 분할 · 여러 장 동시 가능</div>
+            <div style={{ fontSize: 13, color: "#64748b" }}>스크롤 캡처도 OK · 여러 장 동시 가능</div>
           </div>
 
           {images.length > 0 && (
@@ -315,7 +236,7 @@ export default function App() {
                   <div style={{ padding: "8px 10px", fontSize: 12 }}>
                     {img.loading && <span style={{ color: "#f59e0b" }}>⏳ 분석 중…</span>}
                     {img.error && <span style={{ color: "#ef4444" }}>⚠️ {img.error}</span>}
-                    {img.result && !img.loading && <span style={{ color: "#4ade80" }}>✅ {img.result.stocks?.length}개 종목 인식</span>}
+                    {img.result && !img.loading && <span style={{ color: "#4ade80" }}>✅ {img.result.stocks?.length}개 종목</span>}
                   </div>
                 </div>
               ))}
@@ -401,7 +322,7 @@ export default function App() {
           <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 20, marginTop: 12 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>공유 텍스트</div>
             <pre style={{ background: "#0a0f1e", borderRadius: 10, padding: "12px 14px", fontSize: 12, color: "#94a3b8", whiteSpace: "pre-wrap", marginBottom: 12, border: "1px solid #1e293b", fontFamily: "monospace" }}>{shareText()}</pre>
-            <button style={S.btnMain} onClick={() => navigator.clipboard.writeText(shareText()).then(() => { setShareMsg("✅ 복사됐어요!"); setTimeout(() => setShareMsg(""), 2500); })}>📋 텍스트 복사</button>
+            <button style={S.btnMain} onClick={() => { navigator.clipboard.writeText(shareText()).then(() => { setShareMsg("✅ 복사됐어요!"); setTimeout(() => setShareMsg(""), 2500); }); }}>📋 텍스트 복사</button>
             {shareMsg && <p style={{ color: "#4ade80", fontSize: 13, marginTop: 8 }}>{shareMsg}</p>}
           </div>
         </>
@@ -419,9 +340,9 @@ export default function App() {
 const S = {
   page: { minHeight: "100vh", background: "#0a0f1e", color: "#e2e8f0", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", padding: "24px 16px 60px", maxWidth: 720, margin: "0 auto" },
   header: { textAlign: "center", marginBottom: 24 },
-  logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" },
+  logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" },
   logoText: { fontSize: 24, fontWeight: 700, background: "linear-gradient(90deg,#60a5fa,#a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
-  verBadge: { background: "#0f172a", color: "#475569", border: "1px solid #1e293b", borderRadius: 6, padding: "2px 7px", fontSize: 11, fontWeight: 600 },
+  verBadge: { background: "#1e293b", color: "#64748b", border: "1px solid #334155", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 },
   loginTag: { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" },
   adminTag: { background: "#1e3a5f", color: "#60a5fa", border: "1px solid #3b82f6", borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" },
   sub: { color: "#64748b", fontSize: 14, margin: 0 },
