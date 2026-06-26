@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2";
+const VERSION = "v1.3";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -85,6 +85,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [dateError, setDateError] = useState("");
   const [shareMsg, setShareMsg] = useState("");
   const [viewerPinInput, setViewerPinInput] = useState("");
   const [viewerPinError, setViewerPinError] = useState("");
@@ -192,8 +193,8 @@ export default function App() {
     return acc;
   }, {}));
 
-  const buyStocks = mergedStocks.filter(s => s.trades.some(t => t.type === "매수"));
-  const sellStocks = mergedStocks.filter(s => s.trades.some(t => t.type === "매도"));
+  const buyStocks = mergedStocks.filter(s => s.trades.some(t => t.type === "매수")).sort((a, b) => (b.totalInvested || 0) - (a.totalInvested || 0));
+  const sellStocks = mergedStocks.filter(s => s.trades.some(t => t.type === "매도")).sort((a, b) => (b.totalSold || 0) - (a.totalSold || 0));
 
   const buyPieData = buyStocks.map(s => ({ ticker: s.ticker, value: s.totalInvested || 0, avgPrice: s.avgBuyPrice }));
   const sellPieData = sellStocks.map(s => ({ ticker: s.ticker, value: s.totalSold || 0, avgPrice: Math.round((s.trades.filter(t=>t.type==="매도").reduce((a,t)=>a+t.price*t.quantity,0))/(s.trades.filter(t=>t.type==="매도").reduce((a,t)=>a+t.quantity,0)||1)) }));
@@ -287,28 +288,64 @@ export default function App() {
           {/* 날짜 범위 필터 */}
           <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 14, marginBottom: 14 }}>
             <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>📅 조회 기간 설정</div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              {[
+                { label: "오늘", action: () => { setStartDate(maxDate); setEndDate(maxDate); setDateError(""); } },
+                { label: "1주", action: () => {
+                  const d = new Date(maxDate);
+                  d.setDate(d.getDate() - 6);
+                  setStartDate(d.toISOString().split("T")[0]);
+                  setEndDate(maxDate); setDateError("");
+                }},
+                { label: "1달", action: () => {
+                  const d = new Date(maxDate);
+                  d.setMonth(d.getMonth() - 1);
+                  setStartDate(d.toISOString().split("T")[0]);
+                  setEndDate(maxDate); setDateError("");
+                }},
+                { label: "전체", action: () => { setStartDate(""); setEndDate(""); setDateError(""); } },
+              ].map(btn => (
+                <button key={btn.label} onClick={btn.action}
+                  style={{ ...S.btnSub, padding: "5px 12px", fontSize: 12 }}>
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
                 <span style={{ fontSize: 10, color: "#475569" }}>시작일</span>
-                <input type="date" value={startDate} min={minDate} max={endDate || maxDate}
-                  onChange={e => setStartDate(e.target.value)}
+                <input type="date" value={startDate}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (endDate && val > endDate) {
+                      setDateError("시작일이 종료일보다 빠를 수 없습니다.");
+                    } else {
+                      setDateError("");
+                      setStartDate(val);
+                    }
+                  }}
                   style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
               </div>
-              <div style={{ color: "#475569", marginTop: 16 }}>~</div>
+              <div style={{ color: "#475569", paddingBottom: 8 }}>~</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
                 <span style={{ fontSize: 10, color: "#475569" }}>종료일</span>
-                <input type="date" value={endDate} min={startDate || minDate} max={maxDate}
-                  onChange={e => setEndDate(e.target.value)}
+                <input type="date" value={endDate}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (startDate && val < startDate) {
+                      setDateError("시작일이 종료일보다 빠를 수 없습니다.");
+                    } else {
+                      setDateError("");
+                      setEndDate(val);
+                    }
+                  }}
                   style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
               </div>
-              <button onClick={() => { setStartDate(""); setEndDate(""); }}
-                style={{ ...S.btnSub, marginTop: 16, padding: "6px 12px", fontSize: 12 }}>
-                전체
-              </button>
             </div>
-            {(startDate || endDate) && (
-              <div style={{ fontSize: 11, color: "#6366f1", marginTop: 8 }}>
-                📌 {startDate || minDate} ~ {endDate || maxDate} 기간 조회 중
+            {dateError && <div style={{ color: "#ef4444", fontSize: 11, marginTop: 6 }}>⚠️ {dateError}</div>}
+            {(startDate || endDate) && !dateError && (
+              <div style={{ fontSize: 11, color: "#6366f1", marginTop: 6 }}>
+                📌 {startDate || minDate} ~ {endDate || maxDate} 조회 중
               </div>
             )}
           </div>
