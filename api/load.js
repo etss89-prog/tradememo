@@ -10,7 +10,14 @@ export default async function handler(req, res) {
       headers: { Authorization: `Bearer ${token}` },
     });
     const data = await r.json();
-    const records = data.result ? JSON.parse(data.result) : [];
+    
+    let records = [];
+    if (data.result) {
+      try {
+        const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+        records = Array.isArray(parsed) ? parsed : [];
+      } catch { records = []; }
+    }
     return res.status(200).json({ records });
   } catch (error) {
     return res.status(200).json({ records: [] });
