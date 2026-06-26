@@ -13,16 +13,18 @@ export default async function handler(req, res) {
 
     if (!url || !token) return res.status(500).json({ error: 'DB not configured' });
 
-    await fetch(`${url}/set/tradememo_records`, {
+    // Upstash REST API: SET key value
+    const r = await fetch(`${url}/set/tradememo_records`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(JSON.stringify(records)),
+      body: JSON.stringify(records),
     });
 
-    return res.status(200).json({ ok: true });
+    const result = await r.json();
+    return res.status(200).json({ ok: true, result });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
