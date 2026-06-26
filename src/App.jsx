@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5";
+const VERSION = "v1.9";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -83,7 +83,7 @@ function DonutChart({ data, title, centerText }) {
   );
 }
 
-function PortfolioChart({ data }) {
+function PortfolioChart({ data, isAdmin }) {
   if (!data || data.length === 0) return null;
   const total = data.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
@@ -100,47 +100,50 @@ function PortfolioChart({ data }) {
     const x2i = cx + r * Math.cos(a2), y2i = cy + r * Math.sin(a2);
     const large = pct > 0.5 ? 1 : 0;
     const path = `M${x1o},${y1o} A${R},${R} 0 ${large},1 ${x2o},${y2o} L${x2i},${y2i} A${r},${r} 0 ${large},0 ${x1i},${y1i} Z`;
-    return { ...d, path, color: COLORS[i % COLORS.length], pct: Math.round(pct * 100) };
+    const ret = d.avgBuy ? ((d.current - d.avgBuy) / d.avgBuy * 100) : null;
+    return { ...d, path, color: COLORS[i % COLORS.length], pct: Math.round(pct * 100), ret };
   });
-  const totalStr = (total / 100000000 >= 1)
-    ? (total / 100000000).toFixed(1) + "억"
-    : (total / 10000).toFixed(0) + "만";
 
   return (
     <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 16, marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>📊 현재 포트폴리오</div>
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ flexShrink: 0 }}>
-          <svg viewBox="0 0 100 100" style={{ width: 150, height: 150 }}>
-            {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
-            <text x="50" y="47" textAnchor="middle" fill="#e2e8f0" fontSize="7" fontWeight="700">총 평가금</text>
-            <text x="50" y="57" textAnchor="middle" fill="#60a5fa" fontSize="6" fontWeight="700">{totalStr}</text>
-          </svg>
+
+      {/* 도넛 차트 */}
+      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+        <svg viewBox="0 0 100 100" style={{ width: 180, height: 180 }}>
+          {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
+          <text x="50" y="48" textAnchor="middle" fill="#94a3b8" fontSize="6">포트폴리오</text>
+          <text x="50" y="57" textAnchor="middle" fill="#e2e8f0" fontSize="6" fontWeight="700">{slices.length}종목</text>
+        </svg>
+      </div>
+
+      {/* 종목 테이블 */}
+      <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #1e293b" }}>
+        {/* 헤더 */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.8fr 0.7fr 0.7fr 1.4fr", background: "#0f172a", padding: "8px 12px", gap: 4 }}>
+          <span style={{ fontSize: 10, color: "#475569" }}>종목명</span>
+          <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>비중</span>
+          <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>수익률</span>
+          <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>평단 / 현재가</span>
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "4px 8px", marginBottom: 6, paddingBottom: 4, borderBottom: "1px solid #1e293b" }}>
-            <span style={{ fontSize: 10, color: "#475569" }}>종목</span>
-            <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>비중</span>
-            <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>수익률</span>
-            <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>보유</span>
+        {/* 행 */}
+        {slices.map((s, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: "1px solid #1e293b", background: i % 2 === 0 ? "#111827" : "#0f172a" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+              <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 12 }}>{s.ticker}</span>
+            </div>
+            <span style={{ color: s.color, fontWeight: 700, fontSize: 12, textAlign: "center" }}>{s.pct}%</span>
+            <span style={{ fontSize: 12, textAlign: "center", fontWeight: 700,
+              color: s.ret === null ? "#64748b" : s.ret >= 0 ? "#22c55e" : "#ef4444" }}>
+              {s.ret !== null ? (s.ret >= 0 ? "+" : "") + s.ret.toFixed(1) + "%" : "-"}
+            </span>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 11, color: "#64748b" }}>{s.avgBuy?.toLocaleString()}원</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: s.ret >= 0 ? "#60a5fa" : "#f87171" }}>{s.current?.toLocaleString()}원</div>
+            </div>
           </div>
-          {slices.map((s, i) => {
-            const ret = s.avgBuy ? ((s.current - s.avgBuy) / s.avgBuy * 100) : null;
-            return (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: "3px 8px", marginBottom: 6, alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                  <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 11 }}>{s.ticker}</span>
-                </div>
-                <span style={{ color: s.color, fontWeight: 700, fontSize: 12, textAlign: "right" }}>{s.pct}%</span>
-                <span style={{ fontSize: 11, textAlign: "right", color: ret === null ? "#64748b" : ret >= 0 ? "#22c55e" : "#ef4444", fontWeight: 600 }}>
-                  {ret !== null ? (ret >= 0 ? "+" : "") + ret.toFixed(1) + "%" : "-"}
-                </span>
-                <span style={{ fontSize: 11, color: "#94a3b8", textAlign: "right" }}>{s.qty?.toLocaleString()}주</span>
-              </div>
-            );
-          })}
-        </div>
+        ))}
       </div>
     </div>
   );
@@ -440,7 +443,7 @@ export default function App() {
           {/* 포트폴리오 탭 */}
           {activeTab === "portfolio" && (
             portfolio
-              ? <PortfolioChart data={portfolio.stocks?.map(s => ({ ticker: s.ticker, value: s.currentValue, avgBuy: s.avgBuyPrice, current: s.currentPrice, qty: s.quantity }))} />
+              ? <PortfolioChart isAdmin={isAdmin} data={portfolio.stocks?.map(s => ({ ticker: s.ticker, value: s.currentValue, avgBuy: s.avgBuyPrice, current: s.currentPrice, qty: s.quantity }))} />
               : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📈</div>
                   <div style={{ fontSize: 14 }}>포트폴리오 이미지를 업로드해주세요</div>
@@ -469,32 +472,30 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
                       <div style={{ flex: 2 }}>
                         <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>종목명</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 14, fontWeight: 700 }}>{stock.ticker}</span>
-                          <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 20, fontWeight: 600, background: activeTab === "buy" ? "#1a2a4a" : "#2a1a2a", color: activeTab === "buy" ? "#ef4444" : "#3b82f6" }}>
-                            {activeTab === "buy" ? `${stock.currentHolding}주` : "매도"}
-                          </span>
-                        </div>
+                        <span style={{ fontSize: 14, fontWeight: 700 }}>{stock.ticker}</span>
                       </div>
                       <div style={{ flex: 1, textAlign: "center" }}>
                         <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>비중</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: activeTab === "buy" ? "#ef4444" : "#3b82f6" }}>{pct}%</div>
                       </div>
                       <div style={{ flex: 1, textAlign: "right" }}>
-                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>평단</div>
-                        <div style={{ fontSize: 14, fontWeight: 700 }}>{avgPrice?.toLocaleString()}원</div>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      {trades.map((t, j) => (
-                        <div key={j} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
-                          <span style={{ color: "#475569", minWidth: 76 }}>{t.date}</span>
-                          <span style={{ fontWeight: 700, color: t.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{t.type}</span>
-                          <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원×{t.quantity}주</span>
-                          <span style={{ fontWeight: 600 }}>{t.total?.toLocaleString()}원</span>
+                          <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>평단</div>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>{avgPrice?.toLocaleString()}원</div>
                         </div>
-                      ))}
                     </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                        {trades.map((t, j) => (
+                          <div key={j} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
+                            <span style={{ color: "#475569", minWidth: 76 }}>{t.date}</span>
+                            <span style={{ fontWeight: 700, color: t.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{t.type}</span>
+                            {isAdmin
+                              ? <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원×{t.quantity}주</span>
+                              : <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원</span>
+                            }
+                            <span style={{ fontWeight: 600 }}>{t.total?.toLocaleString()}원</span>
+                          </div>
+                        ))}
+                      </div>
                     {stock.insight && <div style={S.insight}>{stock.insight}</div>}
                   </div>
                 );
