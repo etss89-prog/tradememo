@@ -25,7 +25,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
+        max_tokens: 4096,
         system: SYSTEM,
         messages: [{
           role: 'user',
@@ -44,7 +44,12 @@ export default async function handler(req, res) {
     // JSON 블록만 추출 (앞뒤 텍스트 제거)
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) return res.status(500).json({ error: 'JSON not found in response' });
-    const parsed = JSON.parse(jsonMatch[0]);
+    try {
+  const parsed = JSON.parse(jsonMatch[0]);
+  return res.status(200).json(parsed);
+} catch(e) {
+  return res.status(500).json({ error: e.message, raw: text.substring(0, 500) });
+}
     return res.status(200).json(parsed);
 
   } catch (error) {
