@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
-const VERSION = "v6";
+const VERSION = "v7";
 const STORAGE_KEY = "tradememo_results";
 
 const SYSTEM_PROMPT = `당신은 주식 매매내역 이미지 분석 전문가입니다.
@@ -34,47 +34,58 @@ const SYSTEM_PROMPT = `당신은 주식 매매내역 이미지 분석 전문가�
   }
 }`;
 
-async function callVision(base64, mediaType) {
-  const res = await fetch("/api/analyze", {
+let _cachedKey = null;
+async function getApiKey() {
+  if (_cachedKey) return _cachedKey;
+  const r = await fetch("/api/key");
+  const d = await r.json();
+  _cachedKey = d.key;
+  return _cachedKey;
+}
+
+async function callClaude(body) {
+  const apiKey = await getApiKey();
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      system: SYSTEM_PROMPT,
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-          { type: "text", text: "이 증권 앱 매매내역 화면에서 모든 거래를 추출해주세요." }
-        ]
-      }]
-    }),
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`API ${res.status}`);
   const data = await res.json();
   const text = data.content?.map(b => b.text || "").join("") || "";
-  const clean = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean);
+  return JSON.parse(text.replace(/```json|```/g, "").trim());
+}
+
+async function callVision(base64, mediaType) {
+  return callClaude({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1000,
+    system: SYSTEM_PROMPT,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+        { type: "text", text: "이 증권 앱 매매내역 화면에서 모든 거래를 추출해주세요." }
+      ]
+    }]
+  });
 }
 
 async function callMerge(results) {
-  const res = await fetch("/api/analyze", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      system: "여러 분석 결과를 하나로 통합하세요. 중복 제거, 같은 종목 합산, 가중평균 단가 계산. 순수 JSON만 반환.",
-      messages: [{
-        role: "user",
-        content: "다음 데이터를 통합해주세요:\n" + JSON.stringify(results)
-      }]
-    }),
+  return callClaude({
+    model: "claude-sonnet-4-6",
+    max_tokens: 1000,
+    system: "여러 분석 결과를 하나로 통합하세요. 중복 제거, 같은 종목 합산, 가중평균 단가 계산. 순수 JSON만 반환.",
+    messages: [{
+      role: "user",
+      content: "다음 데이터를 통합해주세요:\n" + JSON.stringify(results)
+    }]
   });
-  const data = await res.json();
-  const text = data.content?.map(b => b.text || "").join("") || "";
-  return JSON.parse(text.replace(/```json|```/g, "").trim());
 }
 
 function sliceImage(base64, mediaType) {
