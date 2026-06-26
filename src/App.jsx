@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.9";
+const VERSION = "v2.2";
 
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -108,13 +108,39 @@ function PortfolioChart({ data, isAdmin }) {
     <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 16, marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>📊 현재 포트폴리오</div>
 
-      {/* 도넛 차트 */}
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-        <svg viewBox="0 0 100 100" style={{ width: 180, height: 180 }}>
+      {/* 도넛 + 숏 서머리 */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
+        <svg viewBox="0 0 100 100" style={{ width: 140, height: 140, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
           <text x="50" y="48" textAnchor="middle" fill="#94a3b8" fontSize="6">포트폴리오</text>
           <text x="50" y="57" textAnchor="middle" fill="#e2e8f0" fontSize="6" fontWeight="700">{slices.length}종목</text>
         </svg>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+          {(() => {
+            const MAX = 19;
+            const shown = slices.slice(0, MAX);
+            const rest = slices.slice(MAX);
+            const restPct = rest.reduce((sum, r) => sum + r.pct, 0);
+            return (
+              <>
+                {shown.map((s, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: "#e2e8f0", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
+                    <span style={{ fontSize: 11, color: s.color, fontWeight: 700, flexShrink: 0 }}>{s.pct}%</span>
+                  </div>
+                ))}
+                {rest.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#475569", flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600, flex: 1 }}>기타 {rest.length}종목</span>
+                    <span style={{ fontSize: 11, color: "#64748b", fontWeight: 700, flexShrink: 0 }}>{restPct}%</span>
+                  </div>
+                )}
+              </>
+            );
+          })()}
+        </div>
       </div>
 
       {/* 종목 테이블 */}
@@ -133,14 +159,14 @@ function PortfolioChart({ data, isAdmin }) {
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
               <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 12 }}>{s.ticker}</span>
             </div>
-            <span style={{ color: s.color, fontWeight: 700, fontSize: 12, textAlign: "center" }}>{s.pct}%</span>
+            <span style={{ color: "#e2e8f0", fontWeight: 700, fontSize: 12, textAlign: "center" }}>{s.pct}%</span>
             <span style={{ fontSize: 12, textAlign: "center", fontWeight: 700,
-              color: s.ret === null ? "#64748b" : s.ret >= 0 ? "#22c55e" : "#ef4444" }}>
+              color: s.ret === null ? "#64748b" : s.ret >= 0 ? "#ef4444" : "#3b82f6" }}>
               {s.ret !== null ? (s.ret >= 0 ? "+" : "") + s.ret.toFixed(1) + "%" : "-"}
             </span>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 11, color: "#64748b" }}>{s.avgBuy?.toLocaleString()}원</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: s.ret >= 0 ? "#60a5fa" : "#f87171" }}>{s.current?.toLocaleString()}원</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0" }}>{s.current?.toLocaleString()}원</div>
             </div>
           </div>
         ))}
