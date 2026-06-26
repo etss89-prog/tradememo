@@ -41,8 +41,10 @@ export default async function handler(req, res) {
     if (data.error) return res.status(500).json({ error: data.error.message });
     
     const text = data.content?.map(b => b.text || '').join('') || '';
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
+    // JSON 블록만 추출 (앞뒤 텍스트 제거)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return res.status(500).json({ error: 'JSON not found in response' });
+    const parsed = JSON.parse(jsonMatch[0]);
     return res.status(200).json(parsed);
 
   } catch (error) {
