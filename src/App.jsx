@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v3.1";
+const VERSION = "v3.2";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -25,14 +25,25 @@ function compressImage(file, maxWidth = 800) {
   });
 }
 
-const COLORS = ["#06b6d4","#3b82f6","#a78bfa","#22c55e","#f59e0b","#ef4444","#ec4899","#84cc16","#f97316","#8b5cf6","#14b8a6","#f43f5e","#6366f1","#eab308","#10b981"];
+const COLORS = [
+  "#06b6d4","#0891b2","#0e7490",  // 청록 계열
+  "#3b82f6","#1d4ed8","#60a5fa",  // 파랑 계열
+  "#a78bfa","#7c3aed","#c4b5fd",  // 보라 계열
+  "#22c55e","#15803d","#86efac",  // 초록 계열
+  "#f59e0b","#b45309","#fcd34d",  // 노랑 계열
+  "#ef4444","#b91c1c","#fca5a5",  // 빨강 계열
+  "#ec4899","#be185d","#f9a8d4",  // 핑크 계열
+  "#84cc16","#4d7c0f","#bef264",  // 연두 계열
+  "#f97316","#c2410c","#fdba74",  // 주황 계열
+  "#8b5cf6","#6d28d9","#c084fc",  // 연보라 계열
+];
 
 function DonutChart({ data, title, centerText }) {
   if (!data || data.length === 0) return null;
   const total = data.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
   const R = 42, r = 24, cx = 50, cy = 50;
-  const slices = data.map((d, i) => {
+  const slices = sorted.map((d, i) => {
     const pct = d.value / total;
     const start = cumulative;
     cumulative += pct;
@@ -84,10 +95,12 @@ function DonutChart({ data, title, centerText }) {
 
 function PortfolioChart({ data, isAdmin }) {
   if (!data || data.length === 0) return null;
-  const total = data.reduce((s, d) => s + d.value, 0);
+  // 전체 합산 기준으로 비중 재계산 + 비중 내림차순 정렬
+  const sorted = [...data].sort((a, b) => b.value - a.value);
+  const total = sorted.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
   const R = 40, r = 22, cx = 50, cy = 50;
-  const slices = data.map((d, i) => {
+  const slices = sorted.map((d, i) => {
     const pct = d.value / total;
     const start = cumulative;
     cumulative += pct;
@@ -108,40 +121,36 @@ function PortfolioChart({ data, isAdmin }) {
       <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>📊 현재 포트폴리오</div>
 
       {/* 도넛 + 숏 서머리 */}
-      <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 16 }}>
-        <svg viewBox="0 0 100 100" style={{ width: 170, height: 170, flexShrink: 0 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+        <svg viewBox="0 0 100 100" style={{ width: "38%", maxWidth: 150, minWidth: 100, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
-          <text x="50" y="48" textAnchor="middle" fill="#94a3b8" fontSize="6">포트폴리오</text>
-          <text x="50" y="57" textAnchor="middle" fill="#e2e8f0" fontSize="6" fontWeight="700">{slices.length}종목</text>
+          <text x="50" y="48" textAnchor="middle" fill="#94a3b8" fontSize="7">포트폴리오</text>
+          <text x="50" y="58" textAnchor="middle" fill="#e2e8f0" fontSize="7" fontWeight="700">{slices.length}종목</text>
         </svg>
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {(() => {
             const MAX = 29;
             const shown = slices.slice(0, MAX);
             const rest = slices.slice(MAX);
             const restPct = rest.reduce((sum, r) => sum + r.pct, 0);
             const all = [...shown, ...(rest.length > 0 ? [{ ticker: `기타 ${rest.length}종목`, pct: restPct, color: "#475569", isEtc: true }] : [])];
-            const third = Math.ceil(all.length / 3);
-            const col1 = all.slice(0, third);
-            const col2 = all.slice(third, third * 2);
-            const col3 = all.slice(third * 2);
+            const half = Math.ceil(all.length / 2);
+            const col1 = all.slice(0, half);
+            const col2 = all.slice(half);
             const ColItem = ({ s }) => (
-              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 4 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600, width: 60, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
-                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, width: 24, textAlign: "right" }}>{s.pct}%</span>
+                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.ticker}</span>
+                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, flexShrink: 0, marginLeft: 2 }}>{s.pct}%</span>
               </div>
             );
             return (
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   {col1.map((s, i) => <ColItem key={i} s={s} />)}
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   {col2.map((s, i) => <ColItem key={i} s={s} />)}
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {col3.map((s, i) => <ColItem key={i} s={s} />)}
                 </div>
               </div>
             );
@@ -541,7 +550,7 @@ export default function App() {
               ? <>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <span style={{ fontSize: 12, color: "#64748b" }}>
-                      {lastUpdated ? `🕐 ${lastUpdated} 기준` : "주가 로딩 중..."}
+                      {lastUpdated ? `🕐 ${lastUpdated} 기준` : priceLoading ? "주가 조회 중..." : ""}
                     </span>
                     <button
                       onClick={() => fetchLivePrices(portfolio.stocks)}
