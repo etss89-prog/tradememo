@@ -1013,8 +1013,6 @@ export default function App() {
 
       {!isViewer && (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
-      {!isViewer && (
-        <div style={{ textAlign: "center", padding: "40px 20px" }}>
           <div style={{ fontSize: 56, marginBottom: 8 }}>{mainText.emoji}</div>
           <div style={{ fontSize: 22, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>{mainText.title}</div>
           <div style={{ fontSize: 20, color: "#f59e0b", fontWeight: 900, marginBottom: 24, lineHeight: 1.7 }}>
