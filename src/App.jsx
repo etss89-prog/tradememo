@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.9";
+const VERSION = "v5.0";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -226,6 +226,9 @@ export default function App() {
   const [shareMsg, setShareMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [showWealth, setShowWealth] = useState(false); // 관리자 자산공개 토글
+  const [mainText, setMainText] = useState({ emoji: "🐜", title: "존버일기장", subtitle: "존버는 승리한다.\n왜냐하면 승리하기 때문이다." });
+  const [editingMain, setEditingMain] = useState(false);
+  const [editDraft, setEditDraft] = useState({});
   // 동적 계좌 관리
   const [accounts, setAccounts] = useState(DEFAULT_ACCOUNTS);
   const [addAccModal, setAddAccModal] = useState(false);
@@ -247,8 +250,19 @@ export default function App() {
         // ✅ 자동 현재가 조회 제거 - 🔄 버튼 눌렀을 때만 조회
       }
       if (d.accounts && d.accounts.length > 0) setAccounts(d.accounts);
+      if (d.mainText) setMainText(d.mainText);
     }).catch(() => {});
   }, []);
+
+  async function saveMainText() {
+    setMainText(editDraft);
+    setEditingMain(false);
+    await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records: allRecords, portfolios, accounts, mainText: editDraft })
+    });
+  }
 
   async function addAccount() {
     const name = newAccName.trim();
@@ -261,7 +275,7 @@ export default function App() {
     await fetch("/api/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ records: allRecords, portfolios, accounts: newAccounts })
+      body: JSON.stringify({ records: allRecords, portfolios, accounts: newAccounts, mainText })
     });
   }
 
@@ -277,7 +291,7 @@ export default function App() {
     await fetch("/api/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts: newAccounts })
+      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts: newAccounts, mainText })
     });
   }
 
@@ -774,6 +788,17 @@ export default function App() {
                         {priceLoading ? "⏳ 조회 중…" : "🔄 현재가 갱신"}
                       </button>
                     </div>
+                    {showWealth && displayPortfolio && (
+                      <div style={{ background: "#0f1f0f", border: "1px solid #166534", borderRadius: 12, padding: "12px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 12, color: "#4ade80", fontWeight: 700 }}>🔓 총 보유금액</span>
+                        <span style={{ fontSize: 18, fontWeight: 900, color: "#22c55e" }}>
+                          {displayPortfolio.stocks?.reduce((s, st) => {
+                            const cur = livePrices[st.ticker] || st.currentPrice;
+                            return s + cur * st.quantity;
+                          }, 0).toLocaleString()}원
+                        </span>
+                      </div>
+                    )}
                     <PortfolioChart isAdmin={isAdmin} showWealth={showWealth} data={displayPortfolio.stocks?.map(s => {
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
                       return { ticker: s.ticker, value: currentPrice * s.quantity, avgBuy: s.avgBuyPrice, current: currentPrice, qty: s.quantity };
@@ -857,6 +882,19 @@ export default function App() {
                 labelPct={historySubTab === "buy" ? "매수비중" : "매도비중"}
                 labelAvg={historySubTab === "buy" ? "매수평단" : "매도평단"}
               />
+              {/* 🔓 총 금액 배지 */}
+              {showWealth && (() => {
+                const totalBuy = buyPieData.reduce((s, d) => s + d.value, 0);
+                const totalSell = sellPieData.reduce((s, d) => s + d.value, 0);
+                return (
+                  <div style={{ background: "#0f1f0f", border: "1px solid #166534", borderRadius: 12, padding: "12px 16px", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "#4ade80", fontWeight: 700 }}>🔓 총 {historySubTab === "buy" ? "매수" : "매도"}금액</span>
+                    <span style={{ fontSize: 18, fontWeight: 900, color: "#22c55e" }}>
+                      {(historySubTab === "buy" ? totalBuy : totalSell).toLocaleString()}원
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* 데이터 없을 때 */}
               {allRecords.length === 0 && (
@@ -938,11 +976,47 @@ export default function App() {
 
       {!isViewer && (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <div style={{ fontSize: 64, marginBottom: 8 }}>🐜</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>존버일기장</div>
-          <div style={{ fontSize: 20, color: "#f59e0b", fontWeight: 900, marginBottom: 24, lineHeight: 1.7 }}>
-            존버는 승리한다.<br/>왜냐하면 승리하기 때문이다.
+          {/* 편집 모달 */}
+          {editingMain && (
+            <div style={S.overlay}>
+              <div style={{ ...S.modal, width: 320, textAlign: "left" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>✏️ 메인화면 편집</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>이모지</div>
+                    <input style={{ ...S.pinInput, fontSize: 20, letterSpacing: 4, padding: "8px 12px" }}
+                      value={editDraft.emoji} onChange={e => setEditDraft(d => ({ ...d, emoji: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>제목</div>
+                    <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                      value={editDraft.title} onChange={e => setEditDraft(d => ({ ...d, title: e.target.value }))} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>부제목 (줄바꿈은 
+ 입력)</div>
+                    <textarea style={{ ...S.pinInput, fontSize: 13, letterSpacing: 0, textAlign: "left", padding: "8px 12px", height: 80, resize: "none", lineHeight: 1.6 }}
+                      value={editDraft.subtitle} onChange={e => setEditDraft(d => ({ ...d, subtitle: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  <button style={{ ...S.btnSub, flex: 1 }} onClick={() => setEditingMain(false)}>취소</button>
+                  <button style={{ ...S.btnMain, flex: 1 }} onClick={saveMainText}>저장</button>
+                </div>
+              </div>
+            </div>
+          )}
+          <div style={{ fontSize: 56, marginBottom: 8 }}>{mainText.emoji}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>{mainText.title}</div>
+          <div style={{ fontSize: 20, color: "#f59e0b", fontWeight: 900, marginBottom: isAdmin ? 8 : 24, lineHeight: 1.7 }}>
+            {mainText.subtitle.split("\n").map((line, i) => <span key={i}>{line}{i < mainText.subtitle.split("\n").length - 1 && <br/>}</span>)}
           </div>
+          {isAdmin && (
+            <button style={{ ...S.btnSub, fontSize: 11, padding: "4px 12px", marginBottom: 20 }}
+              onClick={() => { setEditDraft({ ...mainText }); setEditingMain(true); }}>
+              ✏️ 메인화면 편집
+            </button>
+          )}
           <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 24, maxWidth: 320, margin: "0 auto" }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>📋 조회 코드 입력</div>
             <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>포트폴리오 및 매매 평단 리스트</div>
