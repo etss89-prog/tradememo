@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v3.2";
+const VERSION = "v3.3";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -266,13 +266,19 @@ export default function App() {
       // 기존 포트폴리오와 합산
       let merged = data;
       if (portfolio && portfolio.stocks && portfolio.stocks.length > 0) {
-        // 두 포트폴리오 종목 합산
         const existingTickers = portfolio.stocks.map(s => s.ticker);
         const newStocks = data.stocks.filter(s => !existingTickers.includes(s.ticker));
+        const allStocks = [...portfolio.stocks, ...newStocks];
+        // totalValue를 항상 currentPrice × quantity로 재계산
+        const recalcTotal = allStocks.reduce((sum, s) => sum + (s.currentPrice * s.quantity), 0);
         merged = {
-          stocks: [...portfolio.stocks, ...newStocks],
-          totalValue: (portfolio.totalValue || 0) + (data.totalValue || 0),
+          stocks: allStocks,
+          totalValue: recalcTotal,
         };
+      } else {
+        // 단일 장도 재계산
+        const recalcTotal = data.stocks.reduce((sum, s) => sum + (s.currentPrice * s.quantity), 0);
+        merged = { ...data, totalValue: recalcTotal };
       }
 
       setPortfolio(merged);
@@ -559,14 +565,17 @@ export default function App() {
                       {priceLoading ? "⏳ 조회 중…" : "🔄 현재가 갱신"}
                     </button>
                   </div>
-                  <PortfolioChart isAdmin={isAdmin} data={portfolio.stocks?.map(s => ({
-                    ticker: s.ticker,
-                    value: (livePrices[s.ticker] || s.currentPrice) * s.quantity,
-                    avgBuy: s.avgBuyPrice,
-                    current: livePrices[s.ticker] || s.currentPrice,
-                    qty: s.quantity,
-                    isLive: !!livePrices[s.ticker],
-                  }))} />
+                  <PortfolioChart isAdmin={isAdmin} data={portfolio.stocks?.map(s => {
+                    const currentPrice = livePrices[s.ticker] || s.currentPrice;
+                    return {
+                      ticker: s.ticker,
+                      value: currentPrice * s.quantity,  // 항상 재계산
+                      avgBuy: s.avgBuyPrice,
+                      current: currentPrice,
+                      qty: s.quantity,
+                      isLive: !!livePrices[s.ticker],
+                    };
+                  })} />
                 </>
               : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📈</div>
