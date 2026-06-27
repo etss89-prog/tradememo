@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.1";
+const VERSION = "v4.2";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -33,16 +33,16 @@ const ACCOUNTS = [
 ];
 
 const COLORS = [
-  "#06b6d4","#0891b2","#0e7490",  // 청록 계열
-  "#3b82f6","#1d4ed8","#60a5fa",  // 파랑 계열
-  "#a78bfa","#7c3aed","#c4b5fd",  // 보라 계열
-  "#22c55e","#15803d","#86efac",  // 초록 계열
-  "#f59e0b","#b45309","#fcd34d",  // 노랑 계열
-  "#ef4444","#b91c1c","#fca5a5",  // 빨강 계열
-  "#ec4899","#be185d","#f9a8d4",  // 핑크 계열
-  "#84cc16","#4d7c0f","#bef264",  // 연두 계열
-  "#f97316","#c2410c","#fdba74",  // 주황 계열
-  "#8b5cf6","#6d28d9","#c084fc",  // 연보라 계열
+  "#06b6d4","#0891b2","#0e7490",
+  "#3b82f6","#1d4ed8","#60a5fa",
+  "#a78bfa","#7c3aed","#c4b5fd",
+  "#22c55e","#15803d","#86efac",
+  "#f59e0b","#b45309","#fcd34d",
+  "#ef4444","#b91c1c","#fca5a5",
+  "#ec4899","#be185d","#f9a8d4",
+  "#84cc16","#4d7c0f","#bef264",
+  "#f97316","#c2410c","#fdba74",
+  "#8b5cf6","#6d28d9","#c084fc",
 ];
 
 function DonutChart({ data, title, centerText }) {
@@ -102,7 +102,6 @@ function DonutChart({ data, title, centerText }) {
 
 function PortfolioChart({ data, isAdmin }) {
   if (!data || data.length === 0) return null;
-  // 전체 합산 기준으로 비중 재계산 + 비중 내림차순 정렬
   const sorted = [...data].sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
@@ -126,8 +125,6 @@ function PortfolioChart({ data, isAdmin }) {
   return (
     <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 16, marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>📊 현재 포트폴리오</div>
-
-      {/* 도넛 + 숏 서머리 */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
         <svg viewBox="0 0 100 100" style={{ width: "38%", maxWidth: 150, minWidth: 100, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
@@ -154,28 +151,20 @@ function PortfolioChart({ data, isAdmin }) {
             );
             return (
               <div style={{ display: "flex", gap: 6 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {col1.map((s, i) => <ColItem key={i} s={s} />)}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  {col2.map((s, i) => <ColItem key={i} s={s} />)}
-                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>{col1.map((s, i) => <ColItem key={i} s={s} />)}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>{col2.map((s, i) => <ColItem key={i} s={s} />)}</div>
               </div>
             );
           })()}
         </div>
       </div>
-
-      {/* 종목 테이블 */}
       <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #1e293b" }}>
-        {/* 헤더 */}
         <div style={{ display: "grid", gridTemplateColumns: "1.8fr 0.7fr 0.7fr 1.4fr", background: "#0f172a", padding: "8px 12px", gap: 4 }}>
           <span style={{ fontSize: 10, color: "#475569" }}>종목명</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>비중</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>수익률</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>평단 / 현재가</span>
         </div>
-        {/* 행 */}
         {slices.map((s, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: "1px solid #1e293b", background: i % 2 === 0 ? "#111827" : "#0f172a" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -208,15 +197,18 @@ export default function App() {
   const [viewerPinError, setViewerPinError] = useState("");
   const [images, setImages] = useState([]);
   const [allRecords, setAllRecords] = useState([]);
-  const [portfolios, setPortfolios] = useState({}); // { main: {...}, pension: {...}, ... }
+  const [portfolios, setPortfolios] = useState({});
   const [activeAccount, setActiveAccount] = useState("all");
-  const [portfolioLoading, setPortfolioLoading] = useState(null); // account id being loaded
+  const [portfolioLoading, setPortfolioLoading] = useState(null);
   const [livePrices, setLivePrices] = useState({});
   const [priceLoading, setPriceLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [uploadingAccount, setUploadingAccount] = useState(null);
   const [merging, setMerging] = useState(false);
+  // ✅ 수정: activeTab은 "portfolio" / "history" 만 사용
   const [activeTab, setActiveTab] = useState("portfolio");
+  // ✅ 수정: history 안에 별도 서브탭 추가
+  const [historySubTab, setHistorySubTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [dateError, setDateError] = useState("");
@@ -230,7 +222,6 @@ export default function App() {
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         setPortfolios(d.portfolios);
-        // fetch prices for all accounts combined
         const allStocks = Object.values(d.portfolios).flatMap(p => p.stocks || []);
         const unique = [...new Map(allStocks.map(s => [s.ticker, s])).values()];
         if (unique.length > 0) fetchLivePrices(unique);
@@ -276,7 +267,6 @@ export default function App() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // 기존 계좌 포트폴리오와 합산
       const existing = portfolios[accountId];
       let allStocks = [...(data.stocks || [])];
       if (existing && existing.stocks && existing.stocks.length > 0) {
@@ -291,12 +281,10 @@ export default function App() {
       const newPortfolios = { ...portfolios, [accountId]: merged };
       setPortfolios(newPortfolios);
 
-      // 전체 주가 갱신
       const allStocksAll = Object.values(newPortfolios).flatMap(p => p.stocks || []);
       const unique = [...new Map(allStocksAll.map(s => [s.ticker, s])).values()];
       fetchLivePrices(unique);
 
-      // 저장
       await fetch("/api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -355,7 +343,7 @@ export default function App() {
 
   async function clearRecords() {
     if (!window.confirm("매수/매도 기록을 삭제할까요?")) return;
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: [], portfolio }) });
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: [], portfolios }) });
     setAllRecords([]);
   }
 
@@ -411,15 +399,14 @@ export default function App() {
   const sellStocks = mergedStocks.filter(s => s.trades.some(t => t.type === "매도")).sort((a, b) => (b.totalSold || 0) - (a.totalSold || 0));
   const buyPieData = buyStocks.map(s => ({ ticker: s.ticker, value: s.totalInvested || 0, avgPrice: s.avgBuyPrice }));
   const sellPieData = sellStocks.map(s => ({ ticker: s.ticker, value: s.totalSold || 0, avgPrice: Math.round((s.trades.filter(t=>t.type==="매도").reduce((a,t)=>a+t.price*t.quantity,0))/(s.trades.filter(t=>t.type==="매도").reduce((a,t)=>a+t.quantity,0)||1)) }));
-  const displayStocks = activeTab === "buy" ? buyStocks : sellStocks;
 
-  // 현재 선택된 계좌 또는 전체합산 포트폴리오
+  // ✅ 수정: historySubTab 기준으로 표시 종목 결정
+  const displayStocks = historySubTab === "buy" ? buyStocks : sellStocks;
+
   const displayPortfolio = (() => {
     if (activeAccount === "all") {
-      // 전체합산
       const allStocks = Object.values(portfolios).flatMap(p => p.stocks || []);
       if (allStocks.length === 0) return null;
-      // 같은 종목 합산
       const merged = Object.values(allStocks.reduce((acc, s) => {
         const cur = livePrices[s.ticker] || s.currentPrice;
         if (!acc[s.ticker]) {
@@ -427,7 +414,6 @@ export default function App() {
         } else {
           acc[s.ticker].quantity += s.quantity;
           acc[s.ticker].currentValue += cur * s.quantity;
-          // 가중평균 매수단가
           acc[s.ticker].avgBuyPrice = Math.round(
             (acc[s.ticker].avgBuyPrice * (acc[s.ticker].quantity - s.quantity) + s.avgBuyPrice * s.quantity) / acc[s.ticker].quantity
           );
@@ -440,7 +426,6 @@ export default function App() {
   })();
 
   const allDone = images.length > 0 && images.every(i => !i.loading);
-  const ps = v => v > 0 ? "+" : "";
 
   function shareText() {
     const lines = ["📊 존버일기장 매매기록\n"];
@@ -515,7 +500,6 @@ export default function App() {
             </button>
           )}
 
-          {/* 계좌별 포트폴리오 업로드 */}
           <input ref={portfolioRef} type="file" accept="image/*" style={{ display: "none" }}
             onChange={e => { if (e.target.files[0] && uploadingAccount) { analyzePortfolio(e.target.files[0], uploadingAccount); e.target.value = ""; } }} />
           <div style={{ marginBottom: 12 }}>
@@ -554,7 +538,7 @@ export default function App() {
 
       {isViewer && (
         <>
-          {/* 탭 2개 */}
+          {/* 메인 탭 2개 */}
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <button onClick={() => setActiveTab("portfolio")}
               style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
@@ -574,44 +558,9 @@ export default function App() {
             </button>
           </div>
 
-          {/* 조회기간 - 매수/매도기록탭만 */}
-          {activeTab === "history" && allRecords.length > 0 && (
-            <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 14, marginBottom: 14 }}>
-              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>📅 조회 기간 설정</div>
-              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                {[
-                  { label: "오늘", action: () => { setStartDate(maxDate); setEndDate(maxDate); setDateError(""); } },
-                  { label: "1주", action: () => { const d = new Date(maxDate); d.setDate(d.getDate() - 6); setStartDate(d.toISOString().split("T")[0]); setEndDate(maxDate); setDateError(""); }},
-                  { label: "1달", action: () => { const d = new Date(maxDate); d.setMonth(d.getMonth() - 1); setStartDate(d.toISOString().split("T")[0]); setEndDate(maxDate); setDateError(""); }},
-                  { label: "전체", action: () => { setStartDate(""); setEndDate(""); setDateError(""); } },
-                ].map(btn => (
-                  <button key={btn.label} onClick={btn.action} style={{ ...S.btnSub, padding: "5px 12px", fontSize: 12 }}>{btn.label}</button>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                  <span style={{ fontSize: 10, color: "#475569" }}>시작일</span>
-                  <input type="date" value={startDate}
-                    onChange={e => { const v = e.target.value; if (endDate && v > endDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setStartDate(v); } }}
-                    style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
-                </div>
-                <div style={{ color: "#475569", paddingBottom: 8 }}>~</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                  <span style={{ fontSize: 10, color: "#475569" }}>종료일</span>
-                  <input type="date" value={endDate}
-                    onChange={e => { const v = e.target.value; if (startDate && v < startDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setEndDate(v); } }}
-                    style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
-                </div>
-              </div>
-              {dateError && <div style={{ color: "#ef4444", fontSize: 11, marginTop: 6 }}>⚠️ {dateError}</div>}
-              {(startDate || endDate) && !dateError && <div style={{ fontSize: 11, color: "#6366f1", marginTop: 6 }}>📌 {startDate || minDate} ~ {endDate || maxDate} 조회 중</div>}
-            </div>
-          )}
-
           {/* 포트폴리오 탭 */}
           {activeTab === "portfolio" && (
             <>
-              {/* 계좌 선택 탭 */}
               <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>
                 {[{ id: "all", name: "전체합산" }, ...ACCOUNTS].map(acc => (
                   <button key={acc.id} onClick={() => setActiveAccount(acc.id)}
@@ -655,22 +604,91 @@ export default function App() {
             </>
           )}
 
-          {/* 매수/매도 탭 내용 */}
-          {(activeTab === "buy" || activeTab === "sell") && (
+          {/* ✅ 수정: 매수/매도 기록 탭 */}
+          {activeTab === "history" && (
             <>
-              <DonutChart
-                data={activeTab === "buy" ? buyPieData : sellPieData}
-                title={activeTab === "buy" ? "📊 매수 비중 (투자금 기준)" : "📊 매도 비중 (매도금 기준)"}
-              />
-              {displayStocks.length === 0 && (
-                <div style={{ textAlign: "center", padding: "30px", color: "#64748b", fontSize: 14 }}>선택한 기간에 {activeTab === "buy" ? "매수" : "매도"} 기록이 없어요</div>
+              {/* 조회 기간 */}
+              {allRecords.length > 0 && (
+                <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>📅 조회 기간 설정</div>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                    {[
+                      { label: "오늘", action: () => { setStartDate(maxDate); setEndDate(maxDate); setDateError(""); } },
+                      { label: "1주", action: () => { const d = new Date(maxDate); d.setDate(d.getDate() - 6); setStartDate(d.toISOString().split("T")[0]); setEndDate(maxDate); setDateError(""); }},
+                      { label: "1달", action: () => { const d = new Date(maxDate); d.setMonth(d.getMonth() - 1); setStartDate(d.toISOString().split("T")[0]); setEndDate(maxDate); setDateError(""); }},
+                      { label: "전체", action: () => { setStartDate(""); setEndDate(""); setDateError(""); } },
+                    ].map(btn => (
+                      <button key={btn.label} onClick={btn.action} style={{ ...S.btnSub, padding: "5px 12px", fontSize: 12 }}>{btn.label}</button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                      <span style={{ fontSize: 10, color: "#475569" }}>시작일</span>
+                      <input type="date" value={startDate}
+                        onChange={e => { const v = e.target.value; if (endDate && v > endDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setStartDate(v); } }}
+                        style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
+                    </div>
+                    <div style={{ color: "#475569", paddingBottom: 8 }}>~</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+                      <span style={{ fontSize: 10, color: "#475569" }}>종료일</span>
+                      <input type="date" value={endDate}
+                        onChange={e => { const v = e.target.value; if (startDate && v < startDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setEndDate(v); } }}
+                        style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", padding: "6px 10px", fontSize: 13, outline: "none" }} />
+                    </div>
+                  </div>
+                  {dateError && <div style={{ color: "#ef4444", fontSize: 11, marginTop: 6 }}>⚠️ {dateError}</div>}
+                  {(startDate || endDate) && !dateError && <div style={{ fontSize: 11, color: "#6366f1", marginTop: 6 }}>📌 {startDate || minDate} ~ {endDate || maxDate} 조회 중</div>}
+                </div>
               )}
+
+              {/* ✅ 수정: 매수/매도 서브탭 */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <button onClick={() => setHistorySubTab("buy")}
+                  style={{ flex: 1, padding: "8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
+                    background: historySubTab === "buy" ? "#2d1515" : "#111827",
+                    borderColor: historySubTab === "buy" ? "#ef4444" : "#1e293b",
+                    color: historySubTab === "buy" ? "#ef4444" : "#64748b",
+                  }}>
+                  🔴 매수 기록
+                </button>
+                <button onClick={() => setHistorySubTab("sell")}
+                  style={{ flex: 1, padding: "8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
+                    background: historySubTab === "sell" ? "#151d2d" : "#111827",
+                    borderColor: historySubTab === "sell" ? "#3b82f6" : "#1e293b",
+                    color: historySubTab === "sell" ? "#3b82f6" : "#64748b",
+                  }}>
+                  🔵 매도 기록
+                </button>
+              </div>
+
+              {/* 파이 차트 */}
+              <DonutChart
+                data={historySubTab === "buy" ? buyPieData : sellPieData}
+                title={historySubTab === "buy" ? "📊 매수 비중 (투자금 기준)" : "📊 매도 비중 (매도금 기준)"}
+              />
+
+              {/* 데이터 없을 때 */}
+              {allRecords.length === 0 && (
+                <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+                  <div style={{ fontSize: 14 }}>아직 저장된 매매기록이 없어요</div>
+                  <div style={{ fontSize: 12, marginTop: 6 }}>관리자 로그인 후 이미지를 업로드해주세요</div>
+                </div>
+              )}
+
+              {allRecords.length > 0 && displayStocks.length === 0 && (
+                <div style={{ textAlign: "center", padding: "30px", color: "#64748b", fontSize: 14 }}>
+                  선택한 기간에 {historySubTab === "buy" ? "매수" : "매도"} 기록이 없어요
+                </div>
+              )}
+
+              {/* 종목 카드 */}
               {displayStocks.map((stock, i) => {
-                const trades = stock.trades.filter(t => t.type === (activeTab === "buy" ? "매수" : "매도"));
-                const totalVal = activeTab === "buy" ? buyPieData.reduce((s, d) => s + d.value, 0) : sellPieData.reduce((s, d) => s + d.value, 0);
-                const myVal = activeTab === "buy" ? (buyPieData.find(s => s.ticker === stock.ticker)?.value || 0) : (sellPieData.find(s => s.ticker === stock.ticker)?.value || 0);
+                const trades = stock.trades.filter(t => t.type === (historySubTab === "buy" ? "매수" : "매도"));
+                const totalVal = historySubTab === "buy" ? buyPieData.reduce((s, d) => s + d.value, 0) : sellPieData.reduce((s, d) => s + d.value, 0);
+                const myVal = historySubTab === "buy" ? (buyPieData.find(s => s.ticker === stock.ticker)?.value || 0) : (sellPieData.find(s => s.ticker === stock.ticker)?.value || 0);
                 const pct = totalVal ? Math.round(myVal / totalVal * 1000) / 10 : 0;
-                const avgPrice = activeTab === "buy" ? stock.avgBuyPrice : sellPieData.find(s => s.ticker === stock.ticker)?.avgPrice;
+                const avgPrice = historySubTab === "buy" ? stock.avgBuyPrice : sellPieData.find(s => s.ticker === stock.ticker)?.avgPrice;
                 return (
                   <div key={i} style={S.stockCard}>
                     <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
@@ -680,32 +698,32 @@ export default function App() {
                       </div>
                       <div style={{ flex: 1, textAlign: "center" }}>
                         <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>비중</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: activeTab === "buy" ? "#ef4444" : "#3b82f6" }}>{Number(pct).toFixed(1)}%</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: historySubTab === "buy" ? "#ef4444" : "#3b82f6" }}>{Number(pct).toFixed(1)}%</div>
                       </div>
                       <div style={{ flex: 1, textAlign: "right" }}>
-                          <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>평단</div>
-                          <div style={{ fontSize: 14, fontWeight: 700 }}>{avgPrice?.toLocaleString()}원</div>
-                        </div>
+                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>평단</div>
+                        <div style={{ fontSize: 14, fontWeight: 700 }}>{avgPrice?.toLocaleString()}원</div>
+                      </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-                        {trades.map((t, j) => (
-                          <div key={j} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
-                            <span style={{ color: "#475569", minWidth: 76 }}>{t.date}</span>
-                            <span style={{ fontWeight: 700, color: t.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{t.type}</span>
-                            {isAdmin
-                              ? <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원×{t.quantity}주</span>
-                              : <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원</span>
-                            }
-                            <span style={{ fontWeight: 600 }}>{t.total?.toLocaleString()}원</span>
-                          </div>
-                        ))}
-                      </div>
+                      {trades.map((t, j) => (
+                        <div key={j} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
+                          <span style={{ color: "#475569", minWidth: 76 }}>{t.date}</span>
+                          <span style={{ fontWeight: 700, color: t.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{t.type}</span>
+                          {isAdmin
+                            ? <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원×{t.quantity}주</span>
+                            : <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원</span>
+                          }
+                          <span style={{ fontWeight: 600 }}>{t.total?.toLocaleString()}원</span>
+                        </div>
+                      ))}
+                    </div>
                     {stock.insight && <div style={S.insight}>{stock.insight}</div>}
                   </div>
                 );
               })}
 
-              {allRecords.length > 0 && activeTab === "buy" && (
+              {allRecords.length > 0 && historySubTab === "buy" && (
                 <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 14, padding: 16, marginTop: 12 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>공유 텍스트</div>
                   <pre style={{ background: "#0a0f1e", borderRadius: 8, padding: "10px 12px", fontSize: 11, color: "#94a3b8", whiteSpace: "pre-wrap", marginBottom: 10, border: "1px solid #1e293b", fontFamily: "monospace" }}>{shareText()}</pre>
