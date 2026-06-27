@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v3.6";
+const VERSION = "v4.0";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -24,6 +24,13 @@ function compressImage(file, maxWidth = 800) {
     reader.readAsDataURL(file);
   });
 }
+
+const ACCOUNTS = [
+  { id: "main", name: "삼성증권 본계좌" },
+  { id: "pension", name: "삼성증권 연금저축" },
+  { id: "irp", name: "삼성증권 퇴직연금IRP" },
+  { id: "dc", name: "삼성증권 퇴직연금DC" },
+];
 
 const COLORS = [
   "#06b6d4","#0891b2","#0e7490",  // 청록 계열
@@ -201,11 +208,13 @@ export default function App() {
   const [viewerPinError, setViewerPinError] = useState("");
   const [images, setImages] = useState([]);
   const [allRecords, setAllRecords] = useState([]);
-  const [portfolio, setPortfolio] = useState(null);
-  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolios, setPortfolios] = useState({}); // { main: {...}, pension: {...}, ... }
+  const [activeAccount, setActiveAccount] = useState("all");
+  const [portfolioLoading, setPortfolioLoading] = useState(null); // account id being loaded
   const [livePrices, setLivePrices] = useState({});
   const [priceLoading, setPriceLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [uploadingAccount, setUploadingAccount] = useState(null);
   const [merging, setMerging] = useState(false);
   const [activeTab, setActiveTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
@@ -219,9 +228,12 @@ export default function App() {
   useEffect(() => {
     fetch("/api/load").then(r => r.json()).then(d => {
       if (d.records) setAllRecords(d.records);
-      if (d.portfolio) {
-        setPortfolio(d.portfolio);
-        fetchLivePrices(d.portfolio.stocks);
+      if (d.portfolios) {
+        setPortfolios(d.portfolios);
+        // fetch prices for all accounts combined
+        const allStocks = Object.values(d.portfolios).flatMap(p => p.stocks || []);
+        const unique = [...new Map(allStocks.map(s => [s.ticker, s])).values()];
+        if (unique.length > 0) fetchLivePrices(unique);
       }
     }).catch(() => {});
   }, []);
@@ -256,47 +268,47 @@ export default function App() {
     }
   }, [isAdmin]);
 
-  async function analyzePortfolio(file) {
-    setPortfolioLoading(true);
+  async function analyzePortfolio(file, accountId) {
+    setPortfolioLoading(accountId);
     try {
       const base64 = await compressImage(file, 800);
       const res = await fetch("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64 }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // 기존 포트폴리오와 합산 - currentPrice × quantity 로 항상 재계산
+      // 기존 계좌 포트폴리오와 합산
+      const existing = portfolios[accountId];
       let allStocks = [...(data.stocks || [])];
-      if (portfolio && portfolio.stocks && portfolio.stocks.length > 0) {
+      if (existing && existing.stocks && existing.stocks.length > 0) {
         const newTickers = new Set(data.stocks.map(s => s.ticker));
-        const existingOnly = portfolio.stocks.filter(s => !newTickers.has(s.ticker));
+        const existingOnly = existing.stocks.filter(s => !newTickers.has(s.ticker));
         allStocks = [...existingOnly, ...data.stocks];
       }
-      // currentValue 및 totalValue 재계산
-      allStocks = allStocks.map(s => ({
-        ...s,
-        currentValue: s.currentPrice * s.quantity,
-      }));
+      allStocks = allStocks.map(s => ({ ...s, currentValue: s.currentPrice * s.quantity }));
       const totalValue = allStocks.reduce((sum, s) => sum + s.currentValue, 0);
       const merged = { stocks: allStocks, totalValue };
 
-      setPortfolio(merged);
-      fetchLivePrices(merged.stocks);
+      const newPortfolios = { ...portfolios, [accountId]: merged };
+      setPortfolios(newPortfolios);
 
-      // 자동 저장
+      // 전체 주가 갱신
+      const allStocksAll = Object.values(newPortfolios).flatMap(p => p.stocks || []);
+      const unique = [...new Map(allStocksAll.map(s => [s.ticker, s])).values()];
+      fetchLivePrices(unique);
+
+      // 저장
       await fetch("/api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records: allRecords, portfolio: merged })
+        body: JSON.stringify({ records: allRecords, portfolios: newPortfolios })
       });
 
-      const msg = portfolio && portfolio.stocks
-        ? `✅ 추가 완료! 총 ${merged.stocks.length}종목`
-        : `✅ 포트폴리오 저장 완료! ${merged.stocks.length}종목`;
-      alert(msg);
+      const isAdding = existing && existing.stocks;
+      alert(isAdding ? `✅ 추가 완료! 총 ${merged.stocks.length}종목` : `✅ 저장 완료! ${merged.stocks.length}종목`);
     } catch(e) {
       alert("오류: " + e.message);
     }
-    setPortfolioLoading(false);
+    setPortfolioLoading(null);
   }
 
   async function fetchLivePrices(stocks) {
@@ -333,7 +345,7 @@ export default function App() {
       const today = new Date().toISOString().split("T")[0];
       const newRecord = { date: today, result: merged };
       const updated = [...allRecords.filter(r => r.date !== today), newRecord];
-      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: updated, portfolio }) });
+      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: updated, portfolios }) });
       setAllRecords(updated);
       setImages([]);
       alert("✅ 저장 완료!");
@@ -347,16 +359,20 @@ export default function App() {
     setAllRecords([]);
   }
 
-  async function clearPortfolio() {
-    if (!window.confirm("현재 포트폴리오를 삭제할까요?")) return;
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolio: null }) });
-    setPortfolio(null); setLivePrices({});
+  async function clearPortfolio(accountId) {
+    const accountName = ACCOUNTS.find(a => a.id === accountId)?.name || "포트폴리오";
+    if (!window.confirm(`${accountName}를 삭제할까요?`)) return;
+    const newPortfolios = { ...portfolios };
+    delete newPortfolios[accountId];
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios }) });
+    setPortfolios(newPortfolios);
+    if (Object.keys(newPortfolios).length === 0) setLivePrices({});
   }
 
   async function clearAll() {
     if (!window.confirm("매수/매도 기록과 포트폴리오를 모두 삭제할까요?")) return;
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: [], portfolio: null }) });
-    setAllRecords([]); setPortfolio(null); setLivePrices({});
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: [], portfolios: {} }) });
+    setAllRecords([]); setPortfolios({}); setLivePrices({});
   }
 
   // Date filtering
@@ -396,6 +412,32 @@ export default function App() {
   const buyPieData = buyStocks.map(s => ({ ticker: s.ticker, value: s.totalInvested || 0, avgPrice: s.avgBuyPrice }));
   const sellPieData = sellStocks.map(s => ({ ticker: s.ticker, value: s.totalSold || 0, avgPrice: Math.round((s.trades.filter(t=>t.type==="매도").reduce((a,t)=>a+t.price*t.quantity,0))/(s.trades.filter(t=>t.type==="매도").reduce((a,t)=>a+t.quantity,0)||1)) }));
   const displayStocks = activeTab === "buy" ? buyStocks : sellStocks;
+
+  // 현재 선택된 계좌 또는 전체합산 포트폴리오
+  const displayPortfolio = (() => {
+    if (activeAccount === "all") {
+      // 전체합산
+      const allStocks = Object.values(portfolios).flatMap(p => p.stocks || []);
+      if (allStocks.length === 0) return null;
+      // 같은 종목 합산
+      const merged = Object.values(allStocks.reduce((acc, s) => {
+        const cur = livePrices[s.ticker] || s.currentPrice;
+        if (!acc[s.ticker]) {
+          acc[s.ticker] = { ...s, quantity: s.quantity, currentValue: cur * s.quantity };
+        } else {
+          acc[s.ticker].quantity += s.quantity;
+          acc[s.ticker].currentValue += cur * s.quantity;
+          // 가중평균 매수단가
+          acc[s.ticker].avgBuyPrice = Math.round(
+            (acc[s.ticker].avgBuyPrice * (acc[s.ticker].quantity - s.quantity) + s.avgBuyPrice * s.quantity) / acc[s.ticker].quantity
+          );
+        }
+        return acc;
+      }, {}));
+      return { stocks: merged, totalValue: merged.reduce((s, d) => s + d.currentValue, 0) };
+    }
+    return portfolios[activeAccount] || null;
+  })();
 
   const allDone = images.length > 0 && images.every(i => !i.loading);
   const ps = v => v > 0 ? "+" : "";
@@ -473,23 +515,39 @@ export default function App() {
             </button>
           )}
 
-          {/* 포트폴리오 이미지 업로드 */}
+          {/* 계좌별 포트폴리오 업로드 */}
           <input ref={portfolioRef} type="file" accept="image/*" style={{ display: "none" }}
-            onChange={e => { if (e.target.files[0]) { analyzePortfolio(e.target.files[0]); e.target.value = ""; } }} />
-          <button
-            style={{ width: "100%", background: "#111827", border: "1px dashed #334155", borderRadius: 12, padding: 14, marginBottom: 12, cursor: "pointer", textAlign: "center", color: "#e2e8f0" }}
-            onClick={() => portfolioRef.current?.click()}
-            disabled={portfolioLoading}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-              {portfolioLoading ? "⏳ 포트폴리오 분석 중…" : "📈 현재 포트폴리오 이미지 업로드"}
+            onChange={e => { if (e.target.files[0] && uploadingAccount) { analyzePortfolio(e.target.files[0], uploadingAccount); e.target.value = ""; } }} />
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>📈 계좌별 포트폴리오 업로드</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {ACCOUNTS.map(acc => (
+                <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "10px 14px" }}>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{acc.name}</span>
+                    {portfolios[acc.id] && <span style={{ fontSize: 11, color: "#4ade80", marginLeft: 8 }}>✅ {portfolios[acc.id].stocks?.length}종목</span>}
+                  </div>
+                  <button
+                    style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", padding: "5px 12px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
+                    disabled={portfolioLoading === acc.id}
+                    onClick={() => { setUploadingAccount(acc.id); setTimeout(() => portfolioRef.current?.click(), 50); }}>
+                    {portfolioLoading === acc.id ? "⏳" : "📤 업로드"}
+                  </button>
+                  {portfolios[acc.id] && (
+                    <button
+                      style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 8, color: "#ef4444", padding: "5px 10px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
+                      onClick={() => clearPortfolio(acc.id)}>
+                      🗑️
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
-            <div style={{ fontSize: 11, color: "#64748b" }}>증권앱 보유종목 화면 캡처 업로드</div>
-          </button>
+          </div>
 
           <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearRecords}>🗑️ 매매기록 삭제</button>
-            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearPortfolio}>🗑️ 포트폴리오 삭제</button>
-            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearAll}>🗑️ 전체 삭제</button>
+            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearRecords}>🗑️ 매매기록</button>
+            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearAll}>🗑️ 전체삭제</button>
           </div>
         </>
       )}
@@ -550,36 +608,49 @@ export default function App() {
 
           {/* 포트폴리오 탭 */}
           {activeTab === "portfolio" && (
-            portfolio
-              ? <>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: "#64748b" }}>
-                      {lastUpdated ? `🕐 ${lastUpdated} 기준` : priceLoading ? "주가 조회 중..." : ""}
-                    </span>
-                    <button
-                      onClick={() => fetchLivePrices(portfolio.stocks)}
-                      disabled={priceLoading}
-                      style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: "pointer" }}>
-                      {priceLoading ? "⏳ 조회 중…" : "🔄 현재가 갱신"}
-                    </button>
+            <>
+              {/* 계좌 선택 탭 */}
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>
+                {[{ id: "all", name: "전체합산" }, ...ACCOUNTS].map(acc => (
+                  <button key={acc.id} onClick={() => setActiveAccount(acc.id)}
+                    style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, borderRadius: 8, cursor: "pointer", border: "1px solid", whiteSpace: "nowrap", flexShrink: 0,
+                      background: activeAccount === acc.id ? "#1e3a5f" : "#111827",
+                      borderColor: activeAccount === acc.id ? "#3b82f6" : "#1e293b",
+                      color: activeAccount === acc.id ? "#60a5fa" : "#64748b",
+                    }}>
+                    {acc.name}
+                    {acc.id !== "all" && portfolios[acc.id] && <span style={{ color: "#4ade80", marginLeft: 4 }}>●</span>}
+                  </button>
+                ))}
+              </div>
+
+              {displayPortfolio
+                ? <>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>
+                        {lastUpdated ? `🕐 ${lastUpdated} 기준` : priceLoading ? "주가 조회 중..." : ""}
+                      </span>
+                      <button
+                        onClick={() => { const all = Object.values(portfolios).flatMap(p => p.stocks||[]); const unique = [...new Map(all.map(s=>[s.ticker,s])).values()]; fetchLivePrices(unique); }}
+                        disabled={priceLoading}
+                        style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: "pointer" }}>
+                        {priceLoading ? "⏳ 조회 중…" : "🔄 현재가 갱신"}
+                      </button>
+                    </div>
+                    <PortfolioChart isAdmin={isAdmin} data={displayPortfolio.stocks?.map(s => {
+                      const currentPrice = livePrices[s.ticker] || s.currentPrice;
+                      return { ticker: s.ticker, value: currentPrice * s.quantity, avgBuy: s.avgBuyPrice, current: currentPrice, qty: s.quantity };
+                    })} />
+                  </>
+                : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>📈</div>
+                    <div style={{ fontSize: 14 }}>
+                      {activeAccount === "all" ? "업로드된 계좌가 없어요" : `${ACCOUNTS.find(a=>a.id===activeAccount)?.name} 포트폴리오가 없어요`}
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 6 }}>관리자 로그인 후 업로드 가능</div>
                   </div>
-                  <PortfolioChart isAdmin={isAdmin} data={portfolio.stocks?.map(s => {
-                    const currentPrice = livePrices[s.ticker] || s.currentPrice;
-                    return {
-                      ticker: s.ticker,
-                      value: currentPrice * s.quantity,  // 항상 재계산
-                      avgBuy: s.avgBuyPrice,
-                      current: currentPrice,
-                      qty: s.quantity,
-                      isLive: !!livePrices[s.ticker],
-                    };
-                  })} />
-                </>
-              : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
-                  <div style={{ fontSize: 40, marginBottom: 12 }}>📈</div>
-                  <div style={{ fontSize: 14 }}>포트폴리오 이미지를 업로드해주세요</div>
-                  <div style={{ fontSize: 12, marginTop: 6 }}>관리자 로그인 후 업로드 가능</div>
-                </div>
+              }
+            </>
           )}
 
           {/* 매수/매도 탭 내용 */}
