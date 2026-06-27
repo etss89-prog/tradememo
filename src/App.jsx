@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.3";
+const VERSION = "v4.4";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -45,7 +45,7 @@ const COLORS = [
   "#8b5cf6","#6d28d9","#c084fc",
 ];
 
-function DonutChart({ data, title, centerText }) {
+function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) {
   if (!data || data.length === 0) return null;
   const total = data.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
@@ -66,10 +66,10 @@ function DonutChart({ data, title, centerText }) {
   });
 
   return (
-    <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-      {title && <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>{title}</div>}
-      <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-        <svg viewBox="0 0 100 100" style={{ width: 130, height: 130, flexShrink: 0 }}>
+    <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 12, marginBottom: 12 }}>
+      {title && <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 10 }}>{title}</div>}
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <svg viewBox="0 0 100 100" style={{ width: 80, height: 80, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
           {centerText && (
             <>
@@ -78,20 +78,20 @@ function DonutChart({ data, title, centerText }) {
             </>
           )}
         </svg>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", gap: 4, marginBottom: 6, paddingBottom: 4, borderBottom: "1px solid #1e293b" }}>
-            <span style={{ flex: 2, fontSize: 10, color: "#475569" }}>종목명</span>
-            <span style={{ flex: 1, fontSize: 10, color: "#475569", textAlign: "center" }}>비중</span>
-            <span style={{ flex: 1, fontSize: 10, color: "#475569", textAlign: "right" }}>평단</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 4, marginBottom: 5, paddingBottom: 4, borderBottom: "1px solid #1e293b" }}>
+            <span style={{ flex: 2, fontSize: 10, color: "#475569" }}>{labelName || "종목명"}</span>
+            <span style={{ flex: 1, fontSize: 10, color: "#475569", textAlign: "center" }}>{labelPct || "비중"}</span>
+            <span style={{ flex: 1, fontSize: 10, color: "#475569", textAlign: "right" }}>{labelAvg || "평단"}</span>
           </div>
           {slices.map((s, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, marginBottom: 5 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 2 }}>
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 11 }}>{s.ticker}</span>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 3, flex: 2, minWidth: 0 }}>
+                <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
+                <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.ticker}</span>
               </div>
-              <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
-              <span style={{ flex: 1, color: "#94a3b8", textAlign: "right", fontSize: 11 }}>{s.avgPrice?.toLocaleString()}원</span>
+              <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center", fontSize: 11, whiteSpace: "nowrap" }}>{Number(s.pct).toFixed(1)}%</span>
+              <span style={{ flex: 1, color: "#94a3b8", textAlign: "right", fontSize: 11, whiteSpace: "nowrap" }}>{s.avgPrice?.toLocaleString()}원</span>
             </div>
           ))}
         </div>
@@ -661,6 +661,9 @@ export default function App() {
               <DonutChart
                 data={historySubTab === "buy" ? buyPieData : sellPieData}
                 title={historySubTab === "buy" ? "📊 매수 비중 (투자금 기준)" : "📊 매도 비중 (매도금 기준)"}
+                labelName="종목명"
+                labelPct={historySubTab === "buy" ? "매수비중" : "매도비중"}
+                labelAvg={historySubTab === "buy" ? "매수평단" : "매도평단"}
               />
 
               {/* 데이터 없을 때 */}
@@ -693,26 +696,34 @@ export default function App() {
                         <span style={{ fontSize: 14, fontWeight: 700 }}>{stock.ticker}</span>
                       </div>
                       <div style={{ flex: 1, textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>비중</div>
+                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>{historySubTab === "buy" ? "매수비중" : "매도비중"}</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: historySubTab === "buy" ? "#ef4444" : "#3b82f6" }}>{Number(pct).toFixed(1)}%</div>
                       </div>
                       <div style={{ flex: 1, textAlign: "right" }}>
-                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>평단</div>
+                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>{historySubTab === "buy" ? "매수평단" : "매도평단"}</div>
                         <div style={{ fontSize: 14, fontWeight: 700 }}>{avgPrice?.toLocaleString()}원</div>
                       </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-                      {trades.map((t, j) => (
-                        <div key={j} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
-                          <span style={{ color: "#475569", minWidth: 76 }}>{t.date}</span>
-                          <span style={{ fontWeight: 700, color: t.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{t.type}</span>
-                          {isAdmin
-                            ? <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원×{t.quantity}주</span>
-                            : <span style={{ color: "#94a3b8", flex: 1 }}>{t.price?.toLocaleString()}원</span>
-                          }
-                          <span style={{ fontWeight: 600 }}>{t.total?.toLocaleString()}원</span>
-                        </div>
-                      ))}
+                      {(() => {
+                        // 날짜별 합산: 같은 날 거래는 가중평균 단가로 묶기
+                        const byDate = trades.reduce((acc, t) => {
+                          if (!acc[t.date]) acc[t.date] = { date: t.date, type: t.type, totalAmt: 0, totalQty: 0 };
+                          acc[t.date].totalAmt += t.price * t.quantity;
+                          acc[t.date].totalQty += t.quantity;
+                          return acc;
+                        }, {});
+                        return Object.values(byDate).map((g, j) => {
+                          const avgP = Math.round(g.totalAmt / g.totalQty);
+                          return (
+                            <div key={j} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
+                              <span style={{ color: "#475569", minWidth: 76 }}>{g.date}</span>
+                              <span style={{ fontWeight: 700, color: g.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{g.type}</span>
+                              <span style={{ color: "#94a3b8", flex: 1 }}>평단 {avgP?.toLocaleString()}원</span>
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                     {stock.insight && <div style={S.insight}>{stock.insight}</div>}
                   </div>
