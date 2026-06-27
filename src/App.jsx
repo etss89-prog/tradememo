@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.4";
+const VERSION = "v4.6";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -30,6 +30,8 @@ const ACCOUNTS = [
   { id: "pension", name: "삼성증권 연금저축" },
   { id: "irp", name: "삼성증권 퇴직연금IRP" },
   { id: "dc", name: "삼성증권 퇴직연금DC" },
+  { id: "hana", name: "하나증권" },
+  { id: "ksfc", name: "한국증권금융" },
 ];
 
 const COLORS = [
@@ -214,6 +216,12 @@ export default function App() {
   const [dateError, setDateError] = useState("");
   const [shareMsg, setShareMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  // 수기입력 모달
+  const [manualModal, setManualModal] = useState(null); // { accountId }
+  const [manualTicker, setManualTicker] = useState("");
+  const [manualQty, setManualQty] = useState("");
+  const [manualAvg, setManualAvg] = useState("");
+  const [manualPrice, setManualPrice] = useState("");
   const fileRef = useRef(null);
   const portfolioRef = useRef(null);
 
@@ -226,6 +234,38 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
+
+  async function saveManualStock() {
+    const ticker = manualTicker.trim();
+    const qty = parseInt(manualQty);
+    const avg = parseInt(manualAvg.replace(/,/g, ""));
+    const price = parseInt(manualPrice.replace(/,/g, "")) || avg;
+    if (!ticker || !qty || !avg) return alert("종목명, 수량, 평단가를 모두 입력해주세요.");
+    const accountId = manualModal.accountId;
+    const newStock = {
+      ticker,
+      quantity: qty,
+      avgBuyPrice: avg,
+      currentPrice: price,
+      currentValue: price * qty,
+    };
+    const existing = portfolios[accountId];
+    let stocks = existing ? [...(existing.stocks || [])] : [];
+    const idx = stocks.findIndex(s => s.ticker === ticker);
+    if (idx >= 0) stocks[idx] = newStock; // 같은 종목이면 덮어쓰기
+    else stocks.push(newStock);
+    const totalValue = stocks.reduce((s, st) => s + st.currentValue, 0);
+    const newPortfolios = { ...portfolios, [accountId]: { stocks, totalValue } };
+    setPortfolios(newPortfolios);
+    await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios })
+    });
+    setManualTicker(""); setManualQty(""); setManualAvg(""); setManualPrice("");
+    setManualModal(null);
+    alert(`✅ ${ticker} 저장 완료!`);
+  }
 
   function checkViewerPin() {
     if (viewerPinInput === VIEWER_PIN) { setIsViewer(true); setViewerPinInput(""); setViewerPinError(""); }
@@ -449,6 +489,59 @@ export default function App() {
         </div>
       )}
 
+      {manualModal && (
+        <div style={S.overlay}>
+          <div style={{ ...S.modal, width: 300 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 수기 종목 입력</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 16 }}>
+              {ACCOUNTS.find(a => a.id === manualModal.accountId)?.name}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>종목명</div>
+                <input
+                  style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  placeholder="예: SK하이닉스"
+                  value={manualTicker}
+                  onChange={e => setManualTicker(e.target.value)}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>보유 수량 (주)</div>
+                <input
+                  style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  type="number" placeholder="예: 10"
+                  value={manualQty}
+                  onChange={e => setManualQty(e.target.value)}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>매수 평단가 (원)</div>
+                <input
+                  style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  type="number" placeholder="예: 185000"
+                  value={manualAvg}
+                  onChange={e => setManualAvg(e.target.value)}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>현재가 (원, 선택)</div>
+                <input
+                  style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  type="number" placeholder="비워두면 평단가로 설정"
+                  value={manualPrice}
+                  onChange={e => setManualPrice(e.target.value)}
+                />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setManualModal(null); setManualTicker(""); setManualQty(""); setManualAvg(""); setManualPrice(""); }}>취소</button>
+              <button style={{ ...S.btnMain, flex: 1 }} onClick={saveManualStock}>저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 24 }}>🐜</span>
@@ -512,6 +605,11 @@ export default function App() {
                     disabled={portfolioLoading === acc.id}
                     onClick={() => { setUploadingAccount(acc.id); setTimeout(() => portfolioRef.current?.click(), 50); }}>
                     {portfolioLoading === acc.id ? "⏳" : "📤 업로드"}
+                  </button>
+                  <button
+                    style={{ background: "#1a2a1a", border: "1px solid #166534", borderRadius: 8, color: "#4ade80", padding: "5px 10px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
+                    onClick={() => { setManualModal({ accountId: acc.id }); setManualTicker(""); setManualQty(""); setManualAvg(""); setManualPrice(""); }}>
+                    ✏️
                   </button>
                   {portfolios[acc.id] && (
                     <button
