@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.6";
+const VERSION = "v4.7";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -25,13 +25,15 @@ function compressImage(file, maxWidth = 800) {
   });
 }
 
-const ACCOUNTS = [
+// 기본 계좌 목록 (초기값, 이후 Redis에서 불러옴)
+const DEFAULT_ACCOUNTS = [
   { id: "main", name: "삼성증권 본계좌" },
   { id: "pension", name: "삼성증권 연금저축" },
   { id: "irp", name: "삼성증권 퇴직연금IRP" },
   { id: "dc", name: "삼성증권 퇴직연금DC" },
   { id: "hana", name: "하나증권" },
   { id: "ksfc", name: "한국증권금융" },
+  { id: "kb_isa", name: "KB ISA" },
 ];
 
 const COLORS = [
@@ -216,6 +218,10 @@ export default function App() {
   const [dateError, setDateError] = useState("");
   const [shareMsg, setShareMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  // 동적 계좌 관리
+  const [accounts, setAccounts] = useState(DEFAULT_ACCOUNTS);
+  const [addAccModal, setAddAccModal] = useState(false);
+  const [newAccName, setNewAccName] = useState("");
   // 수기입력 모달
   const [manualModal, setManualModal] = useState(null); // { accountId }
   const [manualTicker, setManualTicker] = useState("");
@@ -232,8 +238,40 @@ export default function App() {
         setPortfolios(d.portfolios);
         // ✅ 자동 현재가 조회 제거 - 🔄 버튼 눌렀을 때만 조회
       }
+      if (d.accounts && d.accounts.length > 0) setAccounts(d.accounts);
     }).catch(() => {});
   }, []);
+
+  async function addAccount() {
+    const name = newAccName.trim();
+    if (!name) return alert("계좌명을 입력해주세요.");
+    const id = "acc_" + Date.now();
+    const newAccounts = [...accounts, { id, name }];
+    setAccounts(newAccounts);
+    setNewAccName("");
+    setAddAccModal(false);
+    await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records: allRecords, portfolios, accounts: newAccounts })
+    });
+  }
+
+  async function deleteAccount(accountId) {
+    const acc = accounts.find(a => a.id === accountId);
+    if (!window.confirm(`"${acc?.name}" 계좌를 삭제할까요?
+(해당 계좌의 포트폴리오도 삭제됩니다)`)) return;
+    const newAccounts = accounts.filter(a => a.id !== accountId);
+    const newPortfolios = { ...portfolios };
+    delete newPortfolios[accountId];
+    setAccounts(newAccounts);
+    setPortfolios(newPortfolios);
+    await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts: newAccounts })
+    });
+  }
 
   async function saveManualStock() {
     const ticker = manualTicker.trim();
@@ -260,7 +298,7 @@ export default function App() {
     await fetch("/api/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios })
+      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts })
     });
     setManualTicker(""); setManualQty(""); setManualAvg(""); setManualPrice("");
     setManualModal(null);
@@ -324,7 +362,7 @@ export default function App() {
       await fetch("/api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ records: allRecords, portfolios: newPortfolios })
+        body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts })
       });
 
       const isAdding = existing && existing.stocks;
@@ -384,7 +422,7 @@ export default function App() {
   }
 
   async function clearPortfolio(accountId) {
-    const accountName = ACCOUNTS.find(a => a.id === accountId)?.name || "포트폴리오";
+    const accountName = accounts.find(a => a.id === accountId)?.name || "포트폴리오";
     if (!window.confirm(`${accountName}를 삭제할까요?`)) return;
     const newPortfolios = { ...portfolios };
     delete newPortfolios[accountId];
@@ -489,12 +527,35 @@ export default function App() {
         </div>
       )}
 
+      {addAccModal && (
+        <div style={S.overlay}>
+          <div style={{ ...S.modal, width: 300 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>➕ 계좌 추가</div>
+            <div style={{ textAlign: "left", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>계좌명</div>
+              <input
+                style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                placeholder="예: KB ISA, 미래에셋 CMA"
+                value={newAccName}
+                onChange={e => setNewAccName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addAccount()}
+                autoFocus
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setAddAccModal(false); setNewAccName(""); }}>취소</button>
+              <button style={{ ...S.btnMain, flex: 1 }} onClick={addAccount}>추가</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {manualModal && (
         <div style={S.overlay}>
           <div style={{ ...S.modal, width: 300 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 수기 종목 입력</div>
             <div style={{ fontSize: 11, color: "#64748b", marginBottom: 16 }}>
-              {ACCOUNTS.find(a => a.id === manualModal.accountId)?.name}
+              {accounts.find(a => a.id === manualModal.accountId)?.name}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
               <div>
@@ -592,9 +653,12 @@ export default function App() {
           <input ref={portfolioRef} type="file" accept="image/*" style={{ display: "none" }}
             onChange={e => { if (e.target.files[0] && uploadingAccount) { analyzePortfolio(e.target.files[0], uploadingAccount); e.target.value = ""; } }} />
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>📈 계좌별 포트폴리오 업로드</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 12, color: "#64748b" }}>📈 계좌별 포트폴리오 업로드</div>
+              <button style={{ background: "#1a2a1a", border: "1px solid #166534", borderRadius: 8, color: "#4ade80", padding: "4px 10px", fontSize: 12, cursor: "pointer" }} onClick={() => setAddAccModal(true)}>➕ 계좌 추가</button>
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {ACCOUNTS.map(acc => (
+              {accounts.map(acc => (
                 <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "10px 14px" }}>
                   <div style={{ flex: 1 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{acc.name}</span>
@@ -618,6 +682,12 @@ export default function App() {
                       🗑️
                     </button>
                   )}
+                  <button
+                    style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 8, color: "#475569", padding: "5px 8px", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
+                    title="계좌 삭제"
+                    onClick={() => deleteAccount(acc.id)}>
+                    ✕
+                  </button>
                 </div>
               ))}
             </div>
@@ -656,7 +726,7 @@ export default function App() {
           {activeTab === "portfolio" && (
             <>
               <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>
-                {[{ id: "all", name: "전체합산" }, ...ACCOUNTS].map(acc => (
+                {[{ id: "all", name: "전체합산" }, ...accounts].map(acc => (
                   <button key={acc.id} onClick={() => setActiveAccount(acc.id)}
                     style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, borderRadius: 8, cursor: "pointer", border: "1px solid", whiteSpace: "nowrap", flexShrink: 0,
                       background: activeAccount === acc.id ? "#1e3a5f" : "#111827",
