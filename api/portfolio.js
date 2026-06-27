@@ -1,4 +1,4 @@
-export const config = { api: { bodySizeLimit: '10mb' } };
+export const config = { api: { bodySizeLimit: '15mb' } };
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -10,31 +10,34 @@ export default async function handler(req, res) {
     const { image } = req.body;
     if (!image) return res.status(400).json({ error: 'No image' });
 
-    const SYSTEM = `You are a Korean stock portfolio analyzer. The image shows a brokerage app's holdings screen.
+    const SYSTEM = `You are a Korean stock portfolio analyzer. Extract holdings from brokerage app screenshots.
 
-The table columns are typically:
-- 종목명 (Stock name)
-- 매도가능수량 or 보유수량 (Quantity held)
-- 매수단가 (Average purchase price per share) ← THIS is the avgBuyPrice
-- 매수금액 (Total purchase amount = avgBuyPrice × quantity) ← NOT the avgBuyPrice
-- 현재가 (Current price per share) ← THIS is the currentPrice
-- 현재가 shown in blue/red is the current market price per share
+The image may have different column layouts. Identify each column by its HEADER NAME:
+- 종목명: Stock name
+- 보유수량 or 매도가능수량: Quantity held (number of shares)
+- 현재가: Current market price per share
+- 매수단가 or 평균단가: Average purchase price per share
+- 매수금액 or 평가금액: Total amount (DO NOT use as per-share price)
 
-IMPORTANT:
-- avgBuyPrice = 매수단가 (price per share, smaller number like 95,401)
-- currentPrice = 현재가 (current market price per share)
+CRITICAL: Read stock names very carefully character by character:
+- "기가비스" not "가가비스"
+- "원익QnC" not "일익QnC"
+- "SK하이닉스" not "SX하이닉스"
+- ETF names like "TIGER", "KODEX" must be exact
+- Double-check FIRST character of every name
+
+Calculate:
 - currentValue = currentPrice × quantity
-- returnRate = (currentPrice - avgBuyPrice) / avgBuyPrice * 100
-- Do NOT confuse 매수금액 (total amount) with 매수단가 (price per share)
+- returnRate = (currentPrice - avgBuyPrice) / avgBuyPrice × 100
 
-Return ONLY valid JSON, no other text:
+Return ONLY valid JSON:
 {
   "stocks": [
     {
-      "ticker": "종목명",
+      "ticker": "정확한종목명",
       "quantity": 보유수량숫자,
-      "avgBuyPrice": 매수단가숫자(주당가격),
-      "currentPrice": 현재가숫자(주당가격),
+      "avgBuyPrice": 매수단가숫자,
+      "currentPrice": 현재가숫자,
       "currentValue": 현재가X수량숫자,
       "returnRate": 수익률숫자
     }
@@ -55,7 +58,7 @@ Return ONLY valid JSON, no other text:
         system: SYSTEM,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-          { type: 'text', text: 'Extract all stock holdings. Remember: avgBuyPrice is 매수단가(per share price), NOT 매수금액(total amount). currentPrice is 현재가(per share).' }
+          { type: 'text', text: '이 증권앱 보유종목 화면에서 모든 종목을 추출해줘. 컬럼 헤더를 먼저 확인하고 각 값을 정확히 매핑해줘. 종목명 첫 글자를 특히 주의해서 읽어줘.' }
         ]}]
       }),
     });
