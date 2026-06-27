@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.7";
+const VERSION = "v4.8";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -757,12 +757,14 @@ export default function App() {
                       return { ticker: s.ticker, value: currentPrice * s.quantity, avgBuy: s.avgBuyPrice, current: currentPrice, qty: s.quantity };
                     })} />
                   </>
-                : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
-                    <div style={{ fontSize: 40, marginBottom: 12 }}>📈</div>
-                    <div style={{ fontSize: 14 }}>
-                      {activeAccount === "all" ? "업로드된 계좌가 없어요" : `${ACCOUNTS.find(a=>a.id===activeAccount)?.name} 포트폴리오가 없어요`}
+                : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b", background: "#0a0f1e", borderRadius: 16, border: "1px solid #1e293b" }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "#94a3b8", marginBottom: 6 }}>
+                      {activeAccount === "all" ? "등록된 계좌가 없어요" : "아직 포트폴리오 등록이 되지 않았습니다."}
                     </div>
-                    <div style={{ fontSize: 12, marginTop: 6 }}>관리자 로그인 후 업로드 가능</div>
+                    <div style={{ fontSize: 12, color: "#475569" }}>
+                      {activeAccount === "all" ? "관리자 로그인 후 업로드해주세요" : `${accounts.find(a=>a.id===activeAccount)?.name} 계좌를 준비 중이에요`}
+                    </div>
                   </div>
               }
             </>
@@ -915,12 +917,12 @@ export default function App() {
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
           <div style={{ fontSize: 64, marginBottom: 8 }}>🐜</div>
           <div style={{ fontSize: 22, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>존버일기장</div>
-          <div style={{ fontSize: 13, color: "#f59e0b", fontWeight: 700, marginBottom: 24, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 20, color: "#f59e0b", fontWeight: 900, marginBottom: 24, lineHeight: 1.7 }}>
             존버는 승리한다.<br/>왜냐하면 승리하기 때문이다.
           </div>
           <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 24, maxWidth: 320, margin: "0 auto" }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>📋 조회 코드 입력</div>
-            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>지인 공유용 코드를 입력하세요</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>포트폴리오 및 매매 평단 리스트</div>
             <input style={{ ...S.pinInput, marginBottom: 12 }} type="password" inputMode="numeric" maxLength={6} placeholder="코드 입력"
               value={viewerPinInput} onChange={e => setViewerPinInput(e.target.value)} onKeyDown={e => e.key === "Enter" && checkViewerPin()} />
             {viewerPinError && <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>{viewerPinError}</div>}
