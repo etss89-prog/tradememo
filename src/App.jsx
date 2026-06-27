@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.2";
+const VERSION = "v4.3";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -222,9 +222,7 @@ export default function App() {
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         setPortfolios(d.portfolios);
-        const allStocks = Object.values(d.portfolios).flatMap(p => p.stocks || []);
-        const unique = [...new Map(allStocks.map(s => [s.ticker, s])).values()];
-        if (unique.length > 0) fetchLivePrices(unique);
+        // ✅ 자동 현재가 조회 제거 - 🔄 버튼 눌렀을 때만 조회
       }
     }).catch(() => {});
   }, []);
@@ -281,9 +279,7 @@ export default function App() {
       const newPortfolios = { ...portfolios, [accountId]: merged };
       setPortfolios(newPortfolios);
 
-      const allStocksAll = Object.values(newPortfolios).flatMap(p => p.stocks || []);
-      const unique = [...new Map(allStocksAll.map(s => [s.ticker, s])).values()];
-      fetchLivePrices(unique);
+      // ✅ 자동 현재가 조회 제거 - 🔄 버튼 눌렀을 때만 조회
 
       await fetch("/api/save", {
         method: "POST",
