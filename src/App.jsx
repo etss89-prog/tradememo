@@ -43,7 +43,7 @@ function DonutChart({ data, title, centerText }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
   const R = 42, r = 24, cx = 50, cy = 50;
-  const slices = sorted.map((d, i) => {
+  const slices = data.map((d, i) => {
     const pct = d.value / total;
     const start = cumulative;
     cumulative += pct;
