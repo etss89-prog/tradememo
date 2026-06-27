@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.0";
+const VERSION = "v4.1";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -216,7 +216,7 @@ export default function App() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [uploadingAccount, setUploadingAccount] = useState(null);
   const [merging, setMerging] = useState(false);
-  const [activeTab, setActiveTab] = useState("buy");
+  const [activeTab, setActiveTab] = useState("portfolio");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [dateError, setDateError] = useState("");
@@ -554,26 +554,28 @@ export default function App() {
 
       {isViewer && (
         <>
-          {/* 탭 */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-            {[
-              { key: "buy", label: `매수 ${buyStocks.length}종목` },
-              { key: "sell", label: `매도 ${sellStocks.length}종목` },
-              { key: "portfolio", label: "현재 포트폴리오" },
-            ].map(t => (
-              <button key={t.key} onClick={() => setActiveTab(t.key)}
-                style={{ flex: 1, padding: "8px 4px", fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: "pointer", border: "1px solid",
-                  background: activeTab === t.key ? (t.key === "buy" ? "#2a1a1a" : t.key === "sell" ? "#1a1a2a" : "#1a2a1a") : "#111827",
-                  borderColor: activeTab === t.key ? (t.key === "buy" ? "#ef4444" : t.key === "sell" ? "#3b82f6" : "#22c55e") : "#1e293b",
-                  color: activeTab === t.key ? (t.key === "buy" ? "#ef4444" : t.key === "sell" ? "#3b82f6" : "#22c55e") : "#64748b",
-                }}>
-                {t.label}
-              </button>
-            ))}
+          {/* 탭 2개 */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <button onClick={() => setActiveTab("portfolio")}
+              style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
+                background: activeTab === "portfolio" ? "#1a2a1a" : "#111827",
+                borderColor: activeTab === "portfolio" ? "#22c55e" : "#1e293b",
+                color: activeTab === "portfolio" ? "#22c55e" : "#64748b",
+              }}>
+              📊 현재 포트폴리오
+            </button>
+            <button onClick={() => setActiveTab("history")}
+              style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
+                background: activeTab === "history" ? "#1a1a2a" : "#111827",
+                borderColor: activeTab === "history" ? "#6366f1" : "#1e293b",
+                color: activeTab === "history" ? "#a78bfa" : "#64748b",
+              }}>
+              📋 매수/매도 기록
+            </button>
           </div>
 
-          {/* 조회기간 - 매수/매도탭만 */}
-          {(activeTab === "buy" || activeTab === "sell") && allRecords.length > 0 && (
+          {/* 조회기간 - 매수/매도기록탭만 */}
+          {activeTab === "history" && allRecords.length > 0 && (
             <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 14, marginBottom: 14 }}>
               <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>📅 조회 기간 설정</div>
               <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
