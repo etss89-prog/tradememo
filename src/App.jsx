@@ -83,7 +83,7 @@ function DonutChart({ data, title, centerText }) {
                 <div style={{ width: 7, height: 7, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
                 <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 11 }}>{s.ticker}</span>
               </div>
-              <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center" }}>{s.pct}%</span>
+              <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
               <span style={{ flex: 1, color: "#94a3b8", textAlign: "right", fontSize: 11 }}>{s.avgPrice?.toLocaleString()}원</span>
             </div>
           ))}
@@ -142,7 +142,7 @@ function PortfolioChart({ data, isAdmin }) {
               <div style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 4 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
                 <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#e2e8f0", fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.ticker}</span>
-                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, flexShrink: 0, marginLeft: 2 }}>{s.pct}%</span>
+                <span style={{ fontSize: 10, color: s.isEtc ? "#64748b" : "#94a3b8", fontWeight: 700, flexShrink: 0, marginLeft: 2 }}>{Number(s.pct).toFixed(1)}%</span>
               </div>
             );
             return (
@@ -175,7 +175,7 @@ function PortfolioChart({ data, isAdmin }) {
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
               <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 12 }}>{s.ticker}</span>
             </div>
-            <span style={{ color: "#e2e8f0", fontWeight: 700, fontSize: 12, textAlign: "center" }}>{s.pct}%</span>
+            <span style={{ color: "#e2e8f0", fontWeight: 700, fontSize: 12, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
             <span style={{ fontSize: 12, textAlign: "center", fontWeight: 700,
               color: s.ret === null ? "#64748b" : s.ret >= 0 ? "#ef4444" : "#3b82f6" }}>
               {s.ret !== null ? (s.ret >= 0 ? "+" : "") + s.ret.toFixed(1) + "%" : "-"}
@@ -607,7 +607,7 @@ export default function App() {
                       </div>
                       <div style={{ flex: 1, textAlign: "center" }}>
                         <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>비중</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: activeTab === "buy" ? "#ef4444" : "#3b82f6" }}>{pct}%</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: activeTab === "buy" ? "#ef4444" : "#3b82f6" }}>{Number(pct).toFixed(1)}%</div>
                       </div>
                       <div style={{ flex: 1, textAlign: "right" }}>
                           <div style={{ fontSize: 10, color: "#475569", marginBottom: 3 }}>평단</div>
