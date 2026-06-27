@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v4.8";
+const VERSION = "v4.9";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -104,7 +104,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) 
   );
 }
 
-function PortfolioChart({ data, isAdmin }) {
+function PortfolioChart({ data, isAdmin, showWealth }) {
   if (!data || data.length === 0) return null;
   const sorted = [...data].sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
@@ -163,14 +163,15 @@ function PortfolioChart({ data, isAdmin }) {
         </div>
       </div>
       <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #1e293b" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.8fr 0.7fr 0.7fr 1.4fr", background: "#0f172a", padding: "8px 12px", gap: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", background: "#0f172a", padding: "8px 12px", gap: 4 }}>
           <span style={{ fontSize: 10, color: "#475569" }}>종목명</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>비중</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>수익률</span>
-          <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>평단 / 현재가</span>
+          <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>평단/현재가</span>
+          {showWealth && <span style={{ fontSize: 10, color: "#22c55e", textAlign: "right" }}>수량/보유금액</span>}
         </div>
         {slices.map((s, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: "1px solid #1e293b", background: i % 2 === 0 ? "#111827" : "#0f172a" }}>
+          <div key={i} style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: "1px solid #1e293b", background: i % 2 === 0 ? "#111827" : "#0f172a" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
               <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 12 }}>{s.ticker}</span>
@@ -184,6 +185,12 @@ function PortfolioChart({ data, isAdmin }) {
               <div style={{ fontSize: 11, color: "#64748b" }}>{s.avgBuy?.toLocaleString()}원</div>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#e2e8f0" }}>{s.current?.toLocaleString()}원</div>
             </div>
+            {showWealth && (
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, color: "#22c55e" }}>{s.qty?.toLocaleString()}주</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{s.value?.toLocaleString()}원</div>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -218,6 +225,7 @@ export default function App() {
   const [dateError, setDateError] = useState("");
   const [shareMsg, setShareMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  const [showWealth, setShowWealth] = useState(false); // 관리자 자산공개 토글
   // 동적 계좌 관리
   const [accounts, setAccounts] = useState(DEFAULT_ACCOUNTS);
   const [addAccModal, setAddAccModal] = useState(false);
@@ -608,7 +616,21 @@ export default function App() {
           <span style={{ fontSize: 24 }}>🐜</span>
           <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
-          {isAdmin ? <button style={S.adminTag} onClick={() => { setIsAdmin(false); setIsViewer(false); }}>관리자 ✕</button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowWealth(v => !v)}
+              style={{
+                background: showWealth ? "#1a2a1a" : "#1e293b",
+                border: showWealth ? "1px solid #22c55e" : "1px solid #334155",
+                borderRadius: 8, color: showWealth ? "#22c55e" : "#475569",
+                padding: "4px 10px", fontSize: 14, cursor: "pointer", lineHeight: 1,
+              }}
+              title={showWealth ? "자산 비공개로 전환" : "자산 공개로 전환"}
+            >
+              {showWealth ? "🔓" : "🔒"}
+            </button>
+          )}
+          {isAdmin ? <button style={S.adminTag} onClick={() => { setIsAdmin(false); setIsViewer(false); setShowWealth(false); }}>관리자 ✕</button>
             : isViewer ? <button style={S.adminTag} onClick={() => setIsViewer(false)}>조회중 ✕</button>
             : <button style={S.loginTag} onClick={() => setShowPin(true)}>관리자</button>}
         </div>
@@ -752,7 +774,7 @@ export default function App() {
                         {priceLoading ? "⏳ 조회 중…" : "🔄 현재가 갱신"}
                       </button>
                     </div>
-                    <PortfolioChart isAdmin={isAdmin} data={displayPortfolio.stocks?.map(s => {
+                    <PortfolioChart isAdmin={isAdmin} showWealth={showWealth} data={displayPortfolio.stocks?.map(s => {
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
                       return { ticker: s.ticker, value: currentPrice * s.quantity, avgBuy: s.avgBuyPrice, current: currentPrice, qty: s.quantity };
                     })} />
@@ -890,6 +912,7 @@ export default function App() {
                               <span style={{ color: "#475569", minWidth: 76 }}>{g.date}</span>
                               <span style={{ fontWeight: 700, color: g.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{g.type}</span>
                               <span style={{ color: "#94a3b8", flex: 1 }}>평단 {avgP?.toLocaleString()}원</span>
+                              {showWealth && <span style={{ color: "#22c55e", fontWeight: 600 }}>{g.totalQty}주 · {g.totalAmt?.toLocaleString()}원</span>}
                             </div>
                           );
                         });
