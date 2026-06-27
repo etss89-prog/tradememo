@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v3.3";
+const VERSION = "v3.4";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -263,23 +263,20 @@ export default function App() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // 기존 포트폴리오와 합산
-      let merged = data;
+      // 기존 포트폴리오와 합산 - currentPrice × quantity 로 항상 재계산
+      let allStocks = [...(data.stocks || [])];
       if (portfolio && portfolio.stocks && portfolio.stocks.length > 0) {
-        const existingTickers = portfolio.stocks.map(s => s.ticker);
-        const newStocks = data.stocks.filter(s => !existingTickers.includes(s.ticker));
-        const allStocks = [...portfolio.stocks, ...newStocks];
-        // totalValue를 항상 currentPrice × quantity로 재계산
-        const recalcTotal = allStocks.reduce((sum, s) => sum + (s.currentPrice * s.quantity), 0);
-        merged = {
-          stocks: allStocks,
-          totalValue: recalcTotal,
-        };
-      } else {
-        // 단일 장도 재계산
-        const recalcTotal = data.stocks.reduce((sum, s) => sum + (s.currentPrice * s.quantity), 0);
-        merged = { ...data, totalValue: recalcTotal };
+        const newTickers = new Set(data.stocks.map(s => s.ticker));
+        const existingOnly = portfolio.stocks.filter(s => !newTickers.has(s.ticker));
+        allStocks = [...existingOnly, ...data.stocks];
       }
+      // currentValue 및 totalValue 재계산
+      allStocks = allStocks.map(s => ({
+        ...s,
+        currentValue: s.currentPrice * s.quantity,
+      }));
+      const totalValue = allStocks.reduce((sum, s) => sum + s.currentValue, 0);
+      const merged = { stocks: allStocks, totalValue };
 
       setPortfolio(merged);
       fetchLivePrices(merged.stocks);
