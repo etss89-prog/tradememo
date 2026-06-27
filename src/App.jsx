@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v3.4";
+const VERSION = "v3.6";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -55,7 +55,7 @@ function DonutChart({ data, title, centerText }) {
     const x2i = cx + r * Math.cos(a2), y2i = cy + r * Math.sin(a2);
     const large = pct > 0.5 ? 1 : 0;
     const path = `M${x1o},${y1o} A${R},${R} 0 ${large},1 ${x2o},${y2o} L${x2i},${y2i} A${r},${r} 0 ${large},0 ${x1i},${y1i} Z`;
-    return { ...d, path, color: COLORS[i % COLORS.length], pct: Math.round(pct * 100) };
+    return { ...d, path, color: COLORS[i % COLORS.length], pct: Math.round(pct * 1000) / 10 };
   });
 
   return (
@@ -132,7 +132,8 @@ function PortfolioChart({ data, isAdmin }) {
             const MAX = 29;
             const shown = slices.slice(0, MAX);
             const rest = slices.slice(MAX);
-            const restPct = rest.reduce((sum, r) => sum + r.pct, 0);
+            const restValue = rest.reduce((sum, r) => sum + r.value, 0);
+            const restPct = total > 0 ? Math.round(restValue / total * 1000) / 10 : 0;
             const all = [...shown, ...(rest.length > 0 ? [{ ticker: `기타 ${rest.length}종목`, pct: restPct, color: "#475569", isEtc: true }] : [])];
             const half = Math.ceil(all.length / 2);
             const col1 = all.slice(0, half);
