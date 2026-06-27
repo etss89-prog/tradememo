@@ -113,7 +113,7 @@ function PortfolioChart({ data, isAdmin }) {
     const large = pct > 0.5 ? 1 : 0;
     const path = `M${x1o},${y1o} A${R},${R} 0 ${large},1 ${x2o},${y2o} L${x2i},${y2i} A${r},${r} 0 ${large},0 ${x1i},${y1i} Z`;
     const ret = d.avgBuy ? ((d.current - d.avgBuy) / d.avgBuy * 100) : null;
-    return { ...d, path, color: COLORS[i % COLORS.length], pct: Math.round(pct * 100), ret };
+    return { ...d, path, color: COLORS[i % COLORS.length], pct: Math.round(pct * 1000) / 10, ret };
   });
 
   return (
@@ -596,7 +596,7 @@ export default function App() {
                 const trades = stock.trades.filter(t => t.type === (activeTab === "buy" ? "매수" : "매도"));
                 const totalVal = activeTab === "buy" ? buyPieData.reduce((s, d) => s + d.value, 0) : sellPieData.reduce((s, d) => s + d.value, 0);
                 const myVal = activeTab === "buy" ? (buyPieData.find(s => s.ticker === stock.ticker)?.value || 0) : (sellPieData.find(s => s.ticker === stock.ticker)?.value || 0);
-                const pct = totalVal ? Math.round(myVal / totalVal * 100) : 0;
+                const pct = totalVal ? Math.round(myVal / totalVal * 1000) / 10 : 0;
                 const avgPrice = activeTab === "buy" ? stock.avgBuyPrice : sellPieData.find(s => s.ticker === stock.ticker)?.avgPrice;
                 return (
                   <div key={i} style={S.stockCard}>
