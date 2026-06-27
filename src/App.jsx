@@ -2,21 +2,20 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v2.7";
+const VERSION = "v3.1";
 
-function compressImage(file) {
+function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        const MAX = 800;
-        const scale = img.width > MAX ? MAX / img.width : 1;
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
         const canvas = document.createElement("canvas");
         canvas.width = Math.round(img.width * scale);
         canvas.height = Math.round(img.height * scale);
         canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
+        resolve(canvas.toDataURL("image/jpeg", 0.9).split(",")[1]);
       };
       img.onerror = reject;
       img.src = e.target.result;
@@ -194,6 +193,9 @@ export default function App() {
   const [allRecords, setAllRecords] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [livePrices, setLivePrices] = useState({});
+  const [priceLoading, setPriceLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [merging, setMerging] = useState(false);
   const [activeTab, setActiveTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
@@ -207,7 +209,10 @@ export default function App() {
   useEffect(() => {
     fetch("/api/load").then(r => r.json()).then(d => {
       if (d.records) setAllRecords(d.records);
-      if (d.portfolio) setPortfolio(d.portfolio);
+      if (d.portfolio) {
+        setPortfolio(d.portfolio);
+        fetchLivePrices(d.portfolio.stocks);
+      }
     }).catch(() => {});
   }, []);
 
@@ -230,7 +235,7 @@ export default function App() {
     for (const item of items) {
       setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: true } : i));
       try {
-        const base64 = await compressImage(item.file);
+        const base64 = await compressImage(item.file, 800);
         const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64 }) });
         const result = await res.json();
         if (result.error) throw new Error(result.error);
@@ -244,19 +249,62 @@ export default function App() {
   async function analyzePortfolio(file) {
     setPortfolioLoading(true);
     try {
-      const base64 = await compressImage(file);
+      const base64 = await compressImage(file, 800);
       const res = await fetch("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64 }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setPortfolio(data);
-      // Save portfolio
-      const updated = { records: allRecords, portfolio: data };
-      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updated) });
-      alert("✅ 포트폴리오 저장 완료!");
+
+      // 기존 포트폴리오와 합산
+      let merged = data;
+      if (portfolio && portfolio.stocks && portfolio.stocks.length > 0) {
+        // 두 포트폴리오 종목 합산
+        const existingTickers = portfolio.stocks.map(s => s.ticker);
+        const newStocks = data.stocks.filter(s => !existingTickers.includes(s.ticker));
+        merged = {
+          stocks: [...portfolio.stocks, ...newStocks],
+          totalValue: (portfolio.totalValue || 0) + (data.totalValue || 0),
+        };
+      }
+
+      setPortfolio(merged);
+      fetchLivePrices(merged.stocks);
+
+      // 자동 저장
+      await fetch("/api/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ records: allRecords, portfolio: merged })
+      });
+
+      const msg = portfolio && portfolio.stocks
+        ? `✅ 추가 완료! 총 ${merged.stocks.length}종목`
+        : `✅ 포트폴리오 저장 완료! ${merged.stocks.length}종목`;
+      alert(msg);
     } catch(e) {
       alert("오류: " + e.message);
     }
     setPortfolioLoading(false);
+  }
+
+  async function fetchLivePrices(stocks) {
+    if (!stocks || stocks.length === 0) return;
+    setPriceLoading(true);
+    try {
+      const tickers = stocks.map(s => s.ticker);
+      const res = await fetch("/api/stockprice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tickers }),
+      });
+      const data = await res.json();
+      if (data.prices) {
+        setLivePrices(data.prices);
+        setLastUpdated(new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }));
+      }
+    } catch (e) {
+      console.error("주가 조회 실패:", e);
+    }
+    setPriceLoading(false);
   }
 
   async function saveResults() {
@@ -280,10 +328,22 @@ export default function App() {
     setMerging(false);
   }
 
+  async function clearRecords() {
+    if (!window.confirm("매수/매도 기록을 삭제할까요?")) return;
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: [], portfolio }) });
+    setAllRecords([]);
+  }
+
+  async function clearPortfolio() {
+    if (!window.confirm("현재 포트폴리오를 삭제할까요?")) return;
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolio: null }) });
+    setPortfolio(null); setLivePrices({});
+  }
+
   async function clearAll() {
-    if (!window.confirm("전체 기록을 삭제할까요?")) return;
+    if (!window.confirm("매수/매도 기록과 포트폴리오를 모두 삭제할까요?")) return;
     await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: [], portfolio: null }) });
-    setAllRecords([]); setPortfolio(null);
+    setAllRecords([]); setPortfolio(null); setLivePrices({});
   }
 
   // Date filtering
@@ -413,7 +473,11 @@ export default function App() {
             <div style={{ fontSize: 11, color: "#64748b" }}>증권앱 보유종목 화면 캡처 업로드</div>
           </button>
 
-          <button style={{ ...S.btnDanger, width: "100%", marginBottom: 16 }} onClick={clearAll}>🗑️ 전체 기록 삭제</button>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearRecords}>🗑️ 매매기록 삭제</button>
+            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearPortfolio}>🗑️ 포트폴리오 삭제</button>
+            <button style={{ ...S.btnDanger, flex: 1, fontSize: 12, padding: "10px 8px" }} onClick={clearAll}>🗑️ 전체 삭제</button>
+          </div>
         </>
       )}
 
@@ -474,7 +538,27 @@ export default function App() {
           {/* 포트폴리오 탭 */}
           {activeTab === "portfolio" && (
             portfolio
-              ? <PortfolioChart isAdmin={isAdmin} data={portfolio.stocks?.map(s => ({ ticker: s.ticker, value: s.currentValue, avgBuy: s.avgBuyPrice, current: s.currentPrice, qty: s.quantity }))} />
+              ? <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, color: "#64748b" }}>
+                      {lastUpdated ? `🕐 ${lastUpdated} 기준` : "주가 로딩 중..."}
+                    </span>
+                    <button
+                      onClick={() => fetchLivePrices(portfolio.stocks)}
+                      disabled={priceLoading}
+                      style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: "pointer" }}>
+                      {priceLoading ? "⏳ 조회 중…" : "🔄 현재가 갱신"}
+                    </button>
+                  </div>
+                  <PortfolioChart isAdmin={isAdmin} data={portfolio.stocks?.map(s => ({
+                    ticker: s.ticker,
+                    value: (livePrices[s.ticker] || s.currentPrice) * s.quantity,
+                    avgBuy: s.avgBuyPrice,
+                    current: livePrices[s.ticker] || s.currentPrice,
+                    qty: s.quantity,
+                    isLive: !!livePrices[s.ticker],
+                  }))} />
+                </>
               : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📈</div>
                   <div style={{ fontSize: 14 }}>포트폴리오 이미지를 업로드해주세요</div>
