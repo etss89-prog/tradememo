@@ -30,23 +30,33 @@ For CARD FORMAT:
 - ticker = 종목명 (top left of card, bold text)
 - quantity = 매도가능 value (number on the right)
 - avgBuyPrice = 평균단가 value (number on the right)
-- 평가손익 = unrealized P&L amount
 - 손익률 = return rate % (e.g. "18.91 %" or "-36.53 %")
 - currentPrice 계산: avgBuyPrice × (1 + 손익률/100) 으로 역산
-  예: 평균단가 9,660원, 손익률 18.91% → currentPrice = round(9660 × 1.1891) = 11,487원
-  예: 평균단가 16,571원, 손익률 -17.00% → currentPrice = round(16571 × 0.83) = 13,754원
+
+## LAYOUT TYPE 3: PENSION/DC FORMAT (e.g. 삼성증권 퇴직연금DC, 연금 계좌)
+Table with columns: 상품명 | 매입원금/평가금액 | 수익률
+- NO quantity or unit price shown
+- Use this mapping:
+  ticker = 상품명
+  quantity = 1  (단위를 1로 설정)
+  avgBuyPrice = 매입원금 (상단 숫자, 총 투자금액)
+  currentPrice = 평가금액 (하단 숫자, 현재 총 가치)
+  returnRate = 수익률 (빨간색=양수, 파란색=음수)
+  currentValue = 평가금액 (= currentPrice × 1)
+- 이 포맷은 나중에 정확한 수량/단가 정보가 있는 이미지로 대체 가능
+- "현금성자산", "예수금" 등은 포함하지 말 것
 
 ## CRITICAL RULES:
-- Extract EVERY stock card/row visible in the image
+- Extract EVERY stock/ETF row visible in the image (현금성자산 제외)
 - Stock names: read EVERY character carefully
-  "기가비스" NOT "가가비스", "원익QnC" NOT "일익QnC"
-  ETF names like "TIGER", "KODEX", "HANARO", "RISE", "ACE" must be exact
-- quantity must be a NUMBER (integer), NOT a string
-- avgBuyPrice must be a NUMBER, NOT a string  
+  ETF names like "TIGER", "KODEX", "HANARO", "RISE", "ACE", "SOL", "PLUS", "1Q" must be exact
+- quantity must be a NUMBER, NOT a string
+- avgBuyPrice must be a NUMBER, NOT a string
 - Remove all commas from numbers: "16,571" → 16571
-- If 손익률 is negative (파란색/blue), the number is negative: "-36.53%" → -36.53
-- If 손익률 is positive (빨간색/red), the number is positive: "18.91%" → 18.91
+- If 수익률 is negative (파란색/blue): negative number e.g. -12.27
+- If 수익률 is positive (빨간색/red): positive number e.g. 142.08
 - currentValue = currentPrice × quantity (always recalculate)
+- "approximateData": true 필드를 추가해서 TYPE 3 포맷임을 표시
 
 Return ONLY valid JSON, no other text:
 {
@@ -57,7 +67,8 @@ Return ONLY valid JSON, no other text:
       "avgBuyPrice": 매수단가숫자,
       "currentPrice": 현재가숫자,
       "currentValue": 현재가X수량숫자,
-      "returnRate": 수익률숫자
+      "returnRate": 수익률숫자,
+      "approximateData": false
     }
   ],
   "totalValue": 모든currentValue합계
