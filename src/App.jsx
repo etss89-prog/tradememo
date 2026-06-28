@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v5.5";
+const VERSION = "v5.6";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -194,8 +194,11 @@ function PortfolioChart({ data, isAdmin, showWealth }) {
             </div>
             {showWealth && (
               <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 11, color: "#22c55e" }}>{s.qty?.toLocaleString()}주</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{s.value?.toLocaleString()}원</div>
+                {s.approximateData
+                  ? <div style={{ fontSize: 10, color: "#f59e0b" }}>금액기준</div>
+                  : <div style={{ fontSize: 11, color: "#22c55e" }}>{s.qty?.toLocaleString()}주</div>
+                }
+                <div style={{ fontSize: 12, fontWeight: 700, color: s.approximateData ? "#f59e0b" : "#22c55e" }}>{s.value?.toLocaleString()}원</div>
               </div>
             )}
           </div>
@@ -381,7 +384,14 @@ export default function App() {
         const existingOnly = existing.stocks.filter(s => !newTickers.has(s.ticker));
         allStocks = [...existingOnly, ...data.stocks];
       }
-      allStocks = allStocks.map(s => ({ ...s, currentValue: s.currentPrice * s.quantity }));
+      allStocks = allStocks.map(s => {
+        if (s.approximateData) {
+          // 금액기준 종목: avgBuyPrice=매입원금, currentPrice=평가금액, quantity=1
+          // currentValue는 평가금액 그대로 유지
+          return { ...s, currentValue: s.currentPrice };
+        }
+        return { ...s, currentValue: s.currentPrice * s.quantity };
+      });
       const totalValue = allStocks.reduce((sum, s) => sum + s.currentValue, 0);
       // approximateData: 수량/단가 없이 금액만 있는 포맷 여부 (퇴직연금DC 등)
       const isApproximate = data.stocks?.some(s => s.approximateData === true);
@@ -522,6 +532,12 @@ export default function App() {
       const allStocks = Object.values(portfolios).flatMap(p => p.stocks || []);
       if (allStocks.length === 0) return null;
       const merged = Object.values(allStocks.reduce((acc, s) => {
+        if (s.approximateData) {
+          // 금액기준 종목: currentValue 직접 사용, 현재가 갱신 무시
+          if (!acc[s.ticker]) acc[s.ticker] = { ...s, currentValue: s.currentValue };
+          else acc[s.ticker].currentValue += s.currentValue;
+          return acc;
+        }
         const cur = livePrices[s.ticker] || s.currentPrice;
         if (!acc[s.ticker]) {
           acc[s.ticker] = { ...s, quantity: s.quantity, currentValue: cur * s.quantity };
@@ -849,7 +865,13 @@ export default function App() {
                           {lastUpdated ? `📅 ${lastUpdated} 기준 주가를 갱신했습니다.` : ""}
                         </span>
                         <button
-                          onClick={() => { const all = Object.values(portfolios).flatMap(p => p.stocks||[]); const unique = [...new Map(all.map(s=>[s.ticker,s])).values()]; fetchLivePrices(unique); }}
+                          onClick={() => {
+            const all = Object.values(portfolios).flatMap(p => p.stocks||[]);
+            // ✅ approximateData 종목은 현재가 갱신 제외 (퇴직연금DC 등 금액기준 종목)
+            const filtered = all.filter(s => !s.approximateData);
+            const unique = [...new Map(filtered.map(s=>[s.ticker,s])).values()];
+            fetchLivePrices(unique);
+          }}
                           disabled={priceLoading}
                           style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: priceLoading ? "#60a5fa" : "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: priceLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                           {priceLoading ? <><span className="spinner" /><span>갱신 중...</span></> : "🔄 현재가 갱신"}
@@ -866,13 +888,18 @@ export default function App() {
                         <span style={{ fontSize: 12, color: "#4ade80", fontWeight: 700 }}>🔓 총 보유금액</span>
                         <span style={{ fontSize: 18, fontWeight: 900, color: "#22c55e" }}>
                           {displayPortfolio.stocks?.reduce((s, st) => {
+                            if (st.approximateData) return s + (st.currentValue || 0);
                             const cur = livePrices[st.ticker] || st.currentPrice;
-                            return s + cur * st.quantity;
+                            return s + cur * (st.quantity || 0);
                           }, 0).toLocaleString()}원
                         </span>
                       </div>
                     )}
                     <PortfolioChart isAdmin={isAdmin} showWealth={showWealth} data={displayPortfolio.stocks?.map(s => {
+                      if (s.approximateData) {
+                        // 금액기준 종목: currentValue(평가금액) 직접 사용, 현재가 갱신 무시
+                        return { ticker: s.ticker, value: s.currentValue, avgBuy: s.avgBuyPrice, current: s.currentPrice, qty: null, approximateData: true };
+                      }
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
                       return { ticker: s.ticker, value: currentPrice * s.quantity, avgBuy: s.avgBuyPrice, current: currentPrice, qty: s.quantity };
                     })} />
