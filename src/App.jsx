@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v5.6";
+const VERSION = "v5.8";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -529,28 +529,35 @@ export default function App() {
 
   const displayPortfolio = (() => {
     if (activeAccount === "all") {
-      const allStocks = Object.values(portfolios).flatMap(p => p.stocks || []);
-      if (allStocks.length === 0) return null;
-      const merged = Object.values(allStocks.reduce((acc, s) => {
-        if (s.approximateData) {
-          // 금액기준 종목: currentValue 직접 사용, 현재가 갱신 무시
-          if (!acc[s.ticker]) acc[s.ticker] = { ...s, currentValue: s.currentValue };
-          else acc[s.ticker].currentValue += s.currentValue;
-          return acc;
-        }
+      const allPortfolios = Object.values(portfolios);
+      if (allPortfolios.length === 0) return null;
+
+      // 수량기준 종목만 합산 (approximateData=true 계좌는 종목 제외)
+      const allNormalStocks = allPortfolios
+        .flatMap(p => (p.stocks || []).filter(s => !s.approximateData));
+
+      const merged = Object.values(allNormalStocks.reduce((acc, s) => {
         const cur = livePrices[s.ticker] || s.currentPrice;
         if (!acc[s.ticker]) {
           acc[s.ticker] = { ...s, quantity: s.quantity, currentValue: cur * s.quantity };
         } else {
+          const prevQty = acc[s.ticker].quantity;
           acc[s.ticker].quantity += s.quantity;
           acc[s.ticker].currentValue += cur * s.quantity;
           acc[s.ticker].avgBuyPrice = Math.round(
-            (acc[s.ticker].avgBuyPrice * (acc[s.ticker].quantity - s.quantity) + s.avgBuyPrice * s.quantity) / acc[s.ticker].quantity
+            (acc[s.ticker].avgBuyPrice * prevQty + s.avgBuyPrice * s.quantity) / acc[s.ticker].quantity
           );
         }
         return acc;
       }, {}));
-      return { stocks: merged, totalValue: merged.reduce((s, d) => s + d.currentValue, 0) };
+
+      // 총액은 수량기준 + 금액기준(approximateData) 계좌 totalValue 모두 합산
+      const normalTotal = merged.reduce((s, d) => s + (d.currentValue || 0), 0);
+      const approxTotal = allPortfolios
+        .filter(p => p.approximateData)
+        .reduce((s, p) => s + (p.totalValue || 0), 0);
+
+      return { stocks: merged, totalValue: normalTotal + approxTotal, approxTotal };
     }
     return portfolios[activeAccount] || null;
   })();
@@ -887,19 +894,17 @@ export default function App() {
                       <div style={{ background: "#0f1f0f", border: "1px solid #166534", borderRadius: 12, padding: "12px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <span style={{ fontSize: 12, color: "#4ade80", fontWeight: 700 }}>🔓 총 보유금액</span>
                         <span style={{ fontSize: 18, fontWeight: 900, color: "#22c55e" }}>
-                          {displayPortfolio.stocks?.reduce((s, st) => {
-                            if (st.approximateData) return s + (st.currentValue || 0);
-                            const cur = livePrices[st.ticker] || st.currentPrice;
-                            return s + cur * (st.quantity || 0);
-                          }, 0).toLocaleString()}원
+                          {(displayPortfolio.totalValue || 0).toLocaleString()}원
                         </span>
                       </div>
                     )}
+                    {activeAccount === "all" && displayPortfolio.approxTotal > 0 && (
+                      <div style={{ background: "#1a1500", border: "1px solid #b45309", borderRadius: 10, padding: "8px 14px", marginBottom: 10, fontSize: 11, color: "#f59e0b", display: "flex", justifyContent: "space-between" }}>
+                        <span>⚠️ 금액기준 계좌(DC 등) 종목은 차트 제외</span>
+                        <span style={{ fontWeight: 700 }}>+{displayPortfolio.approxTotal.toLocaleString()}원 포함</span>
+                      </div>
+                    )}
                     <PortfolioChart isAdmin={isAdmin} showWealth={showWealth} data={displayPortfolio.stocks?.map(s => {
-                      if (s.approximateData) {
-                        // 금액기준 종목: currentValue(평가금액) 직접 사용, 현재가 갱신 무시
-                        return { ticker: s.ticker, value: s.currentValue, avgBuy: s.avgBuyPrice, current: s.currentPrice, qty: null, approximateData: true };
-                      }
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
                       return { ticker: s.ticker, value: currentPrice * s.quantity, avgBuy: s.avgBuyPrice, current: currentPrice, qty: s.quantity };
                     })} />
