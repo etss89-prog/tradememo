@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v5.3";
+const VERSION = "v5.4";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -412,11 +412,11 @@ export default function App() {
         setLivePrices(data.prices);
         const now = new Date().toLocaleString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
         setLastUpdated(now);
-        // ✅ Redis에 현재가 저장 → 모든 접속자가 같은 가격 조회
-        fetch("/api/save", {
+        // ✅ 현재가만 별도로 저장 (portfolios 등 다른 데이터 건드리지 않음)
+        fetch("/api/save-prices", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ records: allRecords, portfolios, accounts, mainText, livePrices: data.prices, priceUpdatedAt: now })
+          body: JSON.stringify({ livePrices: data.prices, priceUpdatedAt: now })
         }).catch(() => {});
       }
     } catch (e) {
