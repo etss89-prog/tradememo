@@ -37,9 +37,7 @@ const TICKER_MAP = {
   "누리플렉스": "040160",
   "대덕1우": "008045",
   "대덕": "008060",
-  "TIGER 코스닥150 레버리지": "233740",
-  "TIGER코스닥150레버리지": "233740",
-  "KODEX SK하이닉스단일종목레버리지": "472870",
+  "RF머트리얼즈": "327260",
   "삼성전자": "005930",
   "삼성전자우": "005935",
   "SK텔레콤": "017670",
@@ -56,7 +54,13 @@ const TICKER_MAP = {
   "신한지주": "055550",
   "하나금융지주": "086790",
   "삼성바이오로직스": "207940",
-  // 연금저축/IRP/DC 계좌 ETF
+
+  // ETF - 정확한 종목코드로 수정
+  "TIGER 코스닥150 레버리지": "233740",
+  "TIGER코스닥150레버리지": "233740",
+  "KODEX SK하이닉스단일종목레버리지": "472870",
+
+  // 연금저축/IRP/DC 계좌 ETF ✅ 수정됨
   "TIGER 코리아AI전력기기TOP3플러스": "0117V0",
   "SOL AI반도체TOP2플러스": "0167A0",
   "RISE 삼성전자SK하이닉스채권혼합50": "0162Z0",
@@ -67,32 +71,40 @@ const TICKER_MAP = {
   "TIGER 차이나전기차SOLACTIVE": "371460",
   "TIGER 차이나전기차솔액티브": "371460",
   "KODEX 차이나항셍테크": "371150",
-  "HANARO Fn친환경에너지": "381180",
+  "HANARO Fn친환경에너지": "381570",   // ✅ 381180 → 381570 수정
+  "HANARO 증권고배당TOP3플러스": "0111J0", // ✅ 추가
+  "HANARO 전력설비투자": "491820",     // ✅ 추가
+  "PLUS 태양광&ESS": "457990",         // ✅ 423160 → 457990 수정
   "PLUS 글로벌히토류&전략자원생산기업": "0072R0",
   "KODEX 삼성전자채권혼합": "0135K0",
   "KODEX 삼성전자채권혼합50": "0135K0",
   "SOL AI반도체소부장": "0130Z0",
   "ACE 테슬라밸류체인인액티브": "0060J0",
   "ACE 테슬라밸류체인액티브": "0060J0",
-  "PLUS 태양광&ESS": "423160",
+  "PLUS 태양광&ESS": "457990",
   "RISE 2차전지TOP10": "0072S0",
   "ACE 마이크로소프트밸류체인인액티브": "0072T0",
   "KODEX AI전력핵심설비": "0117T0",
-  "HANARO 전력설비투자": "0089T0",
+  "HANARO 전력설비투자": "491820",
   "UNICORN SK하이닉스밸류체인액티브": "0117W0",
   "ACE 국고채10년": "461680",
   "KODEX 삼성전자SK하이닉스채권혼합50": "0135L0",
+  "SOL AI반도체소부장": "0130Z0",
+
   // 오인식 대비 매핑
-  "가가비스": "306620",  // 기가비스 오인식
-  "가비스": "306620",    // 기가비스 오인식
-  "일익QnC": "074600",  // 원익QnC 오인식
-  "원익QNC": "074600",  // 대소문자 오인식
+  "가가비스": "306620",
+  "가비스": "306620",
+  "일익QnC": "074600",
+  "원익QNC": "074600",
   "일익QNC": "074600",
-  "SX하이닉스": "000660", // SK하이닉스 오인식
+  "SX하이닉스": "000660",
   "SK 하이닉스": "000660",
   "한솔테크닉스 39R": "004717",
   "마이크로컨텍솔루션": "098120",
   "마이크로 컨텍솔": "098120",
+  "RF 머트리얼즈": "327260",
+  "HANARO Fn 친환경에너지": "381570",
+  "PLUS 태양광 ESS": "457990",
 };
 
 const dynamicCache = {};
@@ -118,8 +130,10 @@ async function getAccessToken() {
 }
 
 async function getCurrentPrice(token, code) {
+  // ETF 코드 형식 판별 (숫자 6자리 = 주식/ETF, 영숫자 혼합 = 신규ETF)
+  const marketCode = /^\d{6}$/.test(code) ? 'J' : 'ETF';
   const res = await fetch(
-    `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
+    `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=${marketCode}&fid_input_iscd=${code}`,
     {
       headers: {
         'content-type': 'application/json',
