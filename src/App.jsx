@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v5.1";
+const VERSION = "v5.3";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -247,10 +247,12 @@ export default function App() {
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         setPortfolios(d.portfolios);
-        // ✅ 자동 현재가 조회 제거 - 🔄 버튼 눌렀을 때만 조회
       }
       if (d.accounts && d.accounts.length > 0) setAccounts(d.accounts);
       if (d.mainText) setMainText(d.mainText);
+      // ✅ Redis에 저장된 현재가 불러오기 → 관리자가 갱신한 가격을 모든 접속자가 공유
+      if (d.livePrices) setLivePrices(d.livePrices);
+      if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
     }).catch(() => {});
   }, []);
 
@@ -408,7 +410,14 @@ export default function App() {
       const data = await res.json();
       if (data.prices) {
         setLivePrices(data.prices);
-        setLastUpdated(new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }));
+        const now = new Date().toLocaleString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        setLastUpdated(now);
+        // ✅ Redis에 현재가 저장 → 모든 접속자가 같은 가격 조회
+        fetch("/api/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ records: allRecords, portfolios, accounts, mainText, livePrices: data.prices, priceUpdatedAt: now })
+        }).catch(() => {});
       }
     } catch (e) {
       console.error("주가 조회 실패:", e);
@@ -814,16 +823,27 @@ export default function App() {
 
               {displayPortfolio
                 ? <>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <span style={{ fontSize: 12, color: "#64748b" }}>
-                        {lastUpdated ? `🕐 ${lastUpdated} 기준` : priceLoading ? "주가 조회 중..." : ""}
-                      </span>
-                      <button
-                        onClick={() => { const all = Object.values(portfolios).flatMap(p => p.stocks||[]); const unique = [...new Map(all.map(s=>[s.ticker,s])).values()]; fetchLivePrices(unique); }}
-                        disabled={priceLoading}
-                        style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: "pointer" }}>
-                        {priceLoading ? "⏳ 조회 중…" : "🔄 현재가 갱신"}
-                      </button>
+                    <style>{`
+                      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+                      .spinner { width: 14px; height: 14px; border: 2px solid #334155; border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; }
+                    `}</style>
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: "#475569" }}>
+                          {lastUpdated ? `📅 ${lastUpdated} 기준 주가를 갱신했습니다.` : ""}
+                        </span>
+                        <button
+                          onClick={() => { const all = Object.values(portfolios).flatMap(p => p.stocks||[]); const unique = [...new Map(all.map(s=>[s.ticker,s])).values()]; fetchLivePrices(unique); }}
+                          disabled={priceLoading}
+                          style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: priceLoading ? "#60a5fa" : "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: priceLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                          {priceLoading ? <><span className="spinner" /><span>갱신 중...</span></> : "🔄 현재가 갱신"}
+                        </button>
+                      </div>
+                      {priceLoading && (
+                        <div style={{ fontSize: 11, color: "#60a5fa", marginTop: 6, textAlign: "right" }}>
+                          잠시만 기다려주세요, 현재 가격을 갱신 중입니다.
+                        </div>
+                      )}
                     </div>
                     {showWealth && displayPortfolio && (
                       <div style={{ background: "#0f1f0f", border: "1px solid #166534", borderRadius: 12, padding: "12px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
