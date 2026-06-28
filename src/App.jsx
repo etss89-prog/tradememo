@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v5.4";
+const VERSION = "v5.5";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -128,7 +128,14 @@ function PortfolioChart({ data, isAdmin, showWealth }) {
 
   return (
     <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 16, marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", marginBottom: 12 }}>📊 현재 포트폴리오</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8" }}>📊 현재 포트폴리오</div>
+        {data?.some?.(s => s.approximateData) && (
+          <span style={{ fontSize: 10, background: "#2d2000", border: "1px solid #b45309", color: "#f59e0b", borderRadius: 6, padding: "2px 7px" }}>
+            ⚠️ 수량 미확인 · 금액 기준 표시
+          </span>
+        )}
+      </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
         <svg viewBox="0 0 100 100" style={{ width: "38%", maxWidth: 150, minWidth: 100, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
@@ -376,7 +383,9 @@ export default function App() {
       }
       allStocks = allStocks.map(s => ({ ...s, currentValue: s.currentPrice * s.quantity }));
       const totalValue = allStocks.reduce((sum, s) => sum + s.currentValue, 0);
-      const merged = { stocks: allStocks, totalValue };
+      // approximateData: 수량/단가 없이 금액만 있는 포맷 여부 (퇴직연금DC 등)
+      const isApproximate = data.stocks?.some(s => s.approximateData === true);
+      const merged = { stocks: allStocks, totalValue, approximateData: isApproximate };
 
       const newPortfolios = { ...portfolios, [accountId]: merged };
       setPortfolios(newPortfolios);
@@ -744,7 +753,14 @@ export default function App() {
                 <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, padding: "10px 14px" }}>
                   <div style={{ flex: 1 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0" }}>{acc.name}</span>
-                    {portfolios[acc.id] && <span style={{ fontSize: 11, color: "#4ade80", marginLeft: 8 }}>✅ {portfolios[acc.id].stocks?.length}종목</span>}
+                    {portfolios[acc.id] && (
+                      <span style={{ fontSize: 11, color: "#4ade80", marginLeft: 8 }}>
+                        ✅ {portfolios[acc.id].stocks?.length}종목
+                        {portfolios[acc.id].approximateData && (
+                          <span style={{ fontSize: 10, color: "#f59e0b", marginLeft: 4 }}>⚠️ 금액기준</span>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <button
                     style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", padding: "5px 12px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
