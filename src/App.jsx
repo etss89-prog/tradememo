@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v5.9";
+const VERSION = "v6.0";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -424,7 +424,8 @@ export default function App() {
       const res = await fetch("/api/stockprice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tickers }),
+        // ✅ stocks 정보도 전송 → portfolio.js가 저장한 tickerCode 활용
+        body: JSON.stringify({ tickers, stocks }),
       });
       const data = await res.json();
       if (data.prices) {
