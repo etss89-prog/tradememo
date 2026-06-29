@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.1";
+const VERSION = "v6.2";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -259,11 +259,32 @@ export default function App() {
     fetch("/api/load").then(r => r.json()).then(d => {
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
-        setPortfolios(d.portfolios);
+        let portfoliosToSet = d.portfolios;
+        // ✅ livePrices가 있으면 포트폴리오의 currentPrice를 즉시 업데이트
+        // → 렌더링 시 항상 최신 가격이 반영됨 (타이밍 문제 해결)
+        if (d.livePrices) {
+          portfoliosToSet = Object.fromEntries(
+            Object.entries(d.portfolios).map(([accId, p]) => [
+              accId,
+              {
+                ...p,
+                stocks: (p.stocks || []).map(s => {
+                  const livePrice = d.livePrices[s.ticker];
+                  if (!livePrice || s.approximateData || s.isOverseas) return s;
+                  return {
+                    ...s,
+                    currentPrice: livePrice,
+                    currentValue: livePrice * s.quantity,
+                  };
+                }),
+              }
+            ])
+          );
+        }
+        setPortfolios(portfoliosToSet);
       }
       if (d.accounts && d.accounts.length > 0) setAccounts(d.accounts);
       if (d.mainText) setMainText(d.mainText);
-      // ✅ Redis에 저장된 현재가 불러오기 → 관리자가 갱신한 가격을 모든 접속자가 공유
       if (d.livePrices) setLivePrices(d.livePrices);
       if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
     }).catch(() => {});
