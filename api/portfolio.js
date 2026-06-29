@@ -91,14 +91,33 @@ Table with columns: 상품명 | 매입원금/평가금액 | 수익률
 - "현금성자산", "예수금" 등은 포함하지 말 것
 - "approximateData": true 필드 추가
 
+## LAYOUT TYPE 4: OVERSEAS STOCK FORMAT (e.g. 삼성증권 해외주식)
+Table with TWO rows per stock:
+  Row 1: [한글 종목명]  [보유수량]  [매수단가 in USD]
+  Row 2: [영문 티커]    [평가금액 in KRW]  [현재가 in USD]
+
+For OVERSEAS FORMAT:
+- ticker = 한글 종목명 (e.g. "글로벌파운드리", "알파벳 Class A")
+- tickerCode = 영문 티커 (e.g. "GFS", "GOOGL", "MRVL") ← CRITICAL: extract from Row 2
+- quantity = 보유수량 (integer from Row 1)
+- avgBuyPrice = 매수단가 (USD, decimal number from Row 1)
+- currentPrice = 현재가 (USD, decimal number from Row 2)
+- currentValue = 평가금액 (KRW, from Row 2) ← use this directly, already in KRW
+- isOverseas = true ← MUST set this flag
+- approximateData = false
+
+Example: "글로벌파운드리 / GFS / 76주 / 매수단가 40.1551 / 평가금액 9,543,650 / 현재가 81.3200"
+→ { ticker: "글로벌파운드리", tickerCode: "GFS", quantity: 76, avgBuyPrice: 40.1551, currentPrice: 81.3200, currentValue: 9543650, isOverseas: true }
+
 ## CRITICAL RULES:
 - Extract EVERY stock/ETF visible in the image (현금성자산 제외)
 - Stock names: read EVERY character carefully
   ETF names like "TIGER", "KODEX", "HANARO", "RISE", "ACE", "SOL", "PLUS", "1Q" must be exact
+- For overseas stocks: tickerCode is the English ticker (GOOGL, MRVL, GFS etc.) shown below Korean name
 - All numbers must be pure numbers without commas
 - If 수익률 is negative (파란색/blue): negative e.g. -12.27
 - If 수익률 is positive (빨간색/red): positive e.g. 142.08
-- currentValue = currentPrice × quantity
+- currentValue = currentPrice × quantity (except overseas: use KRW 평가금액 directly)
 
 Return ONLY valid JSON:
 {
@@ -143,19 +162,24 @@ Return ONLY valid JSON:
 
     let parsed = JSON.parse(jsonMatch[0].replace(/,\s*}/g, '}').replace(/,\s*]/g, ']'));
 
-    // ✅ 종목코드 자동 조회 - 각 종목에 대해 KIND API로 코드 조회
+    // ✅ 종목코드 자동 조회
     const stocksWithCodes = await Promise.all(
       (parsed.stocks || []).map(async (s) => {
         if (s.approximateData) {
           // DC/연금 금액기준 종목은 코드 조회 불필요
           return { ...s, currentValue: s.currentPrice };
         }
-        // 종목코드 조회
-        const code = await fetchTickerCode(s.ticker);
+        if (s.isOverseas) {
+          // 해외주식: tickerCode는 AI가 이미지에서 직접 추출 (영문 티커)
+          // currentValue는 이미 KRW 평가금액으로 저장됨
+          return { ...s };
+        }
+        // 국내 주식/ETF: KIND API로 종목코드 조회
+        const code = s.tickerCode || await fetchTickerCode(s.ticker);
         return {
           ...s,
           currentValue: s.currentPrice * s.quantity,
-          tickerCode: code || null, // 코드 저장
+          tickerCode: code || null,
         };
       })
     );
