@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.0";
+const VERSION = "v6.1";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -122,7 +122,10 @@ function PortfolioChart({ data, isAdmin, showWealth }) {
     const x2i = cx + r * Math.cos(a2), y2i = cy + r * Math.sin(a2);
     const large = pct > 0.5 ? 1 : 0;
     const path = `M${x1o},${y1o} A${R},${R} 0 ${large},1 ${x2o},${y2o} L${x2i},${y2i} A${r},${r} 0 ${large},0 ${x1i},${y1i} Z`;
-    const ret = d.avgBuy ? ((d.current - d.avgBuy) / d.avgBuy * 100) : null;
+    // 해외주식은 USD 평단 vs KRW 현재가 혼용이라 수익률 직접 계산 불가 → returnRate 사용
+    const ret = d.isOverseas
+      ? (d.returnRate ?? null)
+      : (d.avgBuy ? ((d.current - d.avgBuy) / d.avgBuy * 100) : null);
     return { ...d, path, color: COLORS[i % COLORS.length], pct: Math.round(pct * 1000) / 10, ret };
   });
 
@@ -429,14 +432,22 @@ export default function App() {
       });
       const data = await res.json();
       if (data.prices) {
-        setLivePrices(data.prices);
+        // ✅ 해외주식은 KRW 환산가로 변환해서 저장
+        const processedPrices = {};
+        Object.entries(data.prices).forEach(([name, val]) => {
+          if (val && typeof val === 'object' && val.isOverseas) {
+            processedPrices[name] = val.krw; // KRW 환산가만 저장
+          } else {
+            processedPrices[name] = val;
+          }
+        });
+        setLivePrices(processedPrices);
         const now = new Date().toLocaleString("ko-KR", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
         setLastUpdated(now);
-        // ✅ 현재가만 별도로 저장 (portfolios 등 다른 데이터 건드리지 않음)
         fetch("/api/save-prices", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ livePrices: data.prices, priceUpdatedAt: now })
+          body: JSON.stringify({ livePrices: processedPrices, priceUpdatedAt: now })
         }).catch(() => {});
       }
     } catch (e) {
@@ -538,6 +549,15 @@ export default function App() {
         .flatMap(p => (p.stocks || []).filter(s => !s.approximateData));
 
       const merged = Object.values(allNormalStocks.reduce((acc, s) => {
+        if (s.isOverseas) {
+          // 해외주식: KRW 평가금액 직접 사용
+          const krwValue = livePrices[s.ticker]
+            ? livePrices[s.ticker] * s.quantity
+            : s.currentValue;
+          if (!acc[s.ticker]) acc[s.ticker] = { ...s, currentValue: krwValue };
+          else { acc[s.ticker].quantity += s.quantity; acc[s.ticker].currentValue += krwValue; }
+          return acc;
+        }
         const cur = livePrices[s.ticker] || s.currentPrice;
         if (!acc[s.ticker]) {
           acc[s.ticker] = { ...s, quantity: s.quantity, currentValue: cur * s.quantity };
@@ -916,7 +936,10 @@ export default function App() {
                     )}
                     <PortfolioChart isAdmin={isAdmin} showWealth={showWealth} data={displayPortfolio.stocks?.map(s => {
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
-                      return { ticker: s.ticker, value: currentPrice * s.quantity, avgBuy: s.avgBuyPrice, current: currentPrice, qty: s.quantity };
+                      const value = s.isOverseas
+                        ? (livePrices[s.ticker] ? livePrices[s.ticker] * s.quantity : s.currentValue)
+                        : currentPrice * s.quantity;
+                      return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate };
                     })} />
                   </>
                 : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b", background: "#0a0f1e", borderRadius: 16, border: "1px solid #1e293b" }}>
