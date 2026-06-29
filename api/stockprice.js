@@ -128,6 +128,41 @@ const dynamicCache = {};
 let cachedToken = null;
 let tokenExpiry = null;
 
+// ✅ Yahoo Finance로 해외주식 현재가 조회 (API 키 불필요)
+async function getOverseasPrice(ticker) {
+  try {
+    const res = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          'Accept': 'application/json',
+        }
+      }
+    );
+    const data = await res.json();
+    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    return price ? Math.round(price * 10000) / 10000 : null; // 소수점 4자리
+  } catch {
+    return null;
+  }
+}
+
+// ✅ USD → KRW 환율 조회
+async function getUsdKrwRate() {
+  try {
+    const res = await fetch(
+      'https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X?interval=1d&range=1d',
+      { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } }
+    );
+    const data = await res.json();
+    const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    return rate || 1380; // 기본값 1380원
+  } catch {
+    return 1380;
+  }
+}
+
 async function getAccessToken() {
   if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) return cachedToken;
   const res = await fetch('https://openapi.koreainvestment.com:9443/oauth2/tokenP', {
@@ -222,27 +257,50 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    // tickers: 종목명 배열 (기존 방식)
-    // stocks: { ticker, tickerCode } 배열 (신규 - portfolio.js에서 코드 포함)
+    // tickers: 종목명 배열
+    // stocks: { ticker, tickerCode, isOverseas } 배열 (portfolio.js에서 코드 포함)
     const { tickers, stocks } = req.body;
     if (!tickers || !Array.isArray(tickers)) return res.status(400).json({ error: 'tickers 배열 필요' });
 
-    // stocks 배열에서 tickerCode 맵 생성 (portfolio.js가 저장한 코드)
+    // stocks 배열에서 tickerCode, isOverseas 맵 생성
     const savedCodes = {};
+    const overseasMap = {}; // 해외주식 티커 맵 { 한글명: 영문티커 }
     if (stocks && Array.isArray(stocks)) {
       stocks.forEach(s => {
         if (s.ticker && s.tickerCode) savedCodes[s.ticker] = s.tickerCode;
+        if (s.ticker && s.isOverseas && s.tickerCode) overseasMap[s.ticker] = s.tickerCode;
       });
     }
 
-    const token = await getAccessToken();
+    // ✅ 해외주식 현재가 조회 (Yahoo Finance) + 환율
+    const usdKrwRate = await getUsdKrwRate();
     const prices = {};
 
-    for (const name of tickers) {
-      // 우선순위: 1) portfolio.js가 저장한 코드 2) TICKER_MAP 3) dynamicCache 4) AI 추측
+    // 해외주식 먼저 처리
+    const overseasTickers = tickers.filter(name => overseasMap[name]);
+    for (const name of overseasTickers) {
+      const yahooTicker = overseasMap[name];
+      try {
+        const usdPrice = await getOverseasPrice(yahooTicker);
+        // KRW로 환산해서 저장 (앱에서 KRW로 표시)
+        prices[name] = usdPrice ? {
+          usd: usdPrice,
+          krw: Math.round(usdPrice * usdKrwRate),
+          isOverseas: true,
+          rate: usdKrwRate,
+        } : null;
+        await new Promise(r => setTimeout(r, 50));
+      } catch { prices[name] = null; }
+    }
+
+    // 국내주식 처리 (한투 API)
+    const domesticTickers = tickers.filter(name => !overseasMap[name]);
+    const token = await getAccessToken();
+
+    for (const name of domesticTickers) {
       let code = savedCodes[name] || TICKER_MAP[name] || dynamicCache[name];
       if (!code) code = await guessTickerCode(name);
-      if (code) dynamicCache[name] = code; // 조회 성공한 코드 캐시에 저장
+      if (code) dynamicCache[name] = code;
       if (!code) { prices[name] = null; continue; }
       try {
         prices[name] = await getCurrentPrice(token, code);
@@ -250,7 +308,7 @@ export default async function handler(req, res) {
       } catch { prices[name] = null; }
     }
 
-    return res.status(200).json({ prices });
+    return res.status(200).json({ prices, usdKrwRate });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
