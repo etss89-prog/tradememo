@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.2";
+const VERSION = "v6.3";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -104,7 +104,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) 
   );
 }
 
-function PortfolioChart({ data, isAdmin, showWealth }) {
+function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
   if (!data || data.length === 0) return null;
   const sorted = [...data].sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
@@ -173,12 +173,13 @@ function PortfolioChart({ data, isAdmin, showWealth }) {
         </div>
       </div>
       <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #1e293b" }}>
-        <div style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", background: "#0f172a", padding: "8px 12px", gap: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: isAdmin && onEdit ? (showWealth ? "1.3fr 0.6fr 0.6fr 1fr 1fr 0.3fr" : "1.6fr 0.7fr 0.7fr 1.3fr 0.3fr") : (showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr"), background: "#0f172a", padding: "8px 12px", gap: 4 }}>
           <span style={{ fontSize: 10, color: "#475569" }}>종목명</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>비중</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>수익률</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>평단/현재가</span>
           {showWealth && <span style={{ fontSize: 10, color: "#22c55e", textAlign: "right" }}>수량/보유금액</span>}
+          {isAdmin && onEdit && <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}></span>}
         </div>
         {slices.map((s, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: "1px solid #1e293b", background: i % 2 === 0 ? "#111827" : "#0f172a" }}>
@@ -202,6 +203,11 @@ function PortfolioChart({ data, isAdmin, showWealth }) {
                   : <div style={{ fontSize: 11, color: "#22c55e" }}>{s.qty?.toLocaleString()}주</div>
                 }
                 <div style={{ fontSize: 12, fontWeight: 700, color: s.approximateData ? "#f59e0b" : "#22c55e" }}>{s.value?.toLocaleString()}원</div>
+              </div>
+            )}
+            {isAdmin && onEdit && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#475569", fontSize: 13, cursor: "pointer", padding: "2px 4px" }}>✏️</button>
               </div>
             )}
           </div>
@@ -239,6 +245,9 @@ export default function App() {
   const [shareMsg, setShareMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [showWealth, setShowWealth] = useState(false); // 관리자 자산공개 토글
+  const [editStockModal, setEditStockModal] = useState(null); // { accountId, stock }
+  const [editStockQty, setEditStockQty] = useState("");
+  const [editStockAvg, setEditStockAvg] = useState("");
   const [mainText, setMainText] = useState({ emoji: "🐜", title: "존버일기장", subtitle: "존버는 승리한다.\n왜냐하면 승리하기 때문이다." });
   const [editingMain, setEditingMain] = useState(false);
   const [editDraft, setEditDraft] = useState({});
@@ -328,6 +337,50 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts: newAccounts, mainText })
+    });
+  }
+
+  async function saveEditStock() {
+    const { accountId, stock } = editStockModal;
+    const qty = parseInt(editStockQty);
+    const avg = parseInt(editStockAvg.replace(/,/g, ""));
+    if (isNaN(qty) || isNaN(avg)) return alert("수량과 평단가를 올바르게 입력해주세요.");
+
+    const existing = portfolios[accountId];
+    if (!existing) return;
+
+    const updatedStocks = existing.stocks.map(s =>
+      s.ticker === stock.ticker
+        ? { ...s, quantity: qty, avgBuyPrice: avg, currentValue: (livePrices[s.ticker] || s.currentPrice) * qty }
+        : s
+    );
+    const totalValue = updatedStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0);
+    const newPortfolios = { ...portfolios, [accountId]: { ...existing, stocks: updatedStocks, totalValue } };
+    setPortfolios(newPortfolios);
+    setEditStockModal(null);
+    setEditStockQty("");
+    setEditStockAvg("");
+
+    await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText })
+    });
+    alert(`✅ ${stock.ticker} 수정 완료!`);
+  }
+
+  async function deleteStock(accountId, ticker) {
+    if (!window.confirm(`"${ticker}" 종목을 삭제할까요?`)) return;
+    const existing = portfolios[accountId];
+    if (!existing) return;
+    const updatedStocks = existing.stocks.filter(s => s.ticker !== ticker);
+    const totalValue = updatedStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0);
+    const newPortfolios = { ...portfolios, [accountId]: { ...existing, stocks: updatedStocks, totalValue } };
+    setPortfolios(newPortfolios);
+    await fetch("/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText })
     });
   }
 
@@ -672,6 +725,35 @@ export default function App() {
         </div>
       )}
 
+      {/* 종목 편집 모달 */}
+      {editStockModal && (
+        <div style={S.overlay}>
+          <div style={{ ...S.modal, width: 300 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 종목 수정</div>
+            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 16 }}>{editStockModal.stock.ticker}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>보유 수량 (주)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  type="number" placeholder="예: 100"
+                  value={editStockQty} onChange={e => setEditStockQty(e.target.value)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>매수 평단가 (원)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  type="number" placeholder="예: 85000"
+                  value={editStockAvg} onChange={e => setEditStockAvg(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setEditStockModal(null); setEditStockQty(""); setEditStockAvg(""); }}>취소</button>
+              <button style={{ ...S.btnDanger, flex: 1, fontSize: 12 }} onClick={() => { deleteStock(editStockModal.accountId, editStockModal.stock.ticker); setEditStockModal(null); }}>🗑️ 삭제</button>
+              <button style={{ ...S.btnMain, flex: 1 }} onClick={saveEditStock}>저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {addAccModal && (
         <div style={S.overlay}>
           <div style={{ ...S.modal, width: 300 }}>
@@ -955,13 +1037,23 @@ export default function App() {
                         <span style={{ fontWeight: 700 }}>+{displayPortfolio.approxTotal.toLocaleString()}원 포함</span>
                       </div>
                     )}
-                    <PortfolioChart isAdmin={isAdmin} showWealth={showWealth} data={displayPortfolio.stocks?.map(s => {
-                      const currentPrice = livePrices[s.ticker] || s.currentPrice;
-                      const value = s.isOverseas
-                        ? (livePrices[s.ticker] ? livePrices[s.ticker] * s.quantity : s.currentValue)
-                        : currentPrice * s.quantity;
-                      return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate };
-                    })} />
+                    <PortfolioChart isAdmin={isAdmin} showWealth={showWealth}
+                      onEdit={activeAccount !== "all" ? (s) => {
+                        // 원본 stock 데이터 찾기
+                        const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
+                        if (origStock) {
+                          setEditStockModal({ accountId: activeAccount, stock: origStock });
+                          setEditStockQty(String(origStock.quantity || ""));
+                          setEditStockAvg(String(origStock.avgBuyPrice || ""));
+                        }
+                      } : null}
+                      data={displayPortfolio.stocks?.map(s => {
+                        const currentPrice = livePrices[s.ticker] || s.currentPrice;
+                        const value = s.isOverseas
+                          ? (livePrices[s.ticker] ? livePrices[s.ticker] * s.quantity : s.currentValue)
+                          : currentPrice * s.quantity;
+                        return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate };
+                      })} />
                   </>
                 : <div style={{ textAlign: "center", padding: "40px 20px", color: "#64748b", background: "#0a0f1e", borderRadius: 16, border: "1px solid #1e293b" }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
