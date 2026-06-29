@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v5.8";
+const VERSION = "v5.9";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -559,7 +559,16 @@ export default function App() {
 
       return { stocks: merged, totalValue: normalTotal + approxTotal, approxTotal };
     }
-    return portfolios[activeAccount] || null;
+    // 개별 계좌: livePrices 반영해서 totalValue 재계산
+    const p = portfolios[activeAccount];
+    if (!p) return null;
+    if (p.approximateData) return p; // 금액기준 계좌는 그대로
+    const stocks = (p.stocks || []).map(s => {
+      const cur = livePrices[s.ticker] || s.currentPrice;
+      return { ...s, currentValue: cur * s.quantity };
+    });
+    const totalValue = stocks.reduce((sum, s) => sum + s.currentValue, 0);
+    return { ...p, stocks, totalValue };
   })();
 
   const allDone = images.length > 0 && images.every(i => !i.loading);
