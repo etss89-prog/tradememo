@@ -92,6 +92,22 @@ const TICKER_MAP = {
   "KODEX 삼성전자SK하이닉스채권혼합50": "0135L0",
   "SOL AI반도체소부장": "0130Z0",
 
+  // DC 계좌 ETF (새로 추가)
+  "SOL 반도체전공정": "475300",
+  "KODEX AI반도체핵심장비": "471990",
+  "ACE K휴머노이드로봇산업TOP2+": "0177X0",
+  "RISE 현대차고정피지컬AI": "0190C0",
+  "ACE 엔비디아채권혼합": "0155L0",
+  "ACE 미국30년국채액티브(H)": "461680",
+  "KODEX SK하이닉스단일종목레버리지": "0193T0",
+  "티에프이": "149530",
+  "아이앤씨": "101390",
+  "티에프피": "149530",
+  "ACE 마이크로소프트밸류체인인액티브": "0072T0",
+  "ACE 마이크로소프트밸류체인액티브": "0072T0",
+  "PLUS 글로벌희토류&전략자원생산기업": "0072R0",
+  "PLUS 글로벌히토류&전략자원생산기업": "0072R0",
+
   // 오인식 대비 매핑
   "가가비스": "420770",
   "가비스": "420770",
@@ -131,8 +147,13 @@ async function getAccessToken() {
 }
 
 async function getCurrentPrice(token, code) {
-  // ETF 코드 형식 판별 (숫자 6자리 = 주식/ETF, 영숫자 혼합 = 신규ETF)
-  const marketCode = /^\d{6}$/.test(code) ? 'J' : 'ETF';
+  // 마켓 코드 판별
+  // 순수 6자리 숫자 = 코스피/코스닥 주식 → J
+  // 영숫자 혼합 (0117V0 등 신규 ETF) → ETF
+  // 6자리 숫자지만 ETF인 경우 (069500, 233740 등) → J로 조회해도 됨 (한투 API가 처리)
+  const isNewETF = /[A-Za-z]/.test(code); // 영문자 포함 여부로 판별
+  const marketCode = isNewETF ? 'ETF' : 'J';
+  
   const res = await fetch(
     `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=${marketCode}&fid_input_iscd=${code}`,
     {
@@ -147,6 +168,26 @@ async function getCurrentPrice(token, code) {
   );
   const data = await res.json();
   const price = parseInt(data.output?.stck_prpr || 0);
+  
+  // ETF 마켓으로 0 나오면 J로 재시도
+  if (price === 0 && isNewETF) {
+    const res2 = await fetch(
+      `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
+      {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+          appkey: process.env.KIS_APP_KEY,
+          appsecret: process.env.KIS_APP_SECRET,
+          tr_id: 'FHKST01010100',
+        },
+      }
+    );
+    const data2 = await res2.json();
+    const price2 = parseInt(data2.output?.stck_prpr || 0);
+    return price2 > 0 ? price2 : null;
+  }
+  
   return price > 0 ? price : null;
 }
 
