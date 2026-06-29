@@ -222,15 +222,27 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    const { tickers } = req.body;
+    // tickers: 종목명 배열 (기존 방식)
+    // stocks: { ticker, tickerCode } 배열 (신규 - portfolio.js에서 코드 포함)
+    const { tickers, stocks } = req.body;
     if (!tickers || !Array.isArray(tickers)) return res.status(400).json({ error: 'tickers 배열 필요' });
+
+    // stocks 배열에서 tickerCode 맵 생성 (portfolio.js가 저장한 코드)
+    const savedCodes = {};
+    if (stocks && Array.isArray(stocks)) {
+      stocks.forEach(s => {
+        if (s.ticker && s.tickerCode) savedCodes[s.ticker] = s.tickerCode;
+      });
+    }
 
     const token = await getAccessToken();
     const prices = {};
 
     for (const name of tickers) {
-      let code = TICKER_MAP[name] || dynamicCache[name];
+      // 우선순위: 1) portfolio.js가 저장한 코드 2) TICKER_MAP 3) dynamicCache 4) AI 추측
+      let code = savedCodes[name] || TICKER_MAP[name] || dynamicCache[name];
       if (!code) code = await guessTickerCode(name);
+      if (code) dynamicCache[name] = code; // 조회 성공한 코드 캐시에 저장
       if (!code) { prices[name] = null; continue; }
       try {
         prices[name] = await getCurrentPrice(token, code);
