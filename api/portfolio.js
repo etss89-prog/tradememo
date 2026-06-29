@@ -1,5 +1,50 @@
 export const config = { api: { bodySizeLimit: '15mb' } };
 
+// 종목명으로 한국거래소 KIND API에서 종목코드 조회
+async function fetchTickerCode(tickerName) {
+  try {
+    // KIND API - 종목명 검색 (무료, 인증 불필요)
+    const res = await fetch(
+      `https://kind.krx.co.kr/common/searchCmpltList.do?method=searchCmpltList&searchText=${encodeURIComponent(tickerName)}&marketType=ALL`,
+      { headers: { 'Accept': 'application/json, text/javascript, */*' } }
+    );
+    const data = await res.json();
+    if (data?.result?.length > 0) {
+      // 종목명이 정확히 일치하는 것 우선
+      const exact = data.result.find(r => r.shrtCd && 
+        (r.itemNm === tickerName || r.itemNm?.replace(/\s/g,'') === tickerName.replace(/\s/g,''))
+      );
+      const match = exact || data.result[0];
+      if (match?.shrtCd) return match.shrtCd;
+    }
+  } catch {}
+
+  // KIND API 실패 시 Claude AI로 폴백
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.REACT_APP_ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 100,
+        messages: [{ role: 'user', content: 
+          `한국 주식/ETF 종목명 "${tickerName}"의 종목코드를 알려줘. 숫자 6자리 또는 영숫자 혼합 7자리(예: 0117V0)만 답해. 모르면 "모름"만 답해.`
+        }]
+      }),
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text?.trim() || '';
+    const match = text.match(/[A-Z0-9]{6,7}/i);
+    if (match && match[0] !== '모름') return match[0];
+  } catch {}
+
+  return null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -38,27 +83,24 @@ Table with columns: 상품명 | 매입원금/평가금액 | 수익률
 - NO quantity or unit price shown
 - Use this mapping:
   ticker = 상품명
-  quantity = 1  (단위를 1로 설정)
+  quantity = 1
   avgBuyPrice = 매입원금 (상단 숫자, 총 투자금액)
   currentPrice = 평가금액 (하단 숫자, 현재 총 가치)
   returnRate = 수익률 (빨간색=양수, 파란색=음수)
-  currentValue = 평가금액 (= currentPrice × 1)
-- 이 포맷은 나중에 정확한 수량/단가 정보가 있는 이미지로 대체 가능
+  currentValue = 평가금액
 - "현금성자산", "예수금" 등은 포함하지 말 것
+- "approximateData": true 필드 추가
 
 ## CRITICAL RULES:
-- Extract EVERY stock/ETF row visible in the image (현금성자산 제외)
+- Extract EVERY stock/ETF visible in the image (현금성자산 제외)
 - Stock names: read EVERY character carefully
   ETF names like "TIGER", "KODEX", "HANARO", "RISE", "ACE", "SOL", "PLUS", "1Q" must be exact
-- quantity must be a NUMBER, NOT a string
-- avgBuyPrice must be a NUMBER, NOT a string
-- Remove all commas from numbers: "16,571" → 16571
-- If 수익률 is negative (파란색/blue): negative number e.g. -12.27
-- If 수익률 is positive (빨간색/red): positive number e.g. 142.08
-- currentValue = currentPrice × quantity (always recalculate)
-- "approximateData": true 필드를 추가해서 TYPE 3 포맷임을 표시
+- All numbers must be pure numbers without commas
+- If 수익률 is negative (파란색/blue): negative e.g. -12.27
+- If 수익률 is positive (빨간색/red): positive e.g. 142.08
+- currentValue = currentPrice × quantity
 
-Return ONLY valid JSON, no other text:
+Return ONLY valid JSON:
 {
   "stocks": [
     {
@@ -101,16 +143,25 @@ Return ONLY valid JSON, no other text:
 
     let parsed = JSON.parse(jsonMatch[0].replace(/,\s*}/g, '}').replace(/,\s*]/g, ']'));
 
-    // 서버에서 currentValue 재계산 + 숫자 타입 보정
-    parsed.stocks = parsed.stocks.map(s => ({
-      ...s,
-      quantity: Number(s.quantity),
-      avgBuyPrice: Number(s.avgBuyPrice),
-      currentPrice: Number(s.currentPrice),
-      currentValue: Number(s.currentPrice) * Number(s.quantity),
-      returnRate: Number(s.returnRate),
-    }));
-    parsed.totalValue = parsed.stocks.reduce((sum, s) => sum + s.currentValue, 0);
+    // ✅ 종목코드 자동 조회 - 각 종목에 대해 KIND API로 코드 조회
+    const stocksWithCodes = await Promise.all(
+      (parsed.stocks || []).map(async (s) => {
+        if (s.approximateData) {
+          // DC/연금 금액기준 종목은 코드 조회 불필요
+          return { ...s, currentValue: s.currentPrice };
+        }
+        // 종목코드 조회
+        const code = await fetchTickerCode(s.ticker);
+        return {
+          ...s,
+          currentValue: s.currentPrice * s.quantity,
+          tickerCode: code || null, // 코드 저장
+        };
+      })
+    );
+
+    parsed.stocks = stocksWithCodes;
+    parsed.totalValue = stocksWithCodes.reduce((sum, s) => sum + (s.currentValue || 0), 0);
 
     return res.status(200).json(parsed);
   } catch (error) {
