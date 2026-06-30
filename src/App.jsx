@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.4";
+const VERSION = "v6.5";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -521,6 +521,31 @@ export default function App() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ livePrices: processedPrices, priceUpdatedAt: now })
         }).catch(() => {});
+
+        // ✅ 이번에 실제 조회 성공한 종목코드를 portfolios에 캐싱
+        // → 다음 갱신부터는 TICKER_MAP/네이버API를 거치지 않고 바로 정확한 코드 사용
+        // → 사람이 손으로 잘못 입력한 TICKER_MAP 오타에 더 이상 의존하지 않게 됨
+        if (data.resolvedCodes && Object.keys(data.resolvedCodes).length > 0) {
+          const updatedPortfolios = Object.fromEntries(
+            Object.entries(portfolios).map(([accId, p]) => [
+              accId,
+              {
+                ...p,
+                stocks: (p.stocks || []).map(s =>
+                  data.resolvedCodes[s.ticker] && !s.tickerCode
+                    ? { ...s, tickerCode: data.resolvedCodes[s.ticker] }
+                    : s
+                ),
+              }
+            ])
+          );
+          setPortfolios(updatedPortfolios);
+          fetch("/api/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ records: allRecords, portfolios: updatedPortfolios, accounts, mainText })
+          }).catch(() => {});
+        }
       }
     } catch (e) {
       console.error("주가 조회 실패:", e);
