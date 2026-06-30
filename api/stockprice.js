@@ -35,7 +35,7 @@ const TICKER_MAP = {
   "뉴로메카": "348340",
   "일진하이솔루스": "271940",
   "서울바이오시스": "328130",
-  "아이엠씨": "101390",
+  // "아이엠씨"는 비상장 기업이라 종목코드 없음 (101390은 별개 회사 "아이엠"의 코드였음, 오매핑 제거)
   "누리플렉스": "040160",
   "뉴프렉스": "085670",
   "대덕1우": "008045",
@@ -67,10 +67,10 @@ const TICKER_MAP = {
   "TIGER 코리아AI전력기기TOP3플러스": "0117V0",
   "SOL AI반도체TOP2플러스": "0167A0",
   "RISE 삼성전자SK하이닉스채권혼합50": "0162Z0",
-  "1Q 코스닥150채권혼합50액티브": "0145J0",
-  "1Q 200채권혼합50액티브": "0137R0",
+  "1Q 코스닥150채권혼합50액티브": "0186S0",
+  "1Q 200채권혼합50액티브": "0184E0",
   "KODEX 차이나A50": "302190",
-  "RISE 네트워크인프라": "0053M0",
+  "RISE 네트워크인프라": "367760",
   "TIGER 차이나전기차SOLACTIVE": "371460",
   "TIGER 차이나전기차솔액티브": "371460",
   "KODEX 차이나항셍테크": "371150",
@@ -78,37 +78,37 @@ const TICKER_MAP = {
   "HANARO 증권고배당TOP3플러스": "0111J0", // ✅ 추가
   "HANARO 전력설비투자": "491820",     // ✅ 추가
   "PLUS 태양광&ESS": "457990",         // ✅ 423160 → 457990 수정
-  "PLUS 글로벌히토류&전략자원생산기업": "0072R0",
-  "KODEX 삼성전자채권혼합": "0135K0",
-  "KODEX 삼성전자채권혼합50": "0135K0",
-  "SOL AI반도체소부장": "0130Z0",
-  "ACE 테슬라밸류체인인액티브": "0060J0",
-  "ACE 테슬라밸류체인액티브": "0060J0",
+  "PLUS 글로벌히토류&전략자원생산기업": "415920",
+  "KODEX 삼성전자채권혼합": "448330",
+  "KODEX 삼성전자채권혼합50": "448330",
+  "SOL AI반도체소부장": "455850",
+  "ACE 테슬라밸류체인인액티브": "457480",
+  "ACE 테슬라밸류체인액티브": "457480",
   "PLUS 태양광&ESS": "457990",
-  "RISE 2차전지TOP10": "0072S0",
-  "ACE 마이크로소프트밸류체인인액티브": "0072T0",
-  "KODEX AI전력핵심설비": "0117T0",
+  "RISE 2차전지TOP10": "465330",
+  "ACE 마이크로소프트밸류체인인액티브": "483330",
+  "KODEX AI전력핵심설비": "487240",
   "HANARO 전력설비투자": "491820",
-  "UNICORN SK하이닉스밸류체인액티브": "0117W0",
-  "ACE 국고채10년": "461680",
-  "KODEX 삼성전자SK하이닉스채권혼합50": "0135L0",
-  "SOL AI반도체소부장": "0130Z0",
+  "UNICORN SK하이닉스밸류체인액티브": "494220",
+  "ACE 국고채10년": "365780",
+  "KODEX 삼성전자SK하이닉스채권혼합50": "0177N0",
+  "SOL AI반도체소부장": "455850",
 
   // DC 계좌 ETF (새로 추가)
   "SOL 반도체전공정": "475300",
   "KODEX AI반도체핵심장비": "471990",
   "ACE K휴머노이드로봇산업TOP2+": "0177X0",
   "RISE 현대차고정피지컬AI": "0190C0",
-  "ACE 엔비디아채권혼합": "0155L0",
+  "ACE 엔비디아채권혼합": "448540",
   "ACE 미국30년국채액티브(H)": "461680",
   "KODEX SK하이닉스단일종목레버리지": "0193T0",
   "티에프이": "425420",
-  "아이앤씨": "101390",
+  "아이앤씨": "052860",
   "티에프피": "149530",
-  "ACE 마이크로소프트밸류체인인액티브": "0072T0",
-  "ACE 마이크로소프트밸류체인액티브": "0072T0",
-  "PLUS 글로벌희토류&전략자원생산기업": "0072R0",
-  "PLUS 글로벌히토류&전략자원생산기업": "0072R0",
+  "ACE 마이크로소프트밸류체인인액티브": "483330",
+  "ACE 마이크로소프트밸류체인액티브": "483330",
+  "PLUS 글로벌희토류&전략자원생산기업": "415920",
+  "PLUS 글로벌히토류&전략자원생산기업": "415920",
 
   // 오인식 대비 매핑
   "가가비스": "420770",
@@ -324,20 +324,39 @@ export default async function handler(req, res) {
     const token = await getAccessToken();
 
     for (const name of domesticTickers) {
-      // ✅ 우선순위: 1)이미지에서 직접 추출한 코드 2)TICKER_MAP(사람이 검증) 3)캐시 4)네이버API 5)Claude AI
-      // TICKER_MAP은 정확성이 검증된 값이므로 최우선 사용. 네이버 자동완성은 동명이인/유사종목을
-      // 잘못 매칭할 위험이 있어 TICKER_MAP에 없는 종목에 대해서만 보조적으로 사용.
-      let code = savedCodes[name] || TICKER_MAP[name] || dynamicCache[name];
-      if (!code) code = await guessTickerCode(name);
+      // ✅ 우선순위 (사람이 손으로 옮겨적은 TICKER_MAP은 항상 최후순위):
+      // 1) 이미지에서 이번 요청에 직접 추출한 코드 (savedCodes) — 가장 신뢰도 높음, 매번 최신
+      // 2) 이전에 이 종목명으로 조회 성공해 캐시된 코드 (dynamicCache)
+      // 3) 네이버 자동완성 API 실시간 조회 — 외부 검증 소스, 오타 위험 없음
+      // 4) TICKER_MAP 하드코딩 — 사람이 손으로 입력한 값이라 오타 가능성 있음. 최후 수단.
+      let code = savedCodes[name] || dynamicCache[name];
+      let source = code ? 'cache/saved' : null;
+
+      if (!code) {
+        code = await guessTickerCode(name); // 네이버 API
+        if (code) source = 'naver';
+      }
+      if (!code) {
+        code = TICKER_MAP[name]; // 사람이 입력한 맵은 마지막에만
+        if (code) source = 'manual_map';
+      }
       if (code) dynamicCache[name] = code;
       if (!code) { prices[name] = null; continue; }
+
       try {
         prices[name] = await getCurrentPrice(token, code);
         await new Promise(r => setTimeout(r, 100));
       } catch { prices[name] = null; }
     }
 
-    return res.status(200).json({ prices, usdKrwRate });
+    // resolvedCodes: 이번에 실제로 사용한 종목코드 매핑 (App.jsx가 다음 저장 시 tickerCode로 캐싱하도록)
+    const resolvedCodes = {};
+    for (const name of domesticTickers) {
+      const c = dynamicCache[name];
+      if (c) resolvedCodes[name] = c;
+    }
+
+    return res.status(200).json({ prices, usdKrwRate, resolvedCodes });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
