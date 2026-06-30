@@ -6,7 +6,7 @@ const TICKER_MAP = {
   "LG전자우": "066575",
   "한솔테크닉스": "004710",
   "기가비스": "420770",
-  "그리드위즈": "453440",
+  "그리드위즈": "453450",
   "OCI홀딩스": "010060",
   "한화솔루션": "009830",
   "유니테스트": "086390",
@@ -21,7 +21,7 @@ const TICKER_MAP = {
   "티에프피": "149530",
   "한화솔루션우": "009835",
   "에이엘티": "172670",
-  "지투파워": "344490",
+  "지투파워": "388050",
   "상아프론테크": "089980",
   "시지트로닉스": "049630",
   "켐트로닉스": "089010",
@@ -32,7 +32,7 @@ const TICKER_MAP = {
   "펄어비스": "263750",
   "SK이노베이션": "096770",
   "티에스이": "131290",
-  "뉴로메카": "348740",
+  "뉴로메카": "348340",
   "일진하이솔루스": "271940",
   "서울바이오시스": "328130",
   "아이엠씨": "101390",
@@ -102,7 +102,7 @@ const TICKER_MAP = {
   "ACE 엔비디아채권혼합": "0155L0",
   "ACE 미국30년국채액티브(H)": "461680",
   "KODEX SK하이닉스단일종목레버리지": "0193T0",
-  "티에프이": "149530",
+  "티에프이": "425420",
   "아이앤씨": "101390",
   "티에프피": "149530",
   "ACE 마이크로소프트밸류체인인액티브": "0072T0",
@@ -324,10 +324,11 @@ export default async function handler(req, res) {
     const token = await getAccessToken();
 
     for (const name of domesticTickers) {
-      // ✅ 우선순위: 1)이미지에서 직접 추출한 코드 2)캐시 3)네이버API 4)TICKER_MAP 5)Claude AI
-      let code = savedCodes[name] || dynamicCache[name];
-      if (!code) code = await guessTickerCode(name); // 네이버 API 우선, 실패시 내부에서 Claude AI 폴백
-      if (!code) code = TICKER_MAP[name]; // 최후 수단으로 하드코딩 맵 사용
+      // ✅ 우선순위: 1)이미지에서 직접 추출한 코드 2)TICKER_MAP(사람이 검증) 3)캐시 4)네이버API 5)Claude AI
+      // TICKER_MAP은 정확성이 검증된 값이므로 최우선 사용. 네이버 자동완성은 동명이인/유사종목을
+      // 잘못 매칭할 위험이 있어 TICKER_MAP에 없는 종목에 대해서만 보조적으로 사용.
+      let code = savedCodes[name] || TICKER_MAP[name] || dynamicCache[name];
+      if (!code) code = await guessTickerCode(name);
       if (code) dynamicCache[name] = code;
       if (!code) { prices[name] = null; continue; }
       try {
