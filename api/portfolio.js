@@ -1,25 +1,33 @@
 export const config = { api: { bodySizeLimit: '15mb' } };
 
-// 종목명으로 한국거래소 KIND API에서 종목코드 조회
+// 종목명으로 네이버 금융 자동완성 API에서 종목코드 조회 (무료, 매우 안정적)
 async function fetchTickerCode(tickerName) {
+  // 1차: 네이버 금융 자동완성 검색
   try {
-    // KIND API - 종목명 검색 (무료, 인증 불필요)
     const res = await fetch(
-      `https://kind.krx.co.kr/common/searchCmpltList.do?method=searchCmpltList&searchText=${encodeURIComponent(tickerName)}&marketType=ALL`,
-      { headers: { 'Accept': 'application/json, text/javascript, */*' } }
+      `https://ac.finance.naver.com/ac?q=${encodeURIComponent(tickerName)}&q_enc=UTF-8&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1&run=2&rev=4`,
+      { headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
     );
-    const data = await res.json();
-    if (data?.result?.length > 0) {
-      // 종목명이 정확히 일치하는 것 우선
-      const exact = data.result.find(r => r.shrtCd && 
-        (r.itemNm === tickerName || r.itemNm?.replace(/\s/g,'') === tickerName.replace(/\s/g,''))
-      );
-      const match = exact || data.result[0];
-      if (match?.shrtCd) return match.shrtCd;
+    const text = await res.text();
+    const data = JSON.parse(text);
+    // 응답 구조: items[0] = [[종목명, ...], [종목명, ...]], items[1] = [[코드, ...], [코드, ...]]
+    const names = data?.items?.[0] || [];
+    const codes = data?.items?.[1] || [];
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i]?.[0]?.replace(/<[^>]+>/g, '').trim(); // HTML 태그 제거
+      const code = codes[i]?.[0];
+      if (name && code) {
+        // 정확히 일치하거나 공백 제거 후 일치
+        if (name === tickerName || name.replace(/\s/g, '') === tickerName.replace(/\s/g, '')) {
+          return code;
+        }
+      }
     }
+    // 정확히 일치하는 게 없으면 첫 번째 결과 사용 (가장 유사한 매칭)
+    if (codes[0]?.[0]) return codes[0][0];
   } catch {}
 
-  // KIND API 실패 시 Claude AI로 폴백
+  // 2차 폴백: Claude AI 추측
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
