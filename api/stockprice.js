@@ -1,3 +1,5 @@
+// ⚠️ 주의: 이 맵은 최후순위 폴백으로만 사용됨 (네이버 API 우선)
+// 일부 코드는 검증되지 않았을 수 있음. 가격이 이상하면 종목코드를 다시 확인할 것.
 const TICKER_MAP = {
   // 정확한 종목명
   "SK하이닉스": "000660",
@@ -18,7 +20,7 @@ const TICKER_MAP = {
   "마이크로컨텍솔": "098120",
   "티에프피": "149530",
   "한화솔루션우": "009835",
-  "에이엘티": "200470",
+  "에이엘티": "172670",
   "지투파워": "344490",
   "상아프론테크": "089980",
   "시지트로닉스": "049630",
@@ -228,6 +230,29 @@ async function getCurrentPrice(token, code) {
 
 async function guessTickerCode(tickerName) {
   if (dynamicCache[tickerName]) return dynamicCache[tickerName];
+
+  // 1차: 네이버 금융 자동완성 검색 (무료, 안정적)
+  try {
+    const res = await fetch(
+      `https://ac.finance.naver.com/ac?q=${encodeURIComponent(tickerName)}&q_enc=UTF-8&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1&run=2&rev=4`,
+      { headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
+    );
+    const text = await res.text();
+    const data = JSON.parse(text);
+    const names = data?.items?.[0] || [];
+    const codes = data?.items?.[1] || [];
+    for (let i = 0; i < names.length; i++) {
+      const name = names[i]?.[0]?.replace(/<[^>]+>/g, '').trim();
+      const code = codes[i]?.[0];
+      if (name && code && (name === tickerName || name.replace(/\s/g, '') === tickerName.replace(/\s/g, ''))) {
+        dynamicCache[tickerName] = code;
+        return code;
+      }
+    }
+    if (codes[0]?.[0]) { dynamicCache[tickerName] = codes[0][0]; return codes[0][0]; }
+  } catch {}
+
+  // 2차 폴백: Claude AI 추측
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -247,6 +272,7 @@ async function guessTickerCode(tickerName) {
     const match = text.match(/\d{6}/);
     if (match) { dynamicCache[tickerName] = match[0]; return match[0]; }
   } catch {}
+
   return null;
 }
 
@@ -298,8 +324,10 @@ export default async function handler(req, res) {
     const token = await getAccessToken();
 
     for (const name of domesticTickers) {
-      let code = savedCodes[name] || TICKER_MAP[name] || dynamicCache[name];
-      if (!code) code = await guessTickerCode(name);
+      // ✅ 우선순위: 1)이미지에서 직접 추출한 코드 2)캐시 3)네이버API 4)TICKER_MAP 5)Claude AI
+      let code = savedCodes[name] || dynamicCache[name];
+      if (!code) code = await guessTickerCode(name); // 네이버 API 우선, 실패시 내부에서 Claude AI 폴백
+      if (!code) code = TICKER_MAP[name]; // 최후 수단으로 하드코딩 맵 사용
       if (code) dynamicCache[name] = code;
       if (!code) { prices[name] = null; continue; }
       try {
