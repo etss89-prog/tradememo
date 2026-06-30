@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.3";
+const VERSION = "v6.4";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -173,19 +173,21 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
         </div>
       </div>
       <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #1e293b" }}>
-        <div style={{ display: "grid", gridTemplateColumns: isAdmin && onEdit ? (showWealth ? "1.3fr 0.6fr 0.6fr 1fr 1fr 0.3fr" : "1.6fr 0.7fr 0.7fr 1.3fr 0.3fr") : (showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr"), background: "#0f172a", padding: "8px 12px", gap: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", background: "#0f172a", padding: "8px 12px", gap: 4 }}>
           <span style={{ fontSize: 10, color: "#475569" }}>종목명</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>비중</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}>수익률</span>
           <span style={{ fontSize: 10, color: "#475569", textAlign: "right" }}>평단/현재가</span>
           {showWealth && <span style={{ fontSize: 10, color: "#22c55e", textAlign: "right" }}>수량/보유금액</span>}
-          {isAdmin && onEdit && <span style={{ fontSize: 10, color: "#475569", textAlign: "center" }}></span>}
         </div>
         {slices.map((s, i) => (
           <div key={i} style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: "1px solid #1e293b", background: i % 2 === 0 ? "#111827" : "#0f172a" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-              <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 12 }}>{s.ticker}</span>
+              <span style={{ color: "#e2e8f0", fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
+              {isAdmin && onEdit && (
+                <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}>✏️</button>
+              )}
             </div>
             <span style={{ color: "#e2e8f0", fontWeight: 700, fontSize: 12, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
             <span style={{ fontSize: 12, textAlign: "center", fontWeight: 700,
@@ -203,11 +205,6 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
                   : <div style={{ fontSize: 11, color: "#22c55e" }}>{s.qty?.toLocaleString()}주</div>
                 }
                 <div style={{ fontSize: 12, fontWeight: 700, color: s.approximateData ? "#f59e0b" : "#22c55e" }}>{s.value?.toLocaleString()}원</div>
-              </div>
-            )}
-            {isAdmin && onEdit && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#475569", fontSize: 13, cursor: "pointer", padding: "2px 4px" }}>✏️</button>
               </div>
             )}
           </div>
@@ -246,6 +243,7 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [showWealth, setShowWealth] = useState(false); // 관리자 자산공개 토글
   const [editStockModal, setEditStockModal] = useState(null); // { accountId, stock }
+  const [portfolioEditMode, setPortfolioEditMode] = useState(false); // 종목편집 모드 토글
   const [editStockQty, setEditStockQty] = useState("");
   const [editStockAvg, setEditStockAvg] = useState("");
   const [mainText, setMainText] = useState({ emoji: "🐜", title: "존버일기장", subtitle: "존버는 승리한다.\n왜냐하면 승리하기 때문이다." });
@@ -981,7 +979,7 @@ export default function App() {
             <>
               <div style={{ display: "flex", gap: 6, marginBottom: 12, overflowX: "auto", paddingBottom: 4 }}>
                 {[{ id: "all", name: "전체합산" }, ...accounts].map(acc => (
-                  <button key={acc.id} onClick={() => setActiveAccount(acc.id)}
+                  <button key={acc.id} onClick={() => { setActiveAccount(acc.id); setPortfolioEditMode(false); }}
                     style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, borderRadius: 8, cursor: "pointer", border: "1px solid", whiteSpace: "nowrap", flexShrink: 0,
                       background: activeAccount === acc.id ? "#1e3a5f" : "#111827",
                       borderColor: activeAccount === acc.id ? "#3b82f6" : "#1e293b",
@@ -1000,22 +998,36 @@ export default function App() {
                       .spinner { width: 14px; height: 14px; border: 2px solid #334155; border-top-color: #60a5fa; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; }
                     `}</style>
                     <div style={{ marginBottom: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
                         <span style={{ fontSize: 11, color: "#475569" }}>
                           {lastUpdated ? `📅 ${lastUpdated} 기준 주가를 갱신했습니다.` : ""}
                         </span>
-                        <button
-                          onClick={() => {
+                        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                          {isAdmin && activeAccount !== "all" && (
+                            <button
+                              onClick={() => setPortfolioEditMode(v => !v)}
+                              style={{
+                                background: portfolioEditMode ? "#1a2a3a" : "#1e293b",
+                                border: portfolioEditMode ? "1px solid #60a5fa" : "1px solid #334155",
+                                borderRadius: 8, color: portfolioEditMode ? "#60a5fa" : "#94a3b8",
+                                padding: "4px 10px", fontSize: 12, cursor: "pointer"
+                              }}>
+                              {portfolioEditMode ? "✏️ 편집 종료" : "✏️ 종목 편집"}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => {
             const all = Object.values(portfolios).flatMap(p => p.stocks||[]);
             // ✅ approximateData 종목은 현재가 갱신 제외 (퇴직연금DC 등 금액기준 종목)
             const filtered = all.filter(s => !s.approximateData);
             const unique = [...new Map(filtered.map(s=>[s.ticker,s])).values()];
             fetchLivePrices(unique);
           }}
-                          disabled={priceLoading}
-                          style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: priceLoading ? "#60a5fa" : "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: priceLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                          {priceLoading ? <><span className="spinner" /><span>갱신 중...</span></> : "🔄 현재가 갱신"}
-                        </button>
+                            disabled={priceLoading}
+                            style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: priceLoading ? "#60a5fa" : "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: priceLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                            {priceLoading ? <><span className="spinner" /><span>갱신 중...</span></> : "🔄 현재가 갱신"}
+                          </button>
+                        </div>
                       </div>
                       {priceLoading && (
                         <div style={{ fontSize: 11, color: "#60a5fa", marginTop: 6, textAlign: "right" }}>
@@ -1038,7 +1050,7 @@ export default function App() {
                       </div>
                     )}
                     <PortfolioChart isAdmin={isAdmin} showWealth={showWealth}
-                      onEdit={activeAccount !== "all" ? (s) => {
+                      onEdit={(activeAccount !== "all" && portfolioEditMode) ? (s) => {
                         // 원본 stock 데이터 찾기
                         const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
                         if (origStock) {
