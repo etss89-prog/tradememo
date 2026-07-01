@@ -249,7 +249,8 @@ async function guessTickerCode(tickerName) {
         return code;
       }
     }
-    if (codes[0]?.[0]) { dynamicCache[tickerName] = codes[0][0]; return codes[0][0]; }
+    // ✅ 정확히 일치하는 결과가 없으면 null 반환 (유사 결과 절대 사용 금지)
+    // 예: "한솔테크닉스" 검색 시 "한솔홀딩스"가 첫번째로 와도 무시
   } catch {}
 
   // 2차 폴백: Claude AI 추측
@@ -324,21 +325,16 @@ export default async function handler(req, res) {
     const token = await getAccessToken();
 
     for (const name of domesticTickers) {
-      // ✅ 우선순위 (사람이 손으로 옮겨적은 TICKER_MAP은 항상 최후순위):
-      // 1) 이미지에서 이번 요청에 직접 추출한 코드 (savedCodes) — 가장 신뢰도 높음, 매번 최신
-      // 2) 이전에 이 종목명으로 조회 성공해 캐시된 코드 (dynamicCache)
-      // 3) 네이버 자동완성 API 실시간 조회 — 외부 검증 소스, 오타 위험 없음
-      // 4) TICKER_MAP 하드코딩 — 사람이 손으로 입력한 값이라 오타 가능성 있음. 최후 수단.
-      let code = savedCodes[name] || dynamicCache[name];
-      let source = code ? 'cache/saved' : null;
+      // ✅ 최종 우선순위:
+      // 1) savedCodes: 이미지에서 직접 추출한 코드 (가장 신뢰도 높음)
+      // 2) TICKER_MAP: 사람이 수동 검증한 코드 (네이버API보다 신뢰도 높음)
+      // 3) dynamicCache: 이전 조회에서 성공적으로 캐시된 코드
+      // 4) 네이버 API: TICKER_MAP에도 없는 완전히 새로운 종목에만 사용
+      //    (네이버 자동완성은 유사 종목을 잘못 반환할 수 있어 최후 수단)
+      let code = savedCodes[name] || TICKER_MAP[name] || dynamicCache[name];
 
       if (!code) {
-        code = await guessTickerCode(name); // 네이버 API
-        if (code) source = 'naver';
-      }
-      if (!code) {
-        code = TICKER_MAP[name]; // 사람이 입력한 맵은 마지막에만
-        if (code) source = 'manual_map';
+        code = await guessTickerCode(name); // 네이버 API는 완전 새 종목에만
       }
       if (code) dynamicCache[name] = code;
       if (!code) { prices[name] = null; continue; }
