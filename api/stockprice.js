@@ -231,7 +231,7 @@ async function getCurrentPrice(token, code) {
 async function guessTickerCode(tickerName) {
   if (dynamicCache[tickerName]) return dynamicCache[tickerName];
 
-  // 1차: 네이버 금융 자동완성 검색 (무료, 안정적)
+  // 네이버 자동완성 - 정확히 일치하는 경우에만 반환 (유사 종목 절대 사용 안 함)
   try {
     const res = await fetch(
       `https://ac.finance.naver.com/ac?q=${encodeURIComponent(tickerName)}&q_enc=UTF-8&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1&run=2&rev=4`,
@@ -244,38 +244,22 @@ async function guessTickerCode(tickerName) {
     for (let i = 0; i < names.length; i++) {
       const name = names[i]?.[0]?.replace(/<[^>]+>/g, '').trim();
       const code = codes[i]?.[0];
-      if (name && code && (name === tickerName || name.replace(/\s/g, '') === tickerName.replace(/\s/g, ''))) {
-        dynamicCache[tickerName] = code;
-        return code;
+      if (name && code) {
+        const normName = name.replace(/\s/g, '').toLowerCase();
+        const normTicker = tickerName.replace(/\s/g, '').toLowerCase();
+        if (normName === normTicker) {
+          // dynamicCache에 저장하지 않음 (Redis 오염 방지)
+          return code;
+        }
       }
     }
-    // ✅ 정확히 일치하는 결과가 없으면 null 반환 (유사 결과 절대 사용 금지)
-    // 예: "한솔테크닉스" 검색 시 "한솔홀딩스"가 첫번째로 와도 무시
-  } catch {}
-
-  // 2차 폴백: Claude AI 추측
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.REACT_APP_ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 50,
-        messages: [{ role: 'user', content: `한국 주식 종목명 "${tickerName}"의 6자리 종목코드를 숫자만 답해줘. 모르면 "모름"이라고만 답해.` }]
-      }),
-    });
-    const data = await res.json();
-    const text = data.content?.[0]?.text?.trim() || '';
-    const match = text.match(/\d{6}/);
-    if (match) { dynamicCache[tickerName] = match[0]; return match[0]; }
+    // 정확히 일치 없으면 null (한솔홀딩스 같은 유사 종목 절대 사용 안 함)
   } catch {}
 
   return null;
 }
+
+
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
