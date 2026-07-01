@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.5";
+const VERSION = "v6.7";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -256,6 +256,7 @@ export default function App() {
   // 수기입력 모달
   const [manualModal, setManualModal] = useState(null); // { accountId }
   const [manualTicker, setManualTicker] = useState("");
+  const [manualTickerCode, setManualTickerCode] = useState("");
   const [manualQty, setManualQty] = useState("");
   const [manualAvg, setManualAvg] = useState("");
   const [manualPrice, setManualPrice] = useState("");
@@ -391,6 +392,7 @@ export default function App() {
     const accountId = manualModal.accountId;
     const newStock = {
       ticker,
+      tickerCode: manualTickerCode.trim() || null, // 수기입력한 종목코드
       quantity: qty,
       avgBuyPrice: avg,
       currentPrice: price,
@@ -409,7 +411,7 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts })
     });
-    setManualTicker(""); setManualQty(""); setManualAvg(""); setManualPrice("");
+    setManualTicker(""); setManualTickerCode(""); setManualQty(""); setManualAvg(""); setManualPrice("");
     setManualModal(null);
     alert(`✅ ${ticker} 저장 완료!`);
   }
@@ -522,30 +524,9 @@ export default function App() {
           body: JSON.stringify({ livePrices: processedPrices, priceUpdatedAt: now })
         }).catch(() => {});
 
-        // ✅ 이번에 실제 조회 성공한 종목코드를 portfolios에 캐싱
-        // → 다음 갱신부터는 TICKER_MAP/네이버API를 거치지 않고 바로 정확한 코드 사용
-        // → 사람이 손으로 잘못 입력한 TICKER_MAP 오타에 더 이상 의존하지 않게 됨
-        if (data.resolvedCodes && Object.keys(data.resolvedCodes).length > 0) {
-          const updatedPortfolios = Object.fromEntries(
-            Object.entries(portfolios).map(([accId, p]) => [
-              accId,
-              {
-                ...p,
-                stocks: (p.stocks || []).map(s =>
-                  data.resolvedCodes[s.ticker] && !s.tickerCode
-                    ? { ...s, tickerCode: data.resolvedCodes[s.ticker] }
-                    : s
-                ),
-              }
-            ])
-          );
-          setPortfolios(updatedPortfolios);
-          fetch("/api/save", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ records: allRecords, portfolios: updatedPortfolios, accounts, mainText })
-          }).catch(() => {});
-        }
+        // ℹ️ resolvedCodes 자동 캐싱 비활성화
+        // 네이버 자동완성 API가 유사 종목을 잘못 매칭할 수 있어서
+        // tickerCode는 portfolio.js가 이미지에서 직접 추출한 경우에만 신뢰함
       }
     } catch (e) {
       console.error("주가 조회 실패:", e);
@@ -815,6 +796,15 @@ export default function App() {
                   placeholder="예: SK하이닉스"
                   value={manualTicker}
                   onChange={e => setManualTicker(e.target.value)}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>종목코드 <span style={{ color: "#475569" }}>(선택 — 입력하면 현재가 자동 갱신)</span></div>
+                <input
+                  style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  placeholder="예: 000660 (숫자 6자리)"
+                  value={manualTickerCode}
+                  onChange={e => setManualTickerCode(e.target.value)}
                 />
               </div>
               <div>
