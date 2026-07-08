@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.9";
+const VERSION = "v7.0";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -690,103 +690,74 @@ export default function App() {
 
   return (
     <div style={S.page}>
-      {/* 메인화면 편집 모달 - 관리자 전용 (리치 에디터) */}
+      {/* 메인화면 편집 모달 - HTML + 미리보기 방식 (가장 안정적) */}
       {editingMain && (
         <div style={S.overlay}>
-          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 480, textAlign: "left", maxHeight: "90vh", overflowY: "auto" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>✏️ 메인화면 편집</div>
+          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 500, textAlign: "left", maxHeight: "92vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 메인화면 편집</div>
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 12 }}>HTML을 직접 입력하거나 아래 버튼으로 빠르게 삽입하세요</div>
 
-            {/* 툴바 */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8, padding: "8px", background: "#0f172a", borderRadius: 8 }}>
-              {/* 폰트 크기 */}
-              <select onChange={e => document.execCommand("fontSize", false, e.target.value)}
-                style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 6px", fontSize: 11, cursor: "pointer" }}>
-                <option value="">크기</option>
-                {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}px</option>)}
-              </select>
-              {/* 정렬 */}
+            {/* 빠른 삽입 버튼 */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
               {[
-                { cmd: "justifyLeft", label: "◀" },
-                { cmd: "justifyCenter", label: "■" },
-                { cmd: "justifyRight", label: "▶" },
-              ].map(b => (
-                <button key={b.cmd} onMouseDown={e => { e.preventDefault(); document.execCommand(b.cmd); }}
-                  style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>
-                  {b.label}
+                { label: "큰 제목", html: `<h1 style="text-align:center;color:#e2e8f0;font-size:28px;font-weight:900;margin:8px 0;">제목</h1>` },
+                { label: "부제목", html: `<p style="text-align:center;color:#f59e0b;font-size:18px;font-weight:700;margin:4px 0;">부제목</p>` },
+                { label: "본문", html: `<p style="text-align:center;color:#94a3b8;font-size:14px;margin:4px 0;">본문 텍스트</p>` },
+                { label: "이모지줄", html: `<p style="text-align:center;font-size:40px;margin:8px 0;">🐜</p>` },
+                { label: "구분선", html: `<hr style="border:none;border-top:1px solid #1e293b;margin:12px 0;"/>` },
+                { label: "빈줄", html: `<br/>` },
+              ].map(btn => (
+                <button key={btn.label}
+                  onClick={() => setEditDraft(d => ({ ...d, html: (d.html || "") + btn.html }))}
+                  style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
+                  + {btn.label}
                 </button>
               ))}
-              {/* 스타일 */}
-              {[
-                { cmd: "bold", label: "B", style: { fontWeight: 700 } },
-                { cmd: "italic", label: "I", style: { fontStyle: "italic" } },
-                { cmd: "underline", label: "U", style: { textDecoration: "underline" } },
-              ].map(b => (
-                <button key={b.cmd} onMouseDown={e => { e.preventDefault(); document.execCommand(b.cmd); }}
-                  style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 8px", fontSize: 12, cursor: "pointer", ...b.style }}>
-                  {b.label}
-                </button>
-              ))}
-              {/* 글씨 색 */}
-              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                <span style={{ fontSize: 10, color: "#475569" }}>색</span>
-                {["#e2e8f0","#f59e0b","#4ade80","#60a5fa","#a78bfa","#ef4444","#f97316","#ec4899"].map(c => (
-                  <div key={c} onMouseDown={e => { e.preventDefault(); document.execCommand("foreColor", false, c); }}
-                    style={{ width: 16, height: 16, borderRadius: "50%", background: c, cursor: "pointer", border: "1px solid #334155", flexShrink: 0 }} />
-                ))}
-                <input type="color" title="직접 선택"
-                  onChange={e => document.execCommand("foreColor", false, e.target.value)}
-                  style={{ width: 20, height: 20, border: "none", background: "none", cursor: "pointer", padding: 0 }} />
-              </div>
               {/* 이미지 업로드 */}
-              <label style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "inline-block" }}>
-                🖼️ 이미지
+              <label style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
+                🖼️ 이미지 업로드
                 <input type="file" accept="image/*" style={{ display: "none" }}
                   onChange={e => {
                     const file = e.target.files[0];
                     if (!file) return;
                     const reader = new FileReader();
                     reader.onload = ev => {
-                      const el = document.getElementById("mainEditorArea");
-                      if (el) el.focus();
-                      document.execCommand("insertHTML", false, `<img src="${ev.target.result}" style="max-width:100%;border-radius:8px;margin:8px 0;" />`);
-                      setEditDraft(d => ({ ...d, html: document.getElementById("mainEditorArea")?.innerHTML }));
+                      setEditDraft(d => ({ ...d, html: (d.html || "") + `<img src="${ev.target.result}" style="max-width:100%;border-radius:8px;margin:8px 0;display:block;" />` }));
                     };
                     reader.readAsDataURL(file);
                     e.target.value = "";
                   }}
                 />
               </label>
-              {/* 초기화 */}
-              <button onMouseDown={e => { e.preventDefault(); setEditDraft(d => ({ ...d, html: null })); }}
-                style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 6, color: "#ef4444", padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>
-                기본값
+              {/* 기본값으로 초기화 */}
+              <button onClick={() => setEditDraft(d => ({ ...d, html: null }))}
+                style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 6, color: "#ef4444", padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
+                🔄 기본값
               </button>
             </div>
 
-            {/* contentEditable 편집 영역 */}
-            <div
-              id="mainEditorArea"
-              contentEditable
-              suppressContentEditableWarning
-              onInput={e => setEditDraft(d => ({ ...d, html: e.currentTarget.innerHTML }))}
-              dangerouslySetInnerHTML={{ __html: editDraft.html || `<div style="text-align:center"><span style="font-size:32px">${editDraft.emoji || "🐜"}</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">${editDraft.title || "존버일기장"}</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">${(editDraft.subtitle || "").replace(/\n/g, "<br/>")}</span></div>` }}
-              style={{
-                minHeight: 200,
-                background: "#0a0f1e",
-                border: "1px solid #334155",
-                borderRadius: 8,
-                padding: "16px",
-                color: "#e2e8f0",
-                fontSize: 16,
-                lineHeight: 1.7,
-                outline: "none",
-                marginBottom: 12,
-              }}
+            {/* HTML 입력 영역 */}
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>HTML 코드</div>
+            <textarea
+              value={editDraft.html || ""}
+              onChange={e => setEditDraft(d => ({ ...d, html: e.target.value || null }))}
+              placeholder={`<p style="text-align:center;color:#f59e0b;font-size:20px;">존버는 승리한다.</p>`}
+              style={{ width: "100%", minHeight: 120, background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", fontSize: 12, padding: "10px", fontFamily: "monospace", resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, marginBottom: 12 }}
             />
 
-            {/* 미리보기 안내 */}
-            <div style={{ fontSize: 10, color: "#475569", marginBottom: 12 }}>
-              💡 위 영역이 실제 입장화면에 표시됩니다. 직접 클릭해서 편집하세요.
+            {/* 미리보기 */}
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>미리보기</div>
+            <div style={{ background: "#0a0f1e", border: "1px solid #1e293b", borderRadius: 8, padding: "20px 16px", marginBottom: 14, minHeight: 80 }}>
+              {editDraft.html
+                ? <div dangerouslySetInnerHTML={{ __html: editDraft.html }} />
+                : <div style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 36 }}>{editDraft.emoji || "🐜"}</div>
+                    <div style={{ fontSize: 18, fontWeight: 900, color: "#e2e8f0" }}>{editDraft.title || "존버일기장"}</div>
+                    <div style={{ fontSize: 16, color: "#f59e0b", fontWeight: 700, marginTop: 4 }}>
+                      {(editDraft.subtitle || "").split("\n").map((l, i) => <span key={i}>{l}<br/></span>)}
+                    </div>
+                  </div>
+              }
             </div>
 
             <div style={{ display: "flex", gap: 8 }}>
