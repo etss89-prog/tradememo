@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.5";
+const VERSION = "v7.7";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -241,6 +241,20 @@ export default function App() {
   const [dateError, setDateError] = useState("");
   const [shareMsg, setShareMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
+  // 존버일기장 탭
+  const [diaryPosts, setDiaryPosts] = useState([]);
+  const [diaryText, setDiaryText] = useState("");
+  const [diaryNickname, setDiaryNickname] = useState("");
+  const [diaryPassword, setDiaryPassword] = useState("");
+  const [diarySecret, setDiarySecret] = useState(false);
+  const [diaryLinkUrl, setDiaryLinkUrl] = useState("");
+  const [diaryReplyTo, setDiaryReplyTo] = useState(null); // { id, text, nickname }
+  const [diaryWriting, setDiaryWriting] = useState(false); // 글쓰기 패널 열림
+  const [diaryEditModal, setDiaryEditModal] = useState(null); // { post, password? }
+  const [diaryEditText, setDiaryEditText] = useState("");
+  const [diaryEditPw, setDiaryEditPw] = useState("");
+  const [diaryDeleteModal, setDiaryDeleteModal] = useState(null);
+  const [diaryDeletePw, setDiaryDeletePw] = useState("");
   const [showWealth, setShowWealth] = useState(false); // 관리자 자산공개 토글
   const [editStockModal, setEditStockModal] = useState(null); // { accountId, stock }
   const [portfolioEditMode, setPortfolioEditMode] = useState(false); // 종목편집 모드 토글
@@ -303,6 +317,10 @@ export default function App() {
       if (d.livePrices) setLivePrices(d.livePrices);
       if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
     }).catch(() => {});
+    // 일기장 불러오기
+    fetch("/api/diary-load").then(r => r.json()).then(d => {
+      if (d.posts) setDiaryPosts(d.posts);
+    }).catch(() => {});
   }, []);
 
   // richEditor DOM 초기화 - editingMain이 열릴 때 innerHTML 직접 세팅
@@ -313,6 +331,60 @@ export default function App() {
       richEditorRef.current.innerHTML = editDraft.html || defaultHtml;
     }
   }, [editingMain]);
+
+  // 일기장 글 추가
+  async function addDiaryPost() {
+    if (!diaryText.trim() && !diaryLinkUrl.trim()) return;
+    const post = {
+      text: diaryText.trim(),
+      nickname: isAdmin ? "주인장" : (diaryNickname.trim() || "익명"),
+      isAdmin,
+      isSecret: diarySecret,
+      password: isAdmin ? null : (diaryPassword || null),
+      replyTo: diaryReplyTo?.id || null,
+      replyPreview: diaryReplyTo ? `${diaryReplyTo.nickname}: ${diaryReplyTo.text.slice(0, 40)}${diaryReplyTo.text.length > 40 ? "..." : ""}` : null,
+      linkUrl: diaryLinkUrl.trim() || null,
+    };
+    const res = await fetch("/api/diary-save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "add", post })
+    });
+    const d = await res.json();
+    if (d.posts) setDiaryPosts(d.posts);
+    setDiaryText(""); setDiaryLinkUrl(""); setDiarySecret(false);
+    setDiaryReplyTo(null); setDiaryPassword(""); setDiaryWriting(false);
+  }
+
+  async function editDiaryPost() {
+    const post = diaryEditModal;
+    if (!post) return;
+    // 관리자가 아닌 경우 비밀번호 확인
+    if (!isAdmin && post.password && diaryEditPw !== post.password) {
+      alert("비밀번호가 틀렸어요."); return;
+    }
+    const res = await fetch("/api/diary-save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "edit", post: { id: post.id, text: diaryEditText } })
+    });
+    const d = await res.json();
+    if (d.posts) setDiaryPosts(d.posts);
+    setDiaryEditModal(null); setDiaryEditText(""); setDiaryEditPw("");
+  }
+
+  async function deleteDiaryPost() {
+    const post = diaryDeleteModal;
+    if (!post) return;
+    if (!isAdmin && post.password && diaryDeletePw !== post.password) {
+      alert("비밀번호가 틀렸어요."); return;
+    }
+    const res = await fetch("/api/diary-save", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "delete", post: { id: post.id } })
+    });
+    const d = await res.json();
+    if (d.posts) setDiaryPosts(d.posts);
+    setDiaryDeleteModal(null); setDiaryDeletePw("");
+  }
 
   async function saveMainText(htmlContent) {
     // htmlContent: richEditorRef에서 직접 읽은 최신 innerHTML
@@ -694,8 +766,8 @@ export default function App() {
   function shareText() {
     const lines = ["📊 존버일기장 매매기록\n"];
     mergedStocks.forEach(s => {
-      lines.push(`▶ ${s.ticker} | 평균 ${s.avgBuyPrice?.toLocaleString()}원 | ${s.currentHolding}주`);
-      s.trades.forEach(t => lines.push(`  ${t.date} ${t.type} ${t.price?.toLocaleString()}원×${t.quantity}주`));
+      lines.push(`▶ ${s.ticker} | 평균 ${s.avgBuyPrice?.toLocaleString()}원`);
+      s.trades.forEach(t => lines.push(`  ${t.date} ${t.type} ${t.price?.toLocaleString()}원`));
     });
     lines.push("\n#주식 #존버일기장 #포트폴리오");
     return lines.join("\n");
@@ -1157,19 +1229,18 @@ export default function App() {
 
       {isViewer && (
         <>
-          {/* 메인 탭 2개 */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          {/* 메인 탭 3개 */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
             <button onClick={() => setActiveTab("portfolio")}
-              style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
+              style={{ flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
                 background: activeTab === "portfolio" ? "#1a2a1a" : "#111827",
                 borderColor: activeTab === "portfolio" ? "#22c55e" : "#1e293b",
                 color: activeTab === "portfolio" ? "#22c55e" : "#64748b",
               }}>
-              📊 현재 포트폴리오
+              📊 포트폴리오
             </button>
             <button onClick={() => {
               setActiveTab("history");
-              // 최신 거래일 기준 1주일로 자동 세팅
               if (allRecords.length > 0) {
                 const allDates = allRecords.flatMap(r => r.result?.stocks || []).flatMap(s => s.trades || []).map(t => t.date).sort();
                 const latest = allDates[allDates.length - 1];
@@ -1182,12 +1253,20 @@ export default function App() {
                 }
               }
             }}
-              style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
+              style={{ flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
                 background: activeTab === "history" ? "#1a1a2a" : "#111827",
                 borderColor: activeTab === "history" ? "#6366f1" : "#1e293b",
                 color: activeTab === "history" ? "#a78bfa" : "#64748b",
               }}>
-              📋 매수/매도 기록
+              📋 매매기록
+            </button>
+            <button onClick={() => setActiveTab("diary")}
+              style={{ flex: 1, padding: "10px 4px", fontSize: 11, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
+                background: activeTab === "diary" ? "#1a1520" : "#111827",
+                borderColor: activeTab === "diary" ? "#f59e0b" : "#1e293b",
+                color: activeTab === "diary" ? "#f59e0b" : "#64748b",
+              }}>
+              🐜 일기장
             </button>
           </div>
 
@@ -1450,6 +1529,188 @@ export default function App() {
                 </div>
               )}
             </>
+          )}
+
+          {/* 🐜 존버일기장 탭 */}
+          {activeTab === "diary" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+
+              {/* 편집/삭제 모달 */}
+              {diaryEditModal && (
+                <div style={S.overlay}>
+                  <div style={{ ...S.modal, width: 320, textAlign: "left" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>✏️ 글 수정</div>
+                    {!isAdmin && diaryEditModal.password && (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>비밀번호</div>
+                        <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                          type="password" placeholder="작성 시 입력한 비밀번호"
+                          value={diaryEditPw} onChange={e => setDiaryEditPw(e.target.value)} />
+                      </div>
+                    )}
+                    <textarea style={{ width: "100%", minHeight: 100, background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", fontSize: 13, padding: "10px", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+                      value={diaryEditText} onChange={e => setDiaryEditText(e.target.value)} />
+                    <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+                      <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setDiaryEditModal(null); setDiaryEditPw(""); }}>취소</button>
+                      <button style={{ ...S.btnMain, flex: 1 }} onClick={editDiaryPost}>저장</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {diaryDeleteModal && (
+                <div style={S.overlay}>
+                  <div style={{ ...S.modal, width: 300, textAlign: "left" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🗑️ 글 삭제</div>
+                    <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>정말 삭제할까요? 되돌릴 수 없어요.</div>
+                    {!isAdmin && diaryDeleteModal.password && (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>비밀번호</div>
+                        <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                          type="password" placeholder="작성 시 입력한 비밀번호"
+                          value={diaryDeletePw} onChange={e => setDiaryDeletePw(e.target.value)} />
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setDiaryDeleteModal(null); setDiaryDeletePw(""); }}>취소</button>
+                      <button style={{ ...S.btnDanger, flex: 1 }} onClick={deleteDiaryPost}>삭제</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 메시지 목록 */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16, minHeight: 200 }}>
+                {diaryPosts.length === 0 && (
+                  <div style={{ textAlign: "center", padding: "40px 20px", color: "#475569" }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>🐜</div>
+                    <div style={{ fontSize: 13 }}>아직 작성된 글이 없어요</div>
+                  </div>
+                )}
+                {diaryPosts.map(post => {
+                  const isMine = post.isAdmin;
+                  const isSecretHidden = post.isSecret && !isAdmin;
+                  const timeStr = new Date(post.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+                  const editStr = post.editedAt ? new Date(post.editedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
+
+                  return (
+                    <div key={post.id} style={{ display: "flex", flexDirection: isMine ? "row-reverse" : "row", alignItems: "flex-end", gap: 8 }}>
+                      {/* 아바타 */}
+                      <div style={{ width: 32, height: 32, borderRadius: "50%", background: isMine ? "#1e3a5f" : "#1e293b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>
+                        {isMine ? "🐜" : "👤"}
+                      </div>
+                      <div style={{ maxWidth: "75%", display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", gap: 2 }}>
+                        {/* 닉네임 */}
+                        <div style={{ fontSize: 10, color: "#475569", marginBottom: 2, paddingLeft: isMine ? 0 : 4, paddingRight: isMine ? 4 : 0 }}>
+                          {post.isSecret && <span style={{ marginRight: 4 }}>🔒</span>}
+                          {post.nickname}
+                        </div>
+                        {/* 답글 미리보기 */}
+                        {post.replyPreview && (
+                          <div style={{ background: "#0f172a", borderLeft: isMine ? "none" : "2px solid #6366f1", borderRight: isMine ? "2px solid #6366f1" : "none", padding: "4px 8px", borderRadius: 6, fontSize: 10, color: "#64748b", maxWidth: "100%" }}>
+                            {post.replyPreview}
+                          </div>
+                        )}
+                        {/* 말풍선 */}
+                        <div style={{
+                          background: isMine ? "#1e3a5f" : "#111827",
+                          border: `1px solid ${isMine ? "#3b82f6" : "#1e293b"}`,
+                          borderRadius: isMine ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+                          padding: "10px 14px",
+                          fontSize: 13,
+                          color: isSecretHidden ? "#475569" : "#e2e8f0",
+                          lineHeight: 1.6,
+                          fontStyle: isSecretHidden ? "italic" : "normal",
+                        }}>
+                          {isSecretHidden ? "🔒 비밀글입니다" : post.text}
+                          {!isSecretHidden && post.linkUrl && (
+                            <a href={post.linkUrl} target="_blank" rel="noopener noreferrer"
+                              style={{ display: "block", marginTop: 6, color: "#60a5fa", fontSize: 11, wordBreak: "break-all" }}>
+                              🔗 {post.linkUrl}
+                            </a>
+                          )}
+                        </div>
+                        {/* 시간 + 수정됨 + 액션 버튼 */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexDirection: isMine ? "row-reverse" : "row" }}>
+                          <span style={{ fontSize: 9, color: "#334155" }}>{timeStr}{editStr ? ` · ${editStr} 수정됨` : ""}</span>
+                          {/* 답글 버튼 */}
+                          {isViewer && (
+                            <button onClick={() => { setDiaryReplyTo(post); setDiaryWriting(true); }}
+                              style={{ background: "none", border: "none", color: "#475569", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
+                              ↩ 답글
+                            </button>
+                          )}
+                          {/* 수정/삭제 - 관리자 또는 비밀번호 있는 글 작성자 */}
+                          {(isAdmin || post.password) && !isSecretHidden && (
+                            <>
+                              <button onClick={() => { setDiaryEditModal(post); setDiaryEditText(post.text); }}
+                                style={{ background: "none", border: "none", color: "#475569", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
+                                수정
+                              </button>
+                              <button onClick={() => setDiaryDeleteModal(post)}
+                                style={{ background: "none", border: "none", color: "#475569", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
+                                삭제
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 글쓰기 영역 */}
+              {isViewer && (
+                <div style={{ position: "sticky", bottom: 0, background: "#0a0f1e", paddingTop: 8 }}>
+                  {!diaryWriting ? (
+                    <button onClick={() => setDiaryWriting(true)}
+                      style={{ ...S.btnMain, width: "100%", fontSize: 13 }}>
+                      ✏️ 글 작성하기
+                    </button>
+                  ) : (
+                    <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 14, padding: 14 }}>
+                      {/* 답글 미리보기 */}
+                      {diaryReplyTo && (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#0f172a", borderLeft: "2px solid #6366f1", padding: "6px 10px", borderRadius: 6, marginBottom: 10 }}>
+                          <span style={{ fontSize: 11, color: "#64748b" }}>↩ {diaryReplyTo.nickname}: {diaryReplyTo.text.slice(0, 30)}...</span>
+                          <button onClick={() => setDiaryReplyTo(null)} style={{ background: "none", border: "none", color: "#475569", fontSize: 12, cursor: "pointer" }}>✕</button>
+                        </div>
+                      )}
+                      {/* 닉네임 + 비밀번호 (조회자만) */}
+                      {!isAdmin && (
+                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                          <input style={{ ...S.pinInput, flex: 1, fontSize: 13, letterSpacing: 0, textAlign: "left", padding: "7px 10px" }}
+                            placeholder="닉네임 (익명)" value={diaryNickname} onChange={e => setDiaryNickname(e.target.value)} />
+                          <input style={{ ...S.pinInput, flex: 1, fontSize: 13, letterSpacing: 0, textAlign: "left", padding: "7px 10px" }}
+                            type="password" placeholder="비밀번호 (수정/삭제용)" value={diaryPassword} onChange={e => setDiaryPassword(e.target.value)} />
+                        </div>
+                      )}
+                      {/* 링크 (관리자만) */}
+                      {isAdmin && (
+                        <input style={{ ...S.pinInput, fontSize: 12, letterSpacing: 0, textAlign: "left", padding: "7px 10px", marginBottom: 8 }}
+                          placeholder="🔗 링크 URL (선택)" value={diaryLinkUrl} onChange={e => setDiaryLinkUrl(e.target.value)} />
+                      )}
+                      {/* 본문 */}
+                      <textarea style={{ width: "100%", minHeight: 80, background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", fontSize: 13, padding: "10px", resize: "none", outline: "none", boxSizing: "border-box", lineHeight: 1.6, marginBottom: 8 }}
+                        placeholder="내용을 입력하세요..."
+                        value={diaryText} onChange={e => setDiaryText(e.target.value)} />
+                      {/* 비밀글 토글 */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <button onClick={() => setDiarySecret(v => !v)}
+                          style={{ background: diarySecret ? "#1a1500" : "#1e293b", border: `1px solid ${diarySecret ? "#f59e0b" : "#334155"}`, borderRadius: 8, color: diarySecret ? "#f59e0b" : "#64748b", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
+                          {diarySecret ? "🔒 비밀글" : "🔓 공개글"}
+                        </button>
+                        {diarySecret && <span style={{ fontSize: 10, color: "#64748b" }}>주인장만 볼 수 있어요</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setDiaryWriting(false); setDiaryText(""); setDiaryReplyTo(null); setDiaryNickname(""); setDiaryPassword(""); setDiaryLinkUrl(""); setDiarySecret(false); }}>취소</button>
+                        <button style={{ ...S.btnMain, flex: 1 }} onClick={addDiaryPost}>올리기</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </>
       )}
