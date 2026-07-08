@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.0";
+const VERSION = "v7.1";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -690,79 +690,210 @@ export default function App() {
 
   return (
     <div style={S.page}>
-      {/* 메인화면 편집 모달 - HTML + 미리보기 방식 (가장 안정적) */}
+      {/* 메인화면 편집 모달 - contentEditable + Range API (모바일 안전) */}
       {editingMain && (
         <div style={S.overlay}>
-          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 500, textAlign: "left", maxHeight: "92vh", overflowY: "auto" }}>
+          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 480, textAlign: "left", maxHeight: "92vh", overflowY: "auto" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 메인화면 편집</div>
-            <div style={{ fontSize: 11, color: "#475569", marginBottom: 12 }}>HTML을 직접 입력하거나 아래 버튼으로 빠르게 삽입하세요</div>
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 10 }}>텍스트를 드래그해서 선택 후 아래 버튼으로 스타일 적용</div>
 
-            {/* 빠른 삽입 버튼 */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
-              {[
-                { label: "큰 제목", html: `<h1 style="text-align:center;color:#e2e8f0;font-size:28px;font-weight:900;margin:8px 0;">제목</h1>` },
-                { label: "부제목", html: `<p style="text-align:center;color:#f59e0b;font-size:18px;font-weight:700;margin:4px 0;">부제목</p>` },
-                { label: "본문", html: `<p style="text-align:center;color:#94a3b8;font-size:14px;margin:4px 0;">본문 텍스트</p>` },
-                { label: "이모지줄", html: `<p style="text-align:center;font-size:40px;margin:8px 0;">🐜</p>` },
-                { label: "구분선", html: `<hr style="border:none;border-top:1px solid #1e293b;margin:12px 0;"/>` },
-                { label: "빈줄", html: `<br/>` },
-              ].map(btn => (
-                <button key={btn.label}
-                  onClick={() => setEditDraft(d => ({ ...d, html: (d.html || "") + btn.html }))}
-                  style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
-                  + {btn.label}
-                </button>
-              ))}
-              {/* 이미지 업로드 */}
-              <label style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
-                🖼️ 이미지 업로드
-                <input type="file" accept="image/*" style={{ display: "none" }}
+            {/* 툴바 */}
+            <div style={{ background: "#0f172a", borderRadius: 10, padding: "10px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+
+              {/* 1행: 폰트 크기 + 정렬 */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                <span style={{ fontSize: 10, color: "#475569", minWidth: 28 }}>크기</span>
+                {[12,14,16,18,20,24,28,32,40].map(sz => (
+                  <button key={sz} onClick={() => {
+                    const sel = window.getSelection();
+                    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+                    const range = sel.getRangeAt(0);
+                    const span = document.createElement("span");
+                    span.style.fontSize = sz + "px";
+                    try { range.surroundContents(span); } catch(e) {
+                      const frag = range.extractContents();
+                      span.appendChild(frag);
+                      range.insertNode(span);
+                    }
+                    const el = document.getElementById("richEditor");
+                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                  }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>
+                    {sz}
+                  </button>
+                ))}
+              </div>
+
+              {/* 2행: 스타일 + 정렬 */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                <span style={{ fontSize: 10, color: "#475569", minWidth: 28 }}>스타일</span>
+                {[
+                  { label: "B", tag: "strong", style: { fontWeight: 700 } },
+                  { label: "I", tag: "em", style: { fontStyle: "italic" } },
+                  { label: "U", tag: "u", style: { textDecoration: "underline" } },
+                ].map(b => (
+                  <button key={b.label} onClick={() => {
+                    const sel = window.getSelection();
+                    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+                    const range = sel.getRangeAt(0);
+                    const el2 = document.createElement(b.tag);
+                    try { range.surroundContents(el2); } catch(e) {
+                      const frag = range.extractContents();
+                      el2.appendChild(frag);
+                      range.insertNode(el2);
+                    }
+                    const el = document.getElementById("richEditor");
+                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                  }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 10px", fontSize: 13, cursor: "pointer", ...b.style }}>
+                    {b.label}
+                  </button>
+                ))}
+                <span style={{ fontSize: 10, color: "#475569", marginLeft: 4 }}>정렬</span>
+                {[
+                  { label: "◀ 좌", align: "left" },
+                  { label: "■ 중", align: "center" },
+                  { label: "▶ 우", align: "right" },
+                ].map(a => (
+                  <button key={a.align} onClick={() => {
+                    const sel = window.getSelection();
+                    if (!sel || sel.rangeCount === 0) return;
+                    const range = sel.getRangeAt(0);
+                    let block = range.commonAncestorContainer;
+                    if (block.nodeType === 3) block = block.parentElement;
+                    while (block && !["P","DIV","H1","H2","H3"].includes(block.tagName)) block = block.parentElement;
+                    if (block) block.style.textAlign = a.align;
+                    const el = document.getElementById("richEditor");
+                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                  }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 8px", fontSize: 10, cursor: "pointer" }}>
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* 3행: 색깔 */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                <span style={{ fontSize: 10, color: "#475569", minWidth: 28 }}>색</span>
+                {[
+                  { c: "#e2e8f0", label: "흰" },
+                  { c: "#f59e0b", label: "노랑" },
+                  { c: "#4ade80", label: "초록" },
+                  { c: "#60a5fa", label: "파랑" },
+                  { c: "#a78bfa", label: "보라" },
+                  { c: "#ef4444", label: "빨강" },
+                  { c: "#f97316", label: "주황" },
+                  { c: "#ec4899", label: "핑크" },
+                  { c: "#94a3b8", label: "회색" },
+                ].map(({ c, label }) => (
+                  <button key={c} title={label} onClick={() => {
+                    const sel = window.getSelection();
+                    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+                    const range = sel.getRangeAt(0);
+                    const span = document.createElement("span");
+                    span.style.color = c;
+                    try { range.surroundContents(span); } catch(e) {
+                      const frag = range.extractContents();
+                      span.appendChild(frag);
+                      range.insertNode(span);
+                    }
+                    const el = document.getElementById("richEditor");
+                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                  }} style={{ width: 22, height: 22, borderRadius: "50%", background: c, border: "2px solid #334155", cursor: "pointer", flexShrink: 0 }} />
+                ))}
+                <input type="color" title="직접 선택" defaultValue="#ffffff"
                   onChange={e => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = ev => {
-                      setEditDraft(d => ({ ...d, html: (d.html || "") + `<img src="${ev.target.result}" style="max-width:100%;border-radius:8px;margin:8px 0;display:block;" />` }));
-                    };
-                    reader.readAsDataURL(file);
-                    e.target.value = "";
+                    const c = e.target.value;
+                    const sel = window.getSelection();
+                    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+                    const range = sel.getRangeAt(0);
+                    const span = document.createElement("span");
+                    span.style.color = c;
+                    try { range.surroundContents(span); } catch(e2) {
+                      const frag = range.extractContents();
+                      span.appendChild(frag);
+                      range.insertNode(span);
+                    }
+                    const el = document.getElementById("richEditor");
+                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
                   }}
+                  style={{ width: 22, height: 22, border: "2px solid #334155", borderRadius: "50%", cursor: "pointer", padding: 0, background: "none" }}
                 />
-              </label>
-              {/* 기본값으로 초기화 */}
-              <button onClick={() => setEditDraft(d => ({ ...d, html: null }))}
-                style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 6, color: "#ef4444", padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>
-                🔄 기본값
-              </button>
+              </div>
+
+              {/* 4행: 이미지 + 초기화 */}
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <label style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
+                  🖼️ 이미지 업로드
+                  <input type="file" accept="image/*" style={{ display: "none" }}
+                    onChange={e => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = ev => {
+                        const el = document.getElementById("richEditor");
+                        if (!el) return;
+                        el.focus();
+                        const img = document.createElement("img");
+                        img.src = ev.target.result;
+                        img.style.cssText = "max-width:100%;border-radius:8px;margin:8px 0;display:block;";
+                        const sel = window.getSelection();
+                        if (sel && sel.rangeCount > 0) {
+                          const range = sel.getRangeAt(0);
+                          range.collapse(false);
+                          range.insertNode(img);
+                        } else {
+                          el.appendChild(img);
+                        }
+                        setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                      };
+                      reader.readAsDataURL(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <button onClick={() => {
+                  setEditDraft(d => ({ ...d, html: null }));
+                  const el = document.getElementById("richEditor");
+                  if (el) el.innerHTML = `<div style="text-align:center"><span style="font-size:40px">${editDraft.emoji||"🐜"}</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">${editDraft.title||"존버일기장"}</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">${(editDraft.subtitle||"").replace(/\n/g,"<br/>")}</span></div>`;
+                }} style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 6, color: "#ef4444", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
+                  🔄 기본값
+                </button>
+              </div>
             </div>
 
-            {/* HTML 입력 영역 */}
-            <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>HTML 코드</div>
-            <textarea
-              value={editDraft.html || ""}
-              onChange={e => setEditDraft(d => ({ ...d, html: e.target.value || null }))}
-              placeholder={`<p style="text-align:center;color:#f59e0b;font-size:20px;">존버는 승리한다.</p>`}
-              style={{ width: "100%", minHeight: 120, background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", fontSize: 12, padding: "10px", fontFamily: "monospace", resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, marginBottom: 12 }}
+            {/* 편집 영역 */}
+            <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>✍️ 여기서 직접 편집하세요</div>
+            <div
+              id="richEditor"
+              contentEditable
+              suppressContentEditableWarning
+              onInput={e => setEditDraft(d => ({ ...d, html: e.currentTarget.innerHTML }))}
+              dangerouslySetInnerHTML={{ __html: editDraft.html ||
+                `<div style="text-align:center"><span style="font-size:40px">${editDraft.emoji||"🐜"}</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">${editDraft.title||"존버일기장"}</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">${(editDraft.subtitle||"").replace(/\n/g,"<br/>")}</span></div>`
+              }}
+              style={{
+                minHeight: 180,
+                background: "#0a0f1e",
+                border: "1px solid #334155",
+                borderRadius: 10,
+                padding: "20px 16px",
+                color: "#e2e8f0",
+                fontSize: 16,
+                lineHeight: 1.7,
+                outline: "none",
+                marginBottom: 8,
+                textAlign: "center",
+              }}
             />
-
-            {/* 미리보기 */}
-            <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>미리보기</div>
-            <div style={{ background: "#0a0f1e", border: "1px solid #1e293b", borderRadius: 8, padding: "20px 16px", marginBottom: 14, minHeight: 80 }}>
-              {editDraft.html
-                ? <div dangerouslySetInnerHTML={{ __html: editDraft.html }} />
-                : <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: 36 }}>{editDraft.emoji || "🐜"}</div>
-                    <div style={{ fontSize: 18, fontWeight: 900, color: "#e2e8f0" }}>{editDraft.title || "존버일기장"}</div>
-                    <div style={{ fontSize: 16, color: "#f59e0b", fontWeight: 700, marginTop: 4 }}>
-                      {(editDraft.subtitle || "").split("\n").map((l, i) => <span key={i}>{l}<br/></span>)}
-                    </div>
-                  </div>
-              }
+            <div style={{ fontSize: 10, color: "#475569", marginBottom: 14 }}>
+              💡 텍스트 드래그 선택 → 위 버튼으로 스타일 적용 / 직접 타이핑도 가능
             </div>
 
             <div style={{ display: "flex", gap: 8 }}>
               <button style={{ ...S.btnSub, flex: 1 }} onClick={() => setEditingMain(false)}>취소</button>
-              <button style={{ ...S.btnMain, flex: 1 }} onClick={saveMainText}>저장</button>
+              <button style={{ ...S.btnMain, flex: 1 }} onClick={() => {
+                const el = document.getElementById("richEditor");
+                if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                saveMainText();
+              }}>저장</button>
             </div>
           </div>
         </div>
