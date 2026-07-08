@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.1";
+const VERSION = "v7.2";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -267,6 +267,7 @@ export default function App() {
   const [manualAvg, setManualAvg] = useState("");
   const [manualPrice, setManualPrice] = useState("");
   const fileRef = useRef(null);
+  const richEditorRef = useRef(null);
   const portfolioRef = useRef(null);
 
   useEffect(() => {
@@ -303,6 +304,15 @@ export default function App() {
       if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
     }).catch(() => {});
   }, []);
+
+  // richEditor DOM 초기화 - editingMain이 열릴 때 innerHTML 직접 세팅
+  // dangerouslySetInnerHTML 대신 ref로 제어해서 리렌더링 충돌 방지
+  useEffect(() => {
+    if (editingMain && richEditorRef.current) {
+      const defaultHtml = '<div style="text-align:center"><span style="font-size:40px">🐜</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">존버일기장</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">존버는 승리한다.<br/>왜냐하면 승리하기 때문이다.</span></div>';
+      richEditorRef.current.innerHTML = editDraft.html || defaultHtml;
+    }
+  }, [editingMain]);
 
   async function saveMainText() {
     setMainText(editDraft);
@@ -850,9 +860,9 @@ export default function App() {
                   />
                 </label>
                 <button onClick={() => {
+                  const defaultHtml = '<div style="text-align:center"><span style="font-size:40px">🐜</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">존버일기장</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">존버는 승리한다.<br/>왜냐하면 승리하기 때문이다.</span></div>';
+                  if (richEditorRef.current) richEditorRef.current.innerHTML = defaultHtml;
                   setEditDraft(d => ({ ...d, html: null }));
-                  const el = document.getElementById("richEditor");
-                  if (el) el.innerHTML = `<div style="text-align:center"><span style="font-size:40px">${editDraft.emoji||"🐜"}</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">${editDraft.title||"존버일기장"}</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">${(editDraft.subtitle||"").replace(/\n/g,"<br/>")}</span></div>`;
                 }} style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 6, color: "#ef4444", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
                   🔄 기본값
                 </button>
@@ -863,11 +873,13 @@ export default function App() {
             <div style={{ fontSize: 11, color: "#475569", marginBottom: 4 }}>✍️ 여기서 직접 편집하세요</div>
             <div
               id="richEditor"
+              ref={richEditorRef}
               contentEditable
               suppressContentEditableWarning
-              onInput={e => setEditDraft(d => ({ ...d, html: e.currentTarget.innerHTML }))}
-              dangerouslySetInnerHTML={{ __html: editDraft.html ||
-                `<div style="text-align:center"><span style="font-size:40px">${editDraft.emoji||"🐜"}</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">${editDraft.title||"존버일기장"}</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">${(editDraft.subtitle||"").replace(/\n/g,"<br/>")}</span></div>`
+              onInput={e => {
+                // onInput만으로 html 저장 - dangerouslySetInnerHTML 사용 안 함
+                // React가 이 DOM을 건드리지 않아서 엔터/편집 시 리렌더링 없음
+                setEditDraft(d => ({ ...d, html: e.currentTarget.innerHTML }));
               }}
               style={{
                 minHeight: 180,
@@ -890,8 +902,9 @@ export default function App() {
             <div style={{ display: "flex", gap: 8 }}>
               <button style={{ ...S.btnSub, flex: 1 }} onClick={() => setEditingMain(false)}>취소</button>
               <button style={{ ...S.btnMain, flex: 1 }} onClick={() => {
-                const el = document.getElementById("richEditor");
-                if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                if (richEditorRef.current) {
+                  setEditDraft(d => ({ ...d, html: richEditorRef.current.innerHTML }));
+                }
                 saveMainText();
               }}>저장</button>
             </div>
