@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.4";
+const VERSION = "v7.5";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -1167,7 +1167,21 @@ export default function App() {
               }}>
               📊 현재 포트폴리오
             </button>
-            <button onClick={() => setActiveTab("history")}
+            <button onClick={() => {
+              setActiveTab("history");
+              // 최신 거래일 기준 1주일로 자동 세팅
+              if (allRecords.length > 0) {
+                const allDates = allRecords.flatMap(r => r.result?.stocks || []).flatMap(s => s.trades || []).map(t => t.date).sort();
+                const latest = allDates[allDates.length - 1];
+                if (latest) {
+                  const d = new Date(latest);
+                  d.setDate(d.getDate() - 6);
+                  setStartDate(d.toISOString().split("T")[0]);
+                  setEndDate(latest);
+                  setDateError("");
+                }
+              }
+            }}
               style={{ flex: 1, padding: "10px 8px", fontSize: 13, fontWeight: 700, borderRadius: 10, cursor: "pointer", border: "1px solid",
                 background: activeTab === "history" ? "#1a1a2a" : "#111827",
                 borderColor: activeTab === "history" ? "#6366f1" : "#1e293b",
@@ -1422,7 +1436,7 @@ export default function App() {
                         });
                       })()}
                     </div>
-                    {stock.insight && <div style={S.insight}>{stock.insight}</div>}
+                    {stock.insight && isAdmin && <div style={S.insight}>{stock.insight}</div>}
                   </div>
                 );
               })}
