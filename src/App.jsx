@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.2";
+const VERSION = "v7.3";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -725,8 +725,7 @@ export default function App() {
                       span.appendChild(frag);
                       range.insertNode(span);
                     }
-                    const el = document.getElementById("richEditor");
-                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
                   }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>
                     {sz}
                   </button>
@@ -751,8 +750,7 @@ export default function App() {
                       el2.appendChild(frag);
                       range.insertNode(el2);
                     }
-                    const el = document.getElementById("richEditor");
-                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
                   }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 10px", fontSize: 13, cursor: "pointer", ...b.style }}>
                     {b.label}
                   </button>
@@ -771,8 +769,7 @@ export default function App() {
                     if (block.nodeType === 3) block = block.parentElement;
                     while (block && !["P","DIV","H1","H2","H3"].includes(block.tagName)) block = block.parentElement;
                     if (block) block.style.textAlign = a.align;
-                    const el = document.getElementById("richEditor");
-                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
                   }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 8px", fontSize: 10, cursor: "pointer" }}>
                     {a.label}
                   </button>
@@ -804,8 +801,7 @@ export default function App() {
                       span.appendChild(frag);
                       range.insertNode(span);
                     }
-                    const el = document.getElementById("richEditor");
-                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
                   }} style={{ width: 22, height: 22, borderRadius: "50%", background: c, border: "2px solid #334155", cursor: "pointer", flexShrink: 0 }} />
                 ))}
                 <input type="color" title="직접 선택" defaultValue="#ffffff"
@@ -821,8 +817,7 @@ export default function App() {
                       span.appendChild(frag);
                       range.insertNode(span);
                     }
-                    const el = document.getElementById("richEditor");
-                    if (el) setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
                   }}
                   style={{ width: 22, height: 22, border: "2px solid #334155", borderRadius: "50%", cursor: "pointer", padding: 0, background: "none" }}
                 />
@@ -852,7 +847,7 @@ export default function App() {
                         } else {
                           el.appendChild(img);
                         }
-                        setEditDraft(d => ({ ...d, html: el.innerHTML }));
+                        // 저장 시 innerHTML 읽음
                       };
                       reader.readAsDataURL(file);
                       e.target.value = "";
@@ -876,11 +871,6 @@ export default function App() {
               ref={richEditorRef}
               contentEditable
               suppressContentEditableWarning
-              onInput={e => {
-                // onInput만으로 html 저장 - dangerouslySetInnerHTML 사용 안 함
-                // React가 이 DOM을 건드리지 않아서 엔터/편집 시 리렌더링 없음
-                setEditDraft(d => ({ ...d, html: e.currentTarget.innerHTML }));
-              }}
               style={{
                 minHeight: 180,
                 background: "#0a0f1e",
