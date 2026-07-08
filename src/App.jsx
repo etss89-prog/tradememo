@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.3";
+const VERSION = "v7.4";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -314,13 +314,16 @@ export default function App() {
     }
   }, [editingMain]);
 
-  async function saveMainText() {
-    setMainText(editDraft);
+  async function saveMainText(htmlContent) {
+    // htmlContent: richEditorRef에서 직접 읽은 최신 innerHTML
+    // setEditDraft가 비동기라 editDraft를 쓰면 옛날 값이 저장됨
+    const finalMainText = { ...editDraft, html: htmlContent || null };
+    setMainText(finalMainText);
     setEditingMain(false);
     await fetch("/api/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ records: allRecords, portfolios, accounts, mainText: editDraft })
+      body: JSON.stringify({ records: allRecords, portfolios, accounts, mainText: finalMainText })
     });
   }
 
@@ -892,10 +895,8 @@ export default function App() {
             <div style={{ display: "flex", gap: 8 }}>
               <button style={{ ...S.btnSub, flex: 1 }} onClick={() => setEditingMain(false)}>취소</button>
               <button style={{ ...S.btnMain, flex: 1 }} onClick={() => {
-                if (richEditorRef.current) {
-                  setEditDraft(d => ({ ...d, html: richEditorRef.current.innerHTML }));
-                }
-                saveMainText();
+                const html = richEditorRef.current ? richEditorRef.current.innerHTML : null;
+                saveMainText(html);
               }}>저장</button>
             </div>
           </div>
