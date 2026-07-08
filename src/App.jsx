@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v6.7";
+const VERSION = "v6.9";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -246,7 +246,13 @@ export default function App() {
   const [portfolioEditMode, setPortfolioEditMode] = useState(false); // 종목편집 모드 토글
   const [editStockQty, setEditStockQty] = useState("");
   const [editStockAvg, setEditStockAvg] = useState("");
-  const [mainText, setMainText] = useState({ emoji: "🐜", title: "존버일기장", subtitle: "존버는 승리한다.\n왜냐하면 승리하기 때문이다." });
+  const [mainText, setMainText] = useState({
+    emoji: "🐜",
+    title: "존버일기장",
+    subtitle: "존버는 승리한다.\n왜냐하면 승리하기 때문이다.",
+    // html: null → null이면 기존 방식(emoji+title+subtitle), 있으면 HTML 렌더링
+    html: null,
+  });
   const [editingMain, setEditingMain] = useState(false);
   const [editDraft, setEditDraft] = useState({});
   // 동적 계좌 관리
@@ -684,30 +690,106 @@ export default function App() {
 
   return (
     <div style={S.page}>
-      {/* 메인화면 편집 모달 - 관리자 전용 */}
+      {/* 메인화면 편집 모달 - 관리자 전용 (리치 에디터) */}
       {editingMain && (
         <div style={S.overlay}>
-          <div style={{ ...S.modal, width: 320, textAlign: "left" }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>✏️ 메인화면 편집</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>이모지</div>
-                <input style={{ ...S.pinInput, fontSize: 20, letterSpacing: 4, padding: "8px 12px" }}
-                  value={editDraft.emoji} onChange={e => setEditDraft(d => ({ ...d, emoji: e.target.value }))} />
+          <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 480, textAlign: "left", maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>✏️ 메인화면 편집</div>
+
+            {/* 툴바 */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8, padding: "8px", background: "#0f172a", borderRadius: 8 }}>
+              {/* 폰트 크기 */}
+              <select onChange={e => document.execCommand("fontSize", false, e.target.value)}
+                style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 6px", fontSize: 11, cursor: "pointer" }}>
+                <option value="">크기</option>
+                {[1,2,3,4,5,6,7].map(s => <option key={s} value={s}>{[10,13,16,18,24,32,48][s-1]}px</option>)}
+              </select>
+              {/* 정렬 */}
+              {[
+                { cmd: "justifyLeft", label: "◀" },
+                { cmd: "justifyCenter", label: "■" },
+                { cmd: "justifyRight", label: "▶" },
+              ].map(b => (
+                <button key={b.cmd} onMouseDown={e => { e.preventDefault(); document.execCommand(b.cmd); }}
+                  style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>
+                  {b.label}
+                </button>
+              ))}
+              {/* 스타일 */}
+              {[
+                { cmd: "bold", label: "B", style: { fontWeight: 700 } },
+                { cmd: "italic", label: "I", style: { fontStyle: "italic" } },
+                { cmd: "underline", label: "U", style: { textDecoration: "underline" } },
+              ].map(b => (
+                <button key={b.cmd} onMouseDown={e => { e.preventDefault(); document.execCommand(b.cmd); }}
+                  style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 8px", fontSize: 12, cursor: "pointer", ...b.style }}>
+                  {b.label}
+                </button>
+              ))}
+              {/* 글씨 색 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                <span style={{ fontSize: 10, color: "#475569" }}>색</span>
+                {["#e2e8f0","#f59e0b","#4ade80","#60a5fa","#a78bfa","#ef4444","#f97316","#ec4899"].map(c => (
+                  <div key={c} onMouseDown={e => { e.preventDefault(); document.execCommand("foreColor", false, c); }}
+                    style={{ width: 16, height: 16, borderRadius: "50%", background: c, cursor: "pointer", border: "1px solid #334155", flexShrink: 0 }} />
+                ))}
+                <input type="color" title="직접 선택"
+                  onChange={e => document.execCommand("foreColor", false, e.target.value)}
+                  style={{ width: 20, height: 20, border: "none", background: "none", cursor: "pointer", padding: 0 }} />
               </div>
-              <div>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>제목</div>
-                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
-                  value={editDraft.title} onChange={e => setEditDraft(d => ({ ...d, title: e.target.value }))} />
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>부제목 (줄바꿈은 
- 입력)</div>
-                <textarea style={{ ...S.pinInput, fontSize: 13, letterSpacing: 0, textAlign: "left", padding: "8px 12px", height: 80, resize: "none", lineHeight: 1.6 }}
-                  value={editDraft.subtitle} onChange={e => setEditDraft(d => ({ ...d, subtitle: e.target.value }))} />
-              </div>
+              {/* 이미지 업로드 */}
+              <label style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 6, color: "#94a3b8", padding: "3px 8px", fontSize: 11, cursor: "pointer", display: "inline-block" }}>
+                🖼️ 이미지
+                <input type="file" accept="image/*" style={{ display: "none" }}
+                  onChange={e => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => {
+                      const el = document.getElementById("mainEditorArea");
+                      if (el) el.focus();
+                      document.execCommand("insertHTML", false, `<img src="${ev.target.result}" style="max-width:100%;border-radius:8px;margin:8px 0;" />`);
+                      setEditDraft(d => ({ ...d, html: document.getElementById("mainEditorArea")?.innerHTML }));
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {/* 초기화 */}
+              <button onMouseDown={e => { e.preventDefault(); setEditDraft(d => ({ ...d, html: null })); }}
+                style={{ background: "#2d1f1f", border: "1px solid #7f1d1d", borderRadius: 6, color: "#ef4444", padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>
+                기본값
+              </button>
             </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+
+            {/* contentEditable 편집 영역 */}
+            <div
+              id="mainEditorArea"
+              contentEditable
+              suppressContentEditableWarning
+              onInput={e => setEditDraft(d => ({ ...d, html: e.currentTarget.innerHTML }))}
+              dangerouslySetInnerHTML={{ __html: editDraft.html || `<div style="text-align:center"><span style="font-size:32px">${editDraft.emoji || "🐜"}</span><br/><span style="font-size:22px;font-weight:900;color:#e2e8f0">${editDraft.title || "존버일기장"}</span><br/><br/><span style="font-size:18px;font-weight:700;color:#f59e0b">${(editDraft.subtitle || "").replace(/\n/g, "<br/>")}</span></div>` }}
+              style={{
+                minHeight: 200,
+                background: "#0a0f1e",
+                border: "1px solid #334155",
+                borderRadius: 8,
+                padding: "16px",
+                color: "#e2e8f0",
+                fontSize: 16,
+                lineHeight: 1.7,
+                outline: "none",
+                marginBottom: 12,
+              }}
+            />
+
+            {/* 미리보기 안내 */}
+            <div style={{ fontSize: 10, color: "#475569", marginBottom: 12 }}>
+              💡 위 영역이 실제 입장화면에 표시됩니다. 직접 클릭해서 편집하세요.
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
               <button style={{ ...S.btnSub, flex: 1 }} onClick={() => setEditingMain(false)}>취소</button>
               <button style={{ ...S.btnMain, flex: 1 }} onClick={saveMainText}>저장</button>
             </div>
@@ -1254,11 +1336,16 @@ export default function App() {
 
       {!isViewer && (
         <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <div style={{ fontSize: 56, marginBottom: 8 }}>{mainText.emoji}</div>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>{mainText.title}</div>
-          <div style={{ fontSize: 20, color: "#f59e0b", fontWeight: 900, marginBottom: 24, lineHeight: 1.7 }}>
-            {mainText.subtitle.split("\n").map((line, i) => <span key={i}>{line}{i < mainText.subtitle.split("\n").length - 1 && <br/>}</span>)}
-          </div>
+          {mainText.html
+            ? <div dangerouslySetInnerHTML={{ __html: mainText.html }} style={{ marginBottom: 24, lineHeight: 1.7 }} />
+            : <>
+                <div style={{ fontSize: 56, marginBottom: 8 }}>{mainText.emoji}</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: "#e2e8f0", marginBottom: 4 }}>{mainText.title}</div>
+                <div style={{ fontSize: 20, color: "#f59e0b", fontWeight: 900, marginBottom: 24, lineHeight: 1.7 }}>
+                  {mainText.subtitle.split("\n").map((line, i) => <span key={i}>{line}{i < mainText.subtitle.split("\n").length - 1 && <br/>}</span>)}
+                </div>
+              </>
+          }
           <div style={{ background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 24, maxWidth: 320, margin: "0 auto" }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>📋 조회 코드 입력</div>
             <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>포트폴리오 및 매매 평단 리스트</div>
