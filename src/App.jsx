@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.7";
+const VERSION = "v7.9";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -785,22 +785,32 @@ export default function App() {
             {/* 툴바 */}
             <div style={{ background: "#0f172a", borderRadius: 10, padding: "10px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 8 }}>
 
-              {/* 1행: 폰트 크기 + 정렬 */}
+              {/* 1행: 폰트 크기 */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                 <span style={{ fontSize: 10, color: "#475569", minWidth: 28 }}>크기</span>
                 {[12,14,16,18,20,24,28,32,40].map(sz => (
                   <button key={sz} onClick={() => {
+                    const el = document.getElementById("richEditor");
+                    if (!el) return;
+                    el.focus();
+                    // styleWithCSS 켜서 font-size를 inline style로 적용
+                    document.execCommand("styleWithCSS", false, true);
+                    // fontSize 1-7 대신 직접 span으로 감싸는 방식
                     const sel = window.getSelection();
                     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
                     const range = sel.getRangeAt(0);
-                    const span = document.createElement("span");
-                    span.style.fontSize = sz + "px";
-                    try { range.surroundContents(span); } catch(e) {
-                      const frag = range.extractContents();
-                      span.appendChild(frag);
-                      range.insertNode(span);
-                    }
-                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
+                    // 기존 선택 영역의 HTML을 추출해서 span으로 감싸기
+                    const frag = range.extractContents();
+                    const wrapper = document.createElement("span");
+                    wrapper.style.fontSize = sz + "px";
+                    wrapper.style.lineHeight = "1.4";
+                    wrapper.appendChild(frag);
+                    range.insertNode(wrapper);
+                    // 커서를 span 뒤로 이동
+                    range.setStartAfter(wrapper);
+                    range.collapse(true);
+                    sel.removeAllRanges();
+                    sel.addRange(range);
                   }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>
                     {sz}
                   </button>
@@ -811,40 +821,47 @@ export default function App() {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                 <span style={{ fontSize: 10, color: "#475569", minWidth: 28 }}>스타일</span>
                 {[
-                  { label: "B", tag: "strong", style: { fontWeight: 700 } },
-                  { label: "I", tag: "em", style: { fontStyle: "italic" } },
-                  { label: "U", tag: "u", style: { textDecoration: "underline" } },
+                  { label: "B", tag: "strong" },
+                  { label: "I", tag: "em" },
+                  { label: "U", tag: "u" },
                 ].map(b => (
                   <button key={b.label} onClick={() => {
+                    const el = document.getElementById("richEditor");
+                    if (!el) return; el.focus();
                     const sel = window.getSelection();
                     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
                     const range = sel.getRangeAt(0);
-                    const el2 = document.createElement(b.tag);
-                    try { range.surroundContents(el2); } catch(e) {
-                      const frag = range.extractContents();
-                      el2.appendChild(frag);
-                      range.insertNode(el2);
-                    }
-                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
-                  }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 10px", fontSize: 13, cursor: "pointer", ...b.style }}>
+                    const frag = range.extractContents();
+                    const wrapper = document.createElement(b.tag);
+                    wrapper.appendChild(frag);
+                    range.insertNode(wrapper);
+                    range.setStartAfter(wrapper); range.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(range);
+                  }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 10px", fontSize: 13, cursor: "pointer",
+                    fontWeight: b.label === "B" ? 700 : "normal",
+                    fontStyle: b.label === "I" ? "italic" : "normal",
+                    textDecoration: b.label === "U" ? "underline" : "none",
+                  }}>
                     {b.label}
                   </button>
                 ))}
                 <span style={{ fontSize: 10, color: "#475569", marginLeft: 4 }}>정렬</span>
                 {[
-                  { label: "◀ 좌", align: "left" },
-                  { label: "■ 중", align: "center" },
-                  { label: "▶ 우", align: "right" },
+                  { label: "◀좌", align: "left" },
+                  { label: "■중", align: "center" },
+                  { label: "▶우", align: "right" },
                 ].map(a => (
                   <button key={a.align} onClick={() => {
+                    const el = document.getElementById("richEditor");
+                    if (!el) return; el.focus();
                     const sel = window.getSelection();
                     if (!sel || sel.rangeCount === 0) return;
                     const range = sel.getRangeAt(0);
                     let block = range.commonAncestorContainer;
                     if (block.nodeType === 3) block = block.parentElement;
-                    while (block && !["P","DIV","H1","H2","H3"].includes(block.tagName)) block = block.parentElement;
-                    if (block) block.style.textAlign = a.align;
-                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
+                    while (block && block !== el && !["P","DIV","H1","H2","H3","LI"].includes(block.tagName)) block = block.parentElement;
+                    if (block && block !== el) block.style.textAlign = a.align;
+                    else el.style.textAlign = a.align;
                   }} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 5, color: "#94a3b8", padding: "3px 8px", fontSize: 10, cursor: "pointer" }}>
                     {a.label}
                   </button>
@@ -854,49 +871,43 @@ export default function App() {
               {/* 3행: 색깔 */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                 <span style={{ fontSize: 10, color: "#475569", minWidth: 28 }}>색</span>
-                {[
-                  { c: "#e2e8f0", label: "흰" },
-                  { c: "#f59e0b", label: "노랑" },
-                  { c: "#4ade80", label: "초록" },
-                  { c: "#60a5fa", label: "파랑" },
-                  { c: "#a78bfa", label: "보라" },
-                  { c: "#ef4444", label: "빨강" },
-                  { c: "#f97316", label: "주황" },
-                  { c: "#ec4899", label: "핑크" },
-                  { c: "#94a3b8", label: "회색" },
-                ].map(({ c, label }) => (
-                  <button key={c} title={label} onClick={() => {
+                {["#e2e8f0","#f59e0b","#4ade80","#60a5fa","#a78bfa","#ef4444","#f97316","#ec4899","#94a3b8"].map(c => (
+                  <button key={c} title={c} onClick={() => {
+                    const el = document.getElementById("richEditor");
+                    if (!el) return; el.focus();
                     const sel = window.getSelection();
                     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
                     const range = sel.getRangeAt(0);
-                    const span = document.createElement("span");
-                    span.style.color = c;
-                    try { range.surroundContents(span); } catch(e) {
-                      const frag = range.extractContents();
-                      span.appendChild(frag);
-                      range.insertNode(span);
-                    }
-                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
+                    const frag = range.extractContents();
+                    const wrapper = document.createElement("span");
+                    wrapper.style.color = c;
+                    wrapper.appendChild(frag);
+                    range.insertNode(wrapper);
+                    range.setStartAfter(wrapper); range.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(range);
                   }} style={{ width: 22, height: 22, borderRadius: "50%", background: c, border: "2px solid #334155", cursor: "pointer", flexShrink: 0 }} />
                 ))}
                 <input type="color" title="직접 선택" defaultValue="#ffffff"
                   onChange={e => {
                     const c = e.target.value;
+                    const el = document.getElementById("richEditor");
+                    if (!el) return; el.focus();
                     const sel = window.getSelection();
                     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
                     const range = sel.getRangeAt(0);
-                    const span = document.createElement("span");
-                    span.style.color = c;
-                    try { range.surroundContents(span); } catch(e2) {
-                      const frag = range.extractContents();
-                      span.appendChild(frag);
-                      range.insertNode(span);
-                    }
-                    // DOM은 그대로 유지 - 저장 시 innerHTML 읽음
+                    const frag = range.extractContents();
+                    const wrapper = document.createElement("span");
+                    wrapper.style.color = c;
+                    wrapper.appendChild(frag);
+                    range.insertNode(wrapper);
+                    range.setStartAfter(wrapper); range.collapse(true);
+                    sel.removeAllRanges(); sel.addRange(range);
                   }}
                   style={{ width: 22, height: 22, border: "2px solid #334155", borderRadius: "50%", cursor: "pointer", padding: 0, background: "none" }}
                 />
               </div>
+
+
 
               {/* 4행: 이미지 + 초기화 */}
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -1266,7 +1277,7 @@ export default function App() {
                 borderColor: activeTab === "diary" ? "#f59e0b" : "#1e293b",
                 color: activeTab === "diary" ? "#f59e0b" : "#64748b",
               }}>
-              🐜 일기장
+              🐜 Johnber Diary
             </button>
           </div>
 
