@@ -1670,7 +1670,7 @@ export default function App() {
                               return (
                                 <a href={post.linkUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginTop: 8, textDecoration: "none" }}>
                                   <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, overflow: "hidden" }}>
-                                    {preview.image && <img src={preview.image} alt="" style={{ width: "100%", maxHeight: 140, objectFit: "cover", display: "block" }} onError={e => e.target.style.display="none"} />}
+                                    {preview.image && <img src={preview.image} alt="" style={{ width: "100%", maxHeight: 140, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
                                     <div style={{ padding: "8px 10px" }}>
                                       {preview.domain && <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>{preview.domain}</div>}
                                       <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", marginBottom: 3 }}>{preview.title}</div>
@@ -1757,7 +1757,7 @@ export default function App() {
                       {/* 링크 미리보기 초안 */}
                       {previewDraft && (
                         <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
-                          {previewDraft.image && <img src={previewDraft.image} alt="" style={{ width: "100%", maxHeight: 120, objectFit: "cover", display: "block" }} onError={e => e.target.style.display="none"} />}
+                          {previewDraft.image && <img src={previewDraft.image} alt="" style={{ width: "100%", maxHeight: 120, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
                           <div style={{ padding: "8px 10px" }}>
                             {previewDraft.domain && <div style={{ fontSize: 9, color: "#475569", marginBottom: 2 }}>{previewDraft.domain}</div>}
                             {previewDraft.title && <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", marginBottom: 2 }}>{previewDraft.title}</div>}
