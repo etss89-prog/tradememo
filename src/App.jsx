@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v7.9";
+const VERSION = "v8.1";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -793,20 +793,19 @@ export default function App() {
                     const el = document.getElementById("richEditor");
                     if (!el) return;
                     el.focus();
-                    // styleWithCSS 켜서 font-size를 inline style로 적용
-                    document.execCommand("styleWithCSS", false, true);
-                    // fontSize 1-7 대신 직접 span으로 감싸는 방식
                     const sel = window.getSelection();
                     if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
                     const range = sel.getRangeAt(0);
-                    // 기존 선택 영역의 HTML을 추출해서 span으로 감싸기
                     const frag = range.extractContents();
+                    // 기존 중첩 span의 font-size를 모두 제거해서 새 크기가 정확히 적용되게
+                    frag.querySelectorAll && frag.querySelectorAll("[style]").forEach(el2 => {
+                      el2.style.removeProperty("font-size");
+                    });
                     const wrapper = document.createElement("span");
                     wrapper.style.fontSize = sz + "px";
-                    wrapper.style.lineHeight = "1.4";
+                    // lineHeight 제거 - 부모 요소와 충돌해서 공백처럼 보이는 원인
                     wrapper.appendChild(frag);
                     range.insertNode(wrapper);
-                    // 커서를 span 뒤로 이동
                     range.setStartAfter(wrapper);
                     range.collapse(true);
                     sel.removeAllRanges();
@@ -1277,7 +1276,7 @@ export default function App() {
                 borderColor: activeTab === "diary" ? "#f59e0b" : "#1e293b",
                 color: activeTab === "diary" ? "#f59e0b" : "#64748b",
               }}>
-              🐜 Johnber Diary
+              🐜 존버기록실
             </button>
           </div>
 
