@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v8.1";
+const VERSION = "v8.2";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -250,6 +250,9 @@ export default function App() {
   const [diaryLinkUrl, setDiaryLinkUrl] = useState("");
   const [diaryReplyTo, setDiaryReplyTo] = useState(null); // { id, text, nickname }
   const [diaryWriting, setDiaryWriting] = useState(false); // 글쓰기 패널 열림
+  const [linkPreviews, setLinkPreviews] = useState({}); // { postId: { title, description, image, domain } }
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewDraft, setPreviewDraft] = useState(null); // 작성 중 링크 미리보기
   const [diaryEditModal, setDiaryEditModal] = useState(null); // { post, password? }
   const [diaryEditText, setDiaryEditText] = useState("");
   const [diaryEditPw, setDiaryEditPw] = useState("");
@@ -319,7 +322,13 @@ export default function App() {
     }).catch(() => {});
     // 일기장 불러오기
     fetch("/api/diary-load").then(r => r.json()).then(d => {
-      if (d.posts) setDiaryPosts(d.posts);
+      if (d.posts) {
+        setDiaryPosts(d.posts);
+        // 링크가 있는 포스트는 미리보기 조회
+        d.posts.forEach(p => {
+          if (p.linkUrl) fetchLinkPreview(p.linkUrl, p.id);
+        });
+      }
     }).catch(() => {});
   }, []);
 
@@ -331,6 +340,23 @@ export default function App() {
       richEditorRef.current.innerHTML = editDraft.html || defaultHtml;
     }
   }, [editingMain]);
+
+  // 링크 미리보기 조회
+  async function fetchLinkPreview(url, postId) {
+    if (!url) return;
+    try {
+      const res = await fetch("/api/link-preview", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url })
+      });
+      const data = await res.json();
+      if (postId) {
+        setLinkPreviews(prev => ({ ...prev, [postId]: data }));
+      } else {
+        setPreviewDraft(data);
+      }
+    } catch {}
+  }
 
   // 일기장 글 추가
   async function addDiaryPost() {
@@ -350,9 +376,15 @@ export default function App() {
       body: JSON.stringify({ action: "add", post })
     });
     const d = await res.json();
-    if (d.posts) setDiaryPosts(d.posts);
+    if (d.posts) {
+      setDiaryPosts(d.posts);
+      // 새 글의 링크 미리보기 조회
+      const newPost = d.posts[0];
+      if (newPost?.linkUrl) fetchLinkPreview(newPost.linkUrl, newPost.id);
+    }
     setDiaryText(""); setDiaryLinkUrl(""); setDiarySecret(false);
     setDiaryReplyTo(null); setDiaryPassword(""); setDiaryWriting(false);
+    setPreviewDraft(null);
   }
 
   async function editDiaryPost() {
@@ -1632,12 +1664,29 @@ export default function App() {
                           fontStyle: isSecretHidden ? "italic" : "normal",
                         }}>
                           {isSecretHidden ? "🔒 비밀글입니다" : post.text}
-                          {!isSecretHidden && post.linkUrl && (
-                            <a href={post.linkUrl} target="_blank" rel="noopener noreferrer"
-                              style={{ display: "block", marginTop: 6, color: "#60a5fa", fontSize: 11, wordBreak: "break-all" }}>
-                              🔗 {post.linkUrl}
-                            </a>
-                          )}
+                          {!isSecretHidden && post.linkUrl && (() => {
+                            const preview = linkPreviews[post.id];
+                            if (preview?.title) {
+                              return (
+                                <a href={post.linkUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginTop: 8, textDecoration: "none" }}>
+                                  <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, overflow: "hidden" }}>
+                                    {preview.image && <img src={preview.image} alt="" style={{ width: "100%", maxHeight: 140, objectFit: "cover", display: "block" }} onError={e => e.target.style.display="none"} />}
+                                    <div style={{ padding: "8px 10px" }}>
+                                      {preview.domain && <div style={{ fontSize: 9, color: "#475569", marginBottom: 3 }}>{preview.domain}</div>}
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", marginBottom: 3 }}>{preview.title}</div>
+                                      {preview.description && <div style={{ fontSize: 11, color: "#64748b", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{preview.description}</div>}
+                                    </div>
+                                  </div>
+                                </a>
+                              );
+                            }
+                            return (
+                              <a href={post.linkUrl} target="_blank" rel="noopener noreferrer"
+                                style={{ display: "block", marginTop: 6, color: "#60a5fa", fontSize: 11, wordBreak: "break-all" }}>
+                                🔗 {post.linkUrl}
+                              </a>
+                            );
+                          })()}
                         </div>
                         {/* 시간 + 수정됨 + 액션 버튼 */}
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexDirection: isMine ? "row-reverse" : "row" }}>
@@ -1697,8 +1746,25 @@ export default function App() {
                       )}
                       {/* 링크 (관리자만) */}
                       {isAdmin && (
-                        <input style={{ ...S.pinInput, fontSize: 12, letterSpacing: 0, textAlign: "left", padding: "7px 10px", marginBottom: 8 }}
-                          placeholder="🔗 링크 URL (선택)" value={diaryLinkUrl} onChange={e => setDiaryLinkUrl(e.target.value)} />
+                        <input style={{ ...S.pinInput, fontSize: 12, letterSpacing: 0, textAlign: "left", padding: "7px 10px", marginBottom: 4 }}
+                          placeholder="🔗 링크 URL (선택)" value={diaryLinkUrl}
+                          onChange={e => {
+                            setDiaryLinkUrl(e.target.value);
+                            setPreviewDraft(null);
+                          }}
+                          onBlur={e => { if (e.target.value) fetchLinkPreview(e.target.value, null); }}
+                        />
+                      {/* 링크 미리보기 초안 */}
+                      {previewDraft && (
+                        <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
+                          {previewDraft.image && <img src={previewDraft.image} alt="" style={{ width: "100%", maxHeight: 120, objectFit: "cover", display: "block" }} onError={e => e.target.style.display="none"} />}
+                          <div style={{ padding: "8px 10px" }}>
+                            {previewDraft.domain && <div style={{ fontSize: 9, color: "#475569", marginBottom: 2 }}>{previewDraft.domain}</div>}
+                            {previewDraft.title && <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0", marginBottom: 2 }}>{previewDraft.title}</div>}
+                            {previewDraft.description && <div style={{ fontSize: 11, color: "#64748b", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{previewDraft.description}</div>}
+                          </div>
+                        </div>
+                      )}
                       )}
                       {/* 본문 */}
                       <textarea style={{ width: "100%", minHeight: 80, background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", fontSize: 13, padding: "10px", resize: "none", outline: "none", boxSizing: "border-box", lineHeight: 1.6, marginBottom: 8 }}
