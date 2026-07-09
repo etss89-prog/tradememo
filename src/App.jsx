@@ -1754,8 +1754,9 @@ export default function App() {
                           }}
                           onBlur={e => { if (e.target.value) fetchLinkPreview(e.target.value, null); }}
                         />
+                      )}
                       {/* 링크 미리보기 초안 */}
-                      {previewDraft && (
+                      {isAdmin && previewDraft && (
                         <div style={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
                           {previewDraft.image && <img src={previewDraft.image} alt="" style={{ width: "100%", maxHeight: 120, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
                           <div style={{ padding: "8px 10px" }}>
@@ -1764,7 +1765,6 @@ export default function App() {
                             {previewDraft.description && <div style={{ fontSize: 11, color: "#64748b", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{previewDraft.description}</div>}
                           </div>
                         </div>
-                      )}
                       )}
                       {/* 본문 */}
                       <textarea style={{ width: "100%", minHeight: 80, background: "#0f172a", border: "1px solid #334155", borderRadius: 8, color: "#e2e8f0", fontSize: 13, padding: "10px", resize: "none", outline: "none", boxSizing: "border-box", lineHeight: 1.6, marginBottom: 8 }}
