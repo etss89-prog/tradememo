@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v8.2";
+const VERSION = "v8.3";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -286,6 +286,25 @@ export default function App() {
   const fileRef = useRef(null);
   const richEditorRef = useRef(null);
   const portfolioRef = useRef(null);
+
+  // 앱 로드 시 서버 버전 체크 → 새 배포 감지되면 자동 새로고침
+  useEffect(() => {
+    const stored = localStorage.getItem("tradememo_version");
+    fetch("/api/version", { cache: "no-store" })
+      .then(r => r.json())
+      .then(d => {
+        const serverVer = d.version;
+        if (serverVer && serverVer !== "dev") {
+          if (stored && stored !== serverVer) {
+            // 새 버전 감지 → 캐시 무시하고 강제 새로고침
+            localStorage.setItem("tradememo_version", serverVer);
+            window.location.reload(true);
+          } else {
+            localStorage.setItem("tradememo_version", serverVer);
+          }
+        }
+      }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetch("/api/load").then(r => r.json()).then(d => {
