@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.2";
+const VERSION = "v9.3";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -49,8 +49,7 @@ const COLORS = [
   "#8b5cf6","#6d28d9","#c084fc",
 ];
 
-function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) {
-  const darkMode = localStorage.getItem("jb_dark_mode") === "true";
+function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, darkMode = false }) {
   if (!data || data.length === 0) return null;
   const total = data.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
@@ -105,8 +104,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) 
   );
 }
 
-function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
-  const darkMode = localStorage.getItem("jb_dark_mode") === "true";
+function PortfolioChart({ data, isAdmin, showWealth, onEdit, darkMode = false }) {
   if (!data || data.length === 0) return null;
   const sorted = [...data].sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
@@ -1435,7 +1433,7 @@ export default function App() {
                         <span style={{ fontWeight: 700 }}>+{displayPortfolio.approxTotal.toLocaleString()}원 포함</span>
                       </div>
                     )}
-                    <PortfolioChart isAdmin={isAdmin} showWealth={showWealth}
+                    <PortfolioChart isAdmin={isAdmin} showWealth={showWealth} darkMode={darkMode}
                       onEdit={(activeAccount !== "all" && portfolioEditMode) ? (s) => {
                         // 원본 stock 데이터 찾기
                         const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
@@ -1525,6 +1523,7 @@ export default function App() {
 
               {/* 파이 차트 */}
               <DonutChart
+                darkMode={darkMode}
                 data={historySubTab === "buy" ? buyPieData : sellPieData}
                 title={historySubTab === "buy" ? "📊 매수 비중 (투자금 기준)" : "📊 매도 비중 (매도금 기준)"}
                 labelName="종목명"
