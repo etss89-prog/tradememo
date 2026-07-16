@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.0";
+const VERSION = "v9.1";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -50,6 +50,7 @@ const COLORS = [
 ];
 
 function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) {
+  const darkMode = localStorage.getItem("jb_dark_mode") === "true";
   if (!data || data.length === 0) return null;
   const total = data.reduce((s, d) => s + d.value, 0);
   let cumulative = 0;
@@ -105,6 +106,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) 
 }
 
 function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
+  const darkMode = localStorage.getItem("jb_dark_mode") === "true";
   if (!data || data.length === 0) return null;
   const sorted = [...data].sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
