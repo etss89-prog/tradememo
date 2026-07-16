@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v8.8";
+const VERSION = "v8.9";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -1675,8 +1675,10 @@ export default function App() {
                   </div>
                 )}
                 {diaryPosts.map(post => {
-                  // 관리자 글이거나, 내 세션ID로 작성한 글은 오른쪽
-                  const isMine = post.isAdmin || post.sessionId === mySessionId;
+                  // 오른쪽 표시 조건:
+                  // - 관리자로 로그인 중 + 관리자가 쓴 글
+                  // - 내 세션ID로 작성한 글 (조회자 본인 글)
+                  const isMine = (isAdmin && post.isAdmin) || post.sessionId === mySessionId;
                   const isSecretHidden = post.isSecret && !isAdmin;
                   const timeStr = new Date(post.createdAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
                   const editStr = post.editedAt ? new Date(post.editedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : null;
@@ -1685,17 +1687,17 @@ export default function App() {
                     <div key={post.id} style={{ display: "flex", flexDirection: isMine ? "row-reverse" : "row", alignItems: "flex-end", gap: 8 }}>
                       {/* 아바타 */}
                       <div style={{ width: 32, height: 32, borderRadius: "50%", background: isMine ? "#eff6ff" : "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>
-                        {isMine ? "🐜" : "👤"}
+                        {post.isAdmin ? "🐜" : isMine ? "😊" : "👤"}
                       </div>
                       <div style={{ maxWidth: "75%", display: "flex", flexDirection: "column", alignItems: isMine ? "flex-end" : "flex-start", gap: 2 }}>
                         {/* 닉네임 */}
-                        <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 2, paddingLeft: isMine ? 0 : 4, paddingRight: isMine ? 4 : 0 }}>
+                        <div style={{ fontSize: 11, color: darkMode ? "#cbd5e1" : "#374151", fontWeight: 600, marginBottom: 2, paddingLeft: isMine ? 0 : 4, paddingRight: isMine ? 4 : 0 }}>
                           {post.isSecret && <span style={{ marginRight: 4 }}>🔒</span>}
                           {post.nickname}
                         </div>
                         {/* 답글 미리보기 */}
                         {post.replyPreview && (
-                          <div style={{ background: "#f1f5f9", borderLeft: isMine ? "none" : "2px solid #6366f1", borderRight: isMine ? "2px solid #6366f1" : "none", padding: "4px 8px", borderRadius: 6, fontSize: 10, color: "#94a3b8", maxWidth: "100%" }}>
+                          <div style={{ background: darkMode ? "#1e293b" : "#ede8e0", borderLeft: isMine ? "none" : "2px solid #6366f1", borderRight: isMine ? "2px solid #6366f1" : "none", padding: "4px 8px", borderRadius: 6, fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", maxWidth: "100%" }}>
                             {post.replyPreview}
                           </div>
                         )}
@@ -1737,11 +1739,11 @@ export default function App() {
                         </div>
                         {/* 시간 + 수정됨 + 액션 버튼 */}
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexDirection: isMine ? "row-reverse" : "row" }}>
-                          <span style={{ fontSize: 9, color: "#cbd5e1" }}>{timeStr}{editStr ? ` · ${editStr} 수정됨` : ""}</span>
+                          <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#4b5563", fontWeight: 500 }}>{timeStr}{editStr ? ` · ${editStr} 수정됨` : ""}</span>
                           {/* 답글 버튼 */}
                           {isViewer && (
                             <button onClick={() => { setDiaryReplyTo(post); setDiaryWriting(true); }}
-                              style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
+                              style={{ background: "none", border: "none", color: darkMode ? "#60a5fa" : "#2563eb", fontSize: 11, cursor: "pointer", padding: "0 2px", fontWeight: 600 }}>
                               ↩ 답글
                             </button>
                           )}
