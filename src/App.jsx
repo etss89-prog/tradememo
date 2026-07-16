@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v8.9";
+const VERSION = "v9.0";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -71,22 +71,22 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) 
 
   return (
     <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 12, marginBottom: 12 }}>
-      {title && <div style={{ fontSize: 12, fontWeight: 700, color: "#94a3b8", marginBottom: 10 }}>{title}</div>}
+      {title && <div style={{ fontSize: 12, fontWeight: 700, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 10 }}>{title}</div>}
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <svg viewBox="0 0 100 100" style={{ width: 80, height: 80, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
           {centerText && (
             <>
               <text x="50" y="47" textAnchor="middle" fill="#1e293b" fontSize="6" fontWeight="700">{centerText.line1}</text>
-              <text x="50" y="56" textAnchor="middle" fill="#94a3b8" fontSize="5">{centerText.line2}</text>
+              <text x="50" y="56" textAnchor="middle" fill={darkMode ? "#94a3b8" : "#374151"} fontSize="5">{centerText.line2}</text>
             </>
           )}
         </svg>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", gap: 4, marginBottom: 5, paddingBottom: 4, borderBottom: "1px solid #e2e8f0" }}>
-            <span style={{ flex: 2, fontSize: 10, color: "#94a3b8" }}>{labelName || "종목명"}</span>
-            <span style={{ flex: 1, fontSize: 10, color: "#94a3b8", textAlign: "center" }}>{labelPct || "비중"}</span>
-            <span style={{ flex: 1, fontSize: 10, color: "#94a3b8", textAlign: "right" }}>{labelAvg || "평단"}</span>
+            <span style={{ flex: 2, fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>{labelName || "종목명"}</span>
+            <span style={{ flex: 1, fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "center" }}>{labelPct || "비중"}</span>
+            <span style={{ flex: 1, fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "right" }}>{labelAvg || "평단"}</span>
           </div>
           {slices.map((s, i) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
@@ -95,7 +95,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg }) 
                 <span style={{ color: "#1e293b", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.ticker}</span>
               </div>
               <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center", fontSize: 11, whiteSpace: "nowrap" }}>{Number(s.pct).toFixed(1)}%</span>
-              <span style={{ flex: 1, color: "#94a3b8", textAlign: "right", fontSize: 11, whiteSpace: "nowrap" }}>{s.avgPrice?.toLocaleString()}원</span>
+              <span style={{ flex: 1, color: darkMode ? "#94a3b8" : "#374151", textAlign: "right", fontSize: 11, whiteSpace: "nowrap" }}>{s.avgPrice?.toLocaleString()}원</span>
             </div>
           ))}
         </div>
@@ -132,7 +132,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
   return (
     <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 16, marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8" }}>📊 현재 포트폴리오</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: darkMode ? "#94a3b8" : "#374151" }}>📊 현재 포트폴리오</div>
         {data?.some?.(s => s.approximateData) && (
           <span style={{ fontSize: 10, background: "#2d2000", border: "1px solid #b45309", color: "#f59e0b", borderRadius: 6, padding: "2px 7px" }}>
             ⚠️ 수량 미확인 · 금액 기준 표시
@@ -142,7 +142,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
         <svg viewBox="0 0 100 100" style={{ width: "38%", maxWidth: 150, minWidth: 100, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
-          <text x="50" y="48" textAnchor="middle" fill="#94a3b8" fontSize="7">포트폴리오</text>
+          <text x="50" y="48" textAnchor="middle" fill={darkMode ? "#94a3b8" : "#374151"} fontSize="7">포트폴리오</text>
           <text x="50" y="58" textAnchor="middle" fill="#1e293b" fontSize="7" fontWeight="700">{slices.length}종목</text>
         </svg>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -152,7 +152,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
             const rest = slices.slice(MAX);
             const restValue = rest.reduce((sum, r) => sum + r.value, 0);
             const restPct = total > 0 ? Math.round(restValue / total * 1000) / 10 : 0;
-            const all = [...shown, ...(rest.length > 0 ? [{ ticker: `기타 ${rest.length}종목`, pct: restPct, color: "#94a3b8", isEtc: true }] : [])];
+            const all = [...shown, ...(rest.length > 0 ? [{ ticker: `기타 ${rest.length}종목`, pct: restPct, color: darkMode ? "#94a3b8" : "#374151", isEtc: true }] : [])];
             const half = Math.ceil(all.length / 2);
             const col1 = all.slice(0, half);
             const col2 = all.slice(half);
@@ -174,10 +174,10 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
       </div>
       <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
         <div style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", background: "#f1f5f9", padding: "8px 12px", gap: 4 }}>
-          <span style={{ fontSize: 10, color: "#94a3b8" }}>종목명</span>
-          <span style={{ fontSize: 10, color: "#94a3b8", textAlign: "center" }}>비중</span>
-          <span style={{ fontSize: 10, color: "#94a3b8", textAlign: "center" }}>수익률</span>
-          <span style={{ fontSize: 10, color: "#94a3b8", textAlign: "right" }}>평단/현재가</span>
+          <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>종목명</span>
+          <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "center" }}>비중</span>
+          <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "center" }}>수익률</span>
+          <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "right" }}>평단/현재가</span>
           {showWealth && <span style={{ fontSize: 10, color: "#15803d", textAlign: "right" }}>수량/보유금액</span>}
         </div>
         {slices.map((s, i) => (
@@ -195,7 +195,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit }) {
               {s.ret !== null ? (s.ret >= 0 ? "+" : "") + s.ret.toFixed(1) + "%" : "-"}
             </span>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 11, color: "#94a3b8" }}>{s.avgBuy?.toLocaleString()}원</div>
+              <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151" }}>{s.avgBuy?.toLocaleString()}원</div>
               <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{s.current?.toLocaleString()}원</div>
             </div>
             {showWealth && (
@@ -852,14 +852,14 @@ export default function App() {
         <div style={S.overlay}>
           <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 480, textAlign: "left", maxHeight: "92vh", overflowY: "auto" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 메인화면 편집</div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 10 }}>텍스트를 드래그해서 선택 후 아래 버튼으로 스타일 적용</div>
+            <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 10 }}>텍스트를 드래그해서 선택 후 아래 버튼으로 스타일 적용</div>
 
             {/* 툴바 */}
             <div style={{ background: "#f1f5f9", borderRadius: 10, padding: "10px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 8 }}>
 
               {/* 1행: 폰트 크기 */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                <span style={{ fontSize: 10, color: "#94a3b8", minWidth: 28 }}>크기</span>
+                <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", minWidth: 28 }}>크기</span>
                 {[12,14,16,18,20,24,28,32,40].map(sz => (
                   <button key={sz} onClick={() => {
                     const el = document.getElementById("richEditor");
@@ -882,7 +882,7 @@ export default function App() {
                     range.collapse(true);
                     sel.removeAllRanges();
                     sel.addRange(range);
-                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: "#94a3b8", padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>
+                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>
                     {sz}
                   </button>
                 ))}
@@ -890,7 +890,7 @@ export default function App() {
 
               {/* 2행: 스타일 + 정렬 */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                <span style={{ fontSize: 10, color: "#94a3b8", minWidth: 28 }}>스타일</span>
+                <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", minWidth: 28 }}>스타일</span>
                 {[
                   { label: "B", tag: "strong" },
                   { label: "I", tag: "em" },
@@ -908,7 +908,7 @@ export default function App() {
                     range.insertNode(wrapper);
                     range.setStartAfter(wrapper); range.collapse(true);
                     sel.removeAllRanges(); sel.addRange(range);
-                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: "#94a3b8", padding: "3px 10px", fontSize: 13, cursor: "pointer",
+                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 10px", fontSize: 13, cursor: "pointer",
                     fontWeight: b.label === "B" ? 700 : "normal",
                     fontStyle: b.label === "I" ? "italic" : "normal",
                     textDecoration: b.label === "U" ? "underline" : "none",
@@ -916,7 +916,7 @@ export default function App() {
                     {b.label}
                   </button>
                 ))}
-                <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 4 }}>정렬</span>
+                <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", marginLeft: 4 }}>정렬</span>
                 {[
                   { label: "◀좌", align: "left" },
                   { label: "■중", align: "center" },
@@ -933,7 +933,7 @@ export default function App() {
                     while (block && block !== el && !["P","DIV","H1","H2","H3","LI"].includes(block.tagName)) block = block.parentElement;
                     if (block && block !== el) block.style.textAlign = a.align;
                     else el.style.textAlign = a.align;
-                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: "#94a3b8", padding: "3px 8px", fontSize: 10, cursor: "pointer" }}>
+                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 8px", fontSize: 10, cursor: "pointer" }}>
                     {a.label}
                   </button>
                 ))}
@@ -941,7 +941,7 @@ export default function App() {
 
               {/* 3행: 색깔 */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                <span style={{ fontSize: 10, color: "#94a3b8", minWidth: 28 }}>색</span>
+                <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", minWidth: 28 }}>색</span>
                 {["#1e293b","#f59e0b","#16a34a","#60a5fa","#a78bfa","#ef4444","#f97316","#ec4899","#94a3b8"].map(c => (
                   <button key={c} title={c} onClick={() => {
                     const el = document.getElementById("richEditor");
@@ -982,7 +982,7 @@ export default function App() {
 
               {/* 4행: 이미지 + 초기화 */}
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <label style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 6, color: "#94a3b8", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
+                <label style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 6, color: darkMode ? "#94a3b8" : "#374151", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
                   🖼️ 이미지 업로드
                   <input type="file" accept="image/*" style={{ display: "none" }}
                     onChange={e => {
@@ -1022,7 +1022,7 @@ export default function App() {
             </div>
 
             {/* 편집 영역 */}
-            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>✍️ 여기서 직접 편집하세요</div>
+            <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>✍️ 여기서 직접 편집하세요</div>
             <div
               id="richEditor"
               ref={richEditorRef}
@@ -1042,7 +1042,7 @@ export default function App() {
                 textAlign: "center",
               }}
             />
-            <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 14 }}>
               💡 텍스트 드래그 선택 → 위 버튼으로 스타일 적용 / 직접 타이핑도 가능
             </div>
 
@@ -1076,16 +1076,16 @@ export default function App() {
         <div style={S.overlay}>
           <div style={{ ...S.modal, width: 300 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 종목 수정</div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 16 }}>{editStockModal.stock.ticker}</div>
+            <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 16 }}>{editStockModal.stock.ticker}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
               <div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>보유 수량 (주)</div>
+                <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>보유 수량 (주)</div>
                 <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                   type="number" placeholder="예: 100"
                   value={editStockQty} onChange={e => setEditStockQty(e.target.value)} />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>매수 평단가 (원)</div>
+                <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>매수 평단가 (원)</div>
                 <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                   type="number" placeholder="예: 85000"
                   value={editStockAvg} onChange={e => setEditStockAvg(e.target.value)} />
@@ -1105,7 +1105,7 @@ export default function App() {
           <div style={{ ...S.modal, width: 300 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>➕ 계좌 추가</div>
             <div style={{ textAlign: "left", marginBottom: 8 }}>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 6 }}>계좌명</div>
+              <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 6 }}>계좌명</div>
               <input
                 style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                 placeholder="예: KB ISA, 미래에셋 CMA"
@@ -1127,12 +1127,12 @@ export default function App() {
         <div style={S.overlay}>
           <div style={{ ...S.modal, width: 300 }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 수기 종목 입력</div>
-            <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 16 }}>
               {accounts.find(a => a.id === manualModal.accountId)?.name}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
               <div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>종목명</div>
+                <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>종목명</div>
                 <input
                   style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                   placeholder="예: SK하이닉스"
@@ -1141,7 +1141,7 @@ export default function App() {
                 />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>종목코드 <span style={{ color: "#94a3b8" }}>(선택 — 입력하면 현재가 자동 갱신)</span></div>
+                <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>종목코드 <span style={{ color: darkMode ? "#94a3b8" : "#374151" }}>(선택 — 입력하면 현재가 자동 갱신)</span></div>
                 <input
                   style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                   placeholder="예: 000660 (숫자 6자리)"
@@ -1150,7 +1150,7 @@ export default function App() {
                 />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>보유 수량 (주)</div>
+                <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>보유 수량 (주)</div>
                 <input
                   style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                   type="number" placeholder="예: 10"
@@ -1159,7 +1159,7 @@ export default function App() {
                 />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>매수 평단가 (원)</div>
+                <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>매수 평단가 (원)</div>
                 <input
                   style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                   type="number" placeholder="예: 185000"
@@ -1168,7 +1168,7 @@ export default function App() {
                 />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>현재가 (원, 선택)</div>
+                <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>현재가 (원, 선택)</div>
                 <input
                   style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                   type="number" placeholder="비워두면 평단가로 설정"
@@ -1233,7 +1233,7 @@ export default function App() {
             <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={e => addFiles(e.target.files)} />
             <div style={{ fontSize: 32, marginBottom: 6 }}>📱</div>
             <div style={{ fontSize: 14, fontWeight: 700 }}>매매내역 이미지 업로드</div>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>여러 날짜 누적 저장 가능</div>
+            <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151", marginTop: 4 }}>여러 날짜 누적 저장 가능</div>
           </div>
           {images.length > 0 && (
             <div style={S.grid}>
@@ -1262,7 +1262,7 @@ export default function App() {
             onChange={e => { if (e.target.files[0] && uploadingAccount) { analyzePortfolio(e.target.files[0], uploadingAccount); e.target.value = ""; } }} />
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={{ fontSize: 12, color: "#94a3b8" }}>📈 계좌별 포트폴리오 업로드</div>
+              <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151" }}>📈 계좌별 포트폴리오 업로드</div>
               <button style={{ background: "#f0fdf4", border: "1px solid #166534", borderRadius: 8, color: "#16a34a", padding: "4px 10px", fontSize: 12, cursor: "pointer" }} onClick={() => setAddAccModal(true)}>➕ 계좌 추가</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1280,7 +1280,7 @@ export default function App() {
                     )}
                   </div>
                   <button
-                    style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: "#94a3b8", padding: "5px 12px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
+                    style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: darkMode ? "#94a3b8" : "#374151", padding: "5px 12px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
                     disabled={portfolioLoading === acc.id}
                     onClick={() => { setUploadingAccount(acc.id); setTimeout(() => portfolioRef.current?.click(), 50); }}>
                     {portfolioLoading === acc.id ? "⏳" : "📤 업로드"}
@@ -1298,7 +1298,7 @@ export default function App() {
                     </button>
                   )}
                   <button
-                    style={{ background: "#fef2f2", border: "1px solid #7f1d1d", borderRadius: 8, color: "#94a3b8", padding: "5px 8px", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
+                    style={{ background: "#fef2f2", border: "1px solid #7f1d1d", borderRadius: 8, color: darkMode ? "#94a3b8" : "#374151", padding: "5px 8px", fontSize: 11, cursor: "pointer", flexShrink: 0 }}
                     title="계좌 삭제"
                     onClick={() => deleteAccount(acc.id)}>
                     ✕
@@ -1383,7 +1383,7 @@ export default function App() {
                     `}</style>
                     <div style={{ marginBottom: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                        <span style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151" }}>
                           {lastUpdated ? `📅 ${lastUpdated} 기준 주가를 갱신했습니다.` : ""}
                         </span>
                         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
@@ -1451,12 +1451,12 @@ export default function App() {
                         return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate };
                       })} />
                   </>
-                : <div style={{ textAlign: "center", padding: "40px 20px", color: "#94a3b8", background: "#f8fafc", borderRadius: 16, border: "1px solid #e2e8f0" }}>
+                : <div style={{ textAlign: "center", padding: "40px 20px", color: darkMode ? "#94a3b8" : "#374151", background: "#f8fafc", borderRadius: 16, border: "1px solid #e2e8f0" }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "#94a3b8", marginBottom: 6 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 6 }}>
                       {activeAccount === "all" ? "등록된 계좌가 없어요" : "아직 포트폴리오 등록이 되지 않았습니다."}
                     </div>
-                    <div style={{ fontSize: 12, color: "#94a3b8" }}>
+                    <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151" }}>
                       {activeAccount === "all" ? "관리자 로그인 후 업로드해주세요" : `${accounts.find(a=>a.id===activeAccount)?.name} 계좌를 준비 중이에요`}
                     </div>
                   </div>
@@ -1470,7 +1470,7 @@ export default function App() {
               {/* 조회 기간 */}
               {allRecords.length > 0 && (
                 <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>📅 조회 기간 설정</div>
+                  <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 10 }}>📅 조회 기간 설정</div>
                   <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
                     {[
                       { label: "오늘", action: () => { setStartDate(maxDate); setEndDate(maxDate); setDateError(""); } },
@@ -1483,14 +1483,14 @@ export default function App() {
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                      <span style={{ fontSize: 10, color: "#94a3b8" }}>시작일</span>
+                      <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>시작일</span>
                       <input type="date" value={startDate}
                         onChange={e => { const v = e.target.value; if (endDate && v > endDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setStartDate(v); } }}
                         style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: "#1e293b", padding: "6px 10px", fontSize: 13, outline: "none" }} />
                     </div>
-                    <div style={{ color: "#94a3b8", paddingBottom: 8 }}>~</div>
+                    <div style={{ color: darkMode ? "#94a3b8" : "#374151", paddingBottom: 8 }}>~</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                      <span style={{ fontSize: 10, color: "#94a3b8" }}>종료일</span>
+                      <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>종료일</span>
                       <input type="date" value={endDate}
                         onChange={e => { const v = e.target.value; if (startDate && v < startDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setEndDate(v); } }}
                         style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: "#1e293b", padding: "6px 10px", fontSize: 13, outline: "none" }} />
@@ -1545,7 +1545,7 @@ export default function App() {
 
               {/* 데이터 없을 때 */}
               {allRecords.length === 0 && (
-                <div style={{ textAlign: "center", padding: "40px 20px", color: "#94a3b8" }}>
+                <div style={{ textAlign: "center", padding: "40px 20px", color: darkMode ? "#94a3b8" : "#374151" }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
                   <div style={{ fontSize: 14 }}>아직 저장된 매매기록이 없어요</div>
                   <div style={{ fontSize: 12, marginTop: 6 }}>관리자 로그인 후 이미지를 업로드해주세요</div>
@@ -1553,7 +1553,7 @@ export default function App() {
               )}
 
               {allRecords.length > 0 && displayStocks.length === 0 && (
-                <div style={{ textAlign: "center", padding: "30px", color: "#94a3b8", fontSize: 14 }}>
+                <div style={{ textAlign: "center", padding: "30px", color: darkMode ? "#94a3b8" : "#374151", fontSize: 14 }}>
                   선택한 기간에 {historySubTab === "buy" ? "매수" : "매도"} 기록이 없어요
                 </div>
               )}
@@ -1569,15 +1569,15 @@ export default function App() {
                   <div key={i} style={S.stockCard}>
                     <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
                       <div style={{ flex: 2 }}>
-                        <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 3 }}>종목명</div>
+                        <div style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 3 }}>종목명</div>
                         <span style={{ fontSize: 14, fontWeight: 700 }}>{stock.ticker}</span>
                       </div>
                       <div style={{ flex: 1, textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 3 }}>{historySubTab === "buy" ? "매수비중" : "매도비중"}</div>
+                        <div style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 3 }}>{historySubTab === "buy" ? "매수비중" : "매도비중"}</div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: historySubTab === "buy" ? "#ef4444" : "#3b82f6" }}>{Number(pct).toFixed(1)}%</div>
                       </div>
                       <div style={{ flex: 1, textAlign: "right" }}>
-                        <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 3 }}>{historySubTab === "buy" ? "매수평단" : "매도평단"}</div>
+                        <div style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 3 }}>{historySubTab === "buy" ? "매수평단" : "매도평단"}</div>
                         <div style={{ fontSize: 14, fontWeight: 700 }}>{avgPrice?.toLocaleString()}원</div>
                       </div>
                     </div>
@@ -1594,9 +1594,9 @@ export default function App() {
                           const avgP = Math.round(g.totalAmt / g.totalQty);
                           return (
                             <div key={j} style={{ display: "flex", gap: 8, fontSize: 12, alignItems: "center" }}>
-                              <span style={{ color: "#94a3b8", minWidth: 76 }}>{g.date}</span>
+                              <span style={{ color: darkMode ? "#94a3b8" : "#374151", minWidth: 76 }}>{g.date}</span>
                               <span style={{ fontWeight: 700, color: g.type === "매수" ? "#ef4444" : "#3b82f6", minWidth: 24 }}>{g.type}</span>
-                              <span style={{ color: "#94a3b8", flex: 1 }}>평단 {avgP?.toLocaleString()}원</span>
+                              <span style={{ color: darkMode ? "#94a3b8" : "#374151", flex: 1 }}>평단 {avgP?.toLocaleString()}원</span>
                               {showWealth && <span style={{ color: "#15803d", fontWeight: 600 }}>{g.totalQty}주 · {g.totalAmt?.toLocaleString()}원</span>}
                             </div>
                           );
@@ -1611,7 +1611,7 @@ export default function App() {
               {allRecords.length > 0 && historySubTab === "buy" && (
                 <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 16, marginTop: 12 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>공유 텍스트</div>
-                  <pre style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px", fontSize: 11, color: "#94a3b8", whiteSpace: "pre-wrap", marginBottom: 10, border: "1px solid #e2e8f0", fontFamily: "monospace" }}>{shareText()}</pre>
+                  <pre style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px", fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", whiteSpace: "pre-wrap", marginBottom: 10, border: "1px solid #e2e8f0", fontFamily: "monospace" }}>{shareText()}</pre>
                   <button style={S.btnMain} onClick={() => { navigator.clipboard.writeText(shareText()).then(() => { setShareMsg("✅ 복사됐어요!"); setTimeout(() => setShareMsg(""), 2500); }); }}>📋 텍스트 복사</button>
                   {shareMsg && <p style={{ color: "#16a34a", fontSize: 13, marginTop: 8 }}>{shareMsg}</p>}
                 </div>
@@ -1630,7 +1630,7 @@ export default function App() {
                     <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>✏️ 글 수정</div>
                     {!isAdmin && diaryEditModal.password && (
                       <div style={{ marginBottom: 8 }}>
-                        <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>비밀번호</div>
+                        <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>비밀번호</div>
                         <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                           type="password" placeholder="작성 시 입력한 비밀번호"
                           value={diaryEditPw} onChange={e => setDiaryEditPw(e.target.value)} />
@@ -1649,10 +1649,10 @@ export default function App() {
                 <div style={S.overlay}>
                   <div style={{ ...S.modal, width: 300, textAlign: "left" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>🗑️ 글 삭제</div>
-                    <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 12 }}>정말 삭제할까요? 되돌릴 수 없어요.</div>
+                    <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 12 }}>정말 삭제할까요? 되돌릴 수 없어요.</div>
                     {!isAdmin && diaryDeleteModal.password && (
                       <div style={{ marginBottom: 12 }}>
-                        <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 4 }}>비밀번호</div>
+                        <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 4 }}>비밀번호</div>
                         <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
                           type="password" placeholder="작성 시 입력한 비밀번호"
                           value={diaryDeletePw} onChange={e => setDiaryDeletePw(e.target.value)} />
@@ -1669,7 +1669,7 @@ export default function App() {
               {/* 메시지 목록 */}
               <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 16, minHeight: 200 }}>
                 {diaryPosts.length === 0 && (
-                  <div style={{ textAlign: "center", padding: "40px 20px", color: "#94a3b8" }}>
+                  <div style={{ textAlign: "center", padding: "40px 20px", color: darkMode ? "#94a3b8" : "#374151" }}>
                     <div style={{ fontSize: 32, marginBottom: 8 }}>🐜</div>
                     <div style={{ fontSize: 13 }}>아직 작성된 글이 없어요</div>
                   </div>
@@ -1721,9 +1721,9 @@ export default function App() {
                                   <div style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
                                     {preview.image && <img src={preview.image} alt="" style={{ width: "100%", maxHeight: 140, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
                                     <div style={{ padding: "8px 10px" }}>
-                                      {preview.domain && <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 3 }}>{preview.domain}</div>}
+                                      {preview.domain && <div style={{ fontSize: 9, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 3 }}>{preview.domain}</div>}
                                       <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginBottom: 3 }}>{preview.title}</div>
-                                      {preview.description && <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{preview.description}</div>}
+                                      {preview.description && <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{preview.description}</div>}
                                     </div>
                                   </div>
                                 </a>
@@ -1751,11 +1751,11 @@ export default function App() {
                           {(isAdmin || post.password) && !isSecretHidden && (
                             <>
                               <button onClick={() => { setDiaryEditModal(post); setDiaryEditText(post.text); }}
-                                style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
+                                style={{ background: "none", border: "none", color: darkMode ? "#94a3b8" : "#374151", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
                                 수정
                               </button>
                               <button onClick={() => setDiaryDeleteModal(post)}
-                                style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
+                                style={{ background: "none", border: "none", color: darkMode ? "#94a3b8" : "#374151", fontSize: 10, cursor: "pointer", padding: "0 2px" }}>
                                 삭제
                               </button>
                             </>
@@ -1780,8 +1780,8 @@ export default function App() {
                       {/* 답글 미리보기 */}
                       {diaryReplyTo && (
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f1f5f9", borderLeft: "2px solid #6366f1", padding: "6px 10px", borderRadius: 6, marginBottom: 10 }}>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>↩ {diaryReplyTo.nickname}: {diaryReplyTo.text.slice(0, 30)}...</span>
-                          <button onClick={() => setDiaryReplyTo(null)} style={{ background: "none", border: "none", color: "#94a3b8", fontSize: 12, cursor: "pointer" }}>✕</button>
+                          <span style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151" }}>↩ {diaryReplyTo.nickname}: {diaryReplyTo.text.slice(0, 30)}...</span>
+                          <button onClick={() => setDiaryReplyTo(null)} style={{ background: "none", border: "none", color: darkMode ? "#94a3b8" : "#374151", fontSize: 12, cursor: "pointer" }}>✕</button>
                         </div>
                       )}
                       {/* 닉네임 + 비밀번호 (조회자만) */}
@@ -1809,9 +1809,9 @@ export default function App() {
                         <div style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
                           {previewDraft.image && <img src={previewDraft.image} alt="" style={{ width: "100%", maxHeight: 120, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
                           <div style={{ padding: "8px 10px" }}>
-                            {previewDraft.domain && <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 2 }}>{previewDraft.domain}</div>}
+                            {previewDraft.domain && <div style={{ fontSize: 9, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 2 }}>{previewDraft.domain}</div>}
                             {previewDraft.title && <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginBottom: 2 }}>{previewDraft.title}</div>}
-                            {previewDraft.description && <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{previewDraft.description}</div>}
+                            {previewDraft.description && <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{previewDraft.description}</div>}
                           </div>
                         </div>
                       )}
@@ -1825,7 +1825,7 @@ export default function App() {
                           style={{ background: diarySecret ? "#fffbeb" : "#f1f5f9", border: `1px solid ${diarySecret ? "#f59e0b" : "#cbd5e1"}`, borderRadius: 8, color: diarySecret ? "#f59e0b" : "#94a3b8", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
                           {diarySecret ? "🔒 비밀글" : "🔓 공개글"}
                         </button>
-                        {diarySecret && <span style={{ fontSize: 10, color: "#94a3b8" }}>주인장만 볼 수 있어요</span>}
+                        {diarySecret && <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>주인장만 볼 수 있어요</span>}
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setDiaryWriting(false); setDiaryText(""); setDiaryReplyTo(null); setDiaryNickname(""); setDiaryPassword(""); setDiaryLinkUrl(""); setDiarySecret(false); }}>취소</button>
@@ -1854,7 +1854,7 @@ export default function App() {
           }
           <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 24, maxWidth: 320, margin: "0 auto" }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>📋 조회 코드 입력</div>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 16 }}>포트폴리오 및 매매 평단 리스트</div>
+            <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 16 }}>포트폴리오 및 매매 평단 리스트</div>
             <input style={{ ...S.pinInput, marginBottom: 12 }} type="password" inputMode="numeric" maxLength={6} placeholder="코드 입력"
               value={viewerPinInput} onChange={e => setViewerPinInput(e.target.value)} onKeyDown={e => e.key === "Enter" && checkViewerPin()} />
             {viewerPinError && <div style={{ color: "#ef4444", fontSize: 12, marginBottom: 8 }}>{viewerPinError}</div>}
@@ -1875,10 +1875,10 @@ function getTheme(dark) {
     header: { textAlign: "center", marginBottom: 20 },
     logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
     logoText: { fontSize: 22, fontWeight: 700, background: "linear-gradient(90deg,#60a5fa,#a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
-    verBadge: { background: "#1e293b", color: "#64748b", border: "1px solid #334155", borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
-    loginTag: { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
+    verBadge: { background: "#1e293b", color: darkMode ? "#64748b" : "#374151", border: "1px solid #334155", borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
+    loginTag: { background: "#1e293b", color: darkMode ? "#94a3b8" : "#374151", border: "1px solid #334155", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
     adminTag: { background: "#1e3a5f", color: "#60a5fa", border: "1px solid #3b82f6", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
-    sub: { color: "#64748b", fontSize: 13, margin: 0 },
+    sub: { color: darkMode ? "#64748b" : "#374151", fontSize: 13, margin: 0 },
     overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 },
     modal: { background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 24, width: 260, textAlign: "center" },
     pinInput: { width: "100%", background: "#0f172a", border: "1px solid #334155", borderRadius: 10, color: "#e2e8f0", fontSize: 20, padding: "10px", textAlign: "center", outline: "none", boxSizing: "border-box", letterSpacing: 8 },
@@ -1889,9 +1889,9 @@ function getTheme(dark) {
     thumb: { width: "100%", height: 100, objectFit: "cover", display: "block" },
     xBtn: { position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 9 },
     stockCard: { background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 14, marginBottom: 8 },
-    insight: { marginTop: 8, padding: "6px 10px", background: "#0f172a", borderRadius: 6, fontSize: 11, color: "#64748b", borderLeft: "2px solid #6366f1" },
+    insight: { marginTop: 8, padding: "6px 10px", background: "#0f172a", borderRadius: 6, fontSize: 11, color: darkMode ? "#64748b" : "#374151", borderLeft: "2px solid #6366f1" },
     btnMain: { background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
-    btnSub: { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 10, padding: "10px 14px", fontSize: 13, cursor: "pointer" },
+    btnSub: { background: "#1e293b", color: darkMode ? "#94a3b8" : "#374151", border: "1px solid #334155", borderRadius: 10, padding: "10px 14px", fontSize: 13, cursor: "pointer" },
     btnDanger: { background: "#2d1f1f", color: "#ef4444", border: "1px solid #7f1d1d", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
     // 테마 식별용
     bg: "#0a0f1e", cardBg: "#111827", cardBorder: "#1e293b",
