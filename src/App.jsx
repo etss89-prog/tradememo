@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.3";
+const VERSION = "v9.4";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -1886,10 +1886,10 @@ function getTheme(dark) {
     header: { textAlign: "center", marginBottom: 20 },
     logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
     logoText: { fontSize: 22, fontWeight: 700, background: "linear-gradient(90deg,#60a5fa,#a78bfa)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
-    verBadge: { background: "#1e293b", color: darkMode ? "#64748b" : "#374151", border: "1px solid #334155", borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
-    loginTag: { background: "#1e293b", color: darkMode ? "#94a3b8" : "#374151", border: "1px solid #334155", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
+    verBadge: { background: "#1e293b", color: "#64748b", border: "1px solid #334155", borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
+    loginTag: { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
     adminTag: { background: "#1e3a5f", color: "#60a5fa", border: "1px solid #3b82f6", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
-    sub: { color: darkMode ? "#64748b" : "#374151", fontSize: 13, margin: 0 },
+    sub: { color: "#64748b", fontSize: 13, margin: 0 },
     overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 },
     modal: { background: "#111827", border: "1px solid #1e293b", borderRadius: 16, padding: 24, width: 260, textAlign: "center" },
     pinInput: { width: "100%", background: "#0f172a", border: "1px solid #334155", borderRadius: 10, color: "#e2e8f0", fontSize: 20, padding: "10px", textAlign: "center", outline: "none", boxSizing: "border-box", letterSpacing: 8 },
@@ -1900,9 +1900,9 @@ function getTheme(dark) {
     thumb: { width: "100%", height: 100, objectFit: "cover", display: "block" },
     xBtn: { position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.7)", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 9 },
     stockCard: { background: "#111827", border: "1px solid #1e293b", borderRadius: 12, padding: 14, marginBottom: 8 },
-    insight: { marginTop: 8, padding: "6px 10px", background: "#0f172a", borderRadius: 6, fontSize: 11, color: darkMode ? "#64748b" : "#374151", borderLeft: "2px solid #6366f1" },
+    insight: { marginTop: 8, padding: "6px 10px", background: "#0f172a", borderRadius: 6, fontSize: 11, color: "#64748b", borderLeft: "2px solid #6366f1" },
     btnMain: { background: "linear-gradient(135deg,#3b82f6,#6366f1)", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
-    btnSub: { background: "#1e293b", color: darkMode ? "#94a3b8" : "#374151", border: "1px solid #334155", borderRadius: 10, padding: "10px 14px", fontSize: 13, cursor: "pointer" },
+    btnSub: { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", borderRadius: 10, padding: "10px 14px", fontSize: 13, cursor: "pointer" },
     btnDanger: { background: "#2d1f1f", color: "#ef4444", border: "1px solid #7f1d1d", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
     // 테마 식별용
     bg: "#0a0f1e", cardBg: "#111827", cardBorder: "#1e293b",
