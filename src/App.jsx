@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.1";
+const VERSION = "v9.2";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -1769,72 +1769,82 @@ export default function App() {
                 })}
               </div>
 
-              {/* 글쓰기 영역 */}
+              {/* 글쓰기 영역 - 항상 표시 */}
               {isViewer && (
-                <div style={{ position: "sticky", bottom: 0, background: "#f8fafc", paddingTop: 8 }}>
-                  {!diaryWriting ? (
-                    <button onClick={() => setDiaryWriting(true)}
-                      style={{ ...S.btnMain, width: "100%", fontSize: 13 }}>
-                      ✏️ 글 작성하기
-                    </button>
-                  ) : (
-                    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 14 }}>
-                      {/* 답글 미리보기 */}
-                      {diaryReplyTo && (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f1f5f9", borderLeft: "2px solid #6366f1", padding: "6px 10px", borderRadius: 6, marginBottom: 10 }}>
-                          <span style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151" }}>↩ {diaryReplyTo.nickname}: {diaryReplyTo.text.slice(0, 30)}...</span>
-                          <button onClick={() => setDiaryReplyTo(null)} style={{ background: "none", border: "none", color: darkMode ? "#94a3b8" : "#374151", fontSize: 12, cursor: "pointer" }}>✕</button>
-                        </div>
-                      )}
-                      {/* 닉네임 + 비밀번호 (조회자만) */}
-                      {!isAdmin && (
-                        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                          <input style={{ ...S.pinInput, flex: 1, fontSize: 13, letterSpacing: 0, textAlign: "left", padding: "7px 10px" }}
-                            placeholder="닉네임 (익명)" value={diaryNickname} onChange={e => setDiaryNickname(e.target.value)} />
-                          <input style={{ ...S.pinInput, flex: 1, fontSize: 13, letterSpacing: 0, textAlign: "left", padding: "7px 10px" }}
-                            type="password" placeholder="비밀번호 (수정/삭제용)" value={diaryPassword} onChange={e => setDiaryPassword(e.target.value)} />
-                        </div>
-                      )}
-                      {/* 링크 (관리자만) */}
-                      {isAdmin && (
-                        <input style={{ ...S.pinInput, fontSize: 12, letterSpacing: 0, textAlign: "left", padding: "7px 10px", marginBottom: 4 }}
-                          placeholder="🔗 링크 URL (선택)" value={diaryLinkUrl}
-                          onChange={e => {
-                            setDiaryLinkUrl(e.target.value);
-                            setPreviewDraft(null);
-                          }}
-                          onBlur={e => { if (e.target.value) fetchLinkPreview(e.target.value, null); }}
-                        />
-                      )}
-                      {/* 링크 미리보기 초안 */}
-                      {isAdmin && previewDraft && (
-                        <div style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden", marginBottom: 8 }}>
-                          {previewDraft.image && <img src={previewDraft.image} alt="" style={{ width: "100%", maxHeight: 120, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
-                          <div style={{ padding: "8px 10px" }}>
-                            {previewDraft.domain && <div style={{ fontSize: 9, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 2 }}>{previewDraft.domain}</div>}
-                            {previewDraft.title && <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginBottom: 2 }}>{previewDraft.title}</div>}
-                            {previewDraft.description && <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{previewDraft.description}</div>}
+                <div style={{ position: "sticky", bottom: 0, paddingTop: 8, background: darkMode ? "#0a0f1e" : "#f5f0eb" }}>
+
+                  {/* 답글 미리보기 */}
+                  {diaryReplyTo && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: darkMode ? "#1e293b" : "#ede8e0", borderLeft: "3px solid #6366f1", padding: "6px 12px", borderRadius: 8, marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151" }}>↩ {diaryReplyTo.nickname}: {diaryReplyTo.text.slice(0, 40)}...</span>
+                      <button onClick={() => setDiaryReplyTo(null)} style={{ background: "none", border: "none", color: darkMode ? "#94a3b8" : "#374151", fontSize: 14, cursor: "pointer" }}>✕</button>
+                    </div>
+                  )}
+
+                  {/* 닉네임 + 비밀번호 (조회자만, 항상 표시) */}
+                  {!isAdmin && (
+                    <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                      <input
+                        style={{ flex: 1, background: darkMode ? "#1e293b" : "#ffffff", border: `1px solid ${darkMode ? "#334155" : "#d6cfc4"}`, borderRadius: 8, color: darkMode ? "#e2e8f0" : "#1a1a2e", fontSize: 12, padding: "6px 10px", outline: "none", boxSizing: "border-box" }}
+                        placeholder="닉네임" value={diaryNickname} onChange={e => setDiaryNickname(e.target.value)} />
+                      <input
+                        type="password"
+                        style={{ flex: 1, background: darkMode ? "#1e293b" : "#ffffff", border: `1px solid ${darkMode ? "#334155" : "#d6cfc4"}`, borderRadius: 8, color: darkMode ? "#e2e8f0" : "#1a1a2e", fontSize: 12, padding: "6px 10px", outline: "none", boxSizing: "border-box" }}
+                        placeholder="비밀번호 (수정/삭제용)" value={diaryPassword} onChange={e => setDiaryPassword(e.target.value)} />
+                    </div>
+                  )}
+
+                  {/* 링크 (관리자만) */}
+                  {isAdmin && (
+                    <>
+                      <input
+                        style={{ width: "100%", background: darkMode ? "#1e293b" : "#ffffff", border: `1px solid ${darkMode ? "#334155" : "#d6cfc4"}`, borderRadius: 8, color: darkMode ? "#e2e8f0" : "#1a1a2e", fontSize: 12, padding: "6px 10px", outline: "none", boxSizing: "border-box", marginBottom: 6 }}
+                        placeholder="🔗 링크 URL (선택)" value={diaryLinkUrl}
+                        onChange={e => { setDiaryLinkUrl(e.target.value); setPreviewDraft(null); }}
+                        onBlur={e => { if (e.target.value) fetchLinkPreview(e.target.value, null); }}
+                      />
+                      {previewDraft && (
+                        <div style={{ background: darkMode ? "#1e293b" : "#faf7f3", border: `1px solid ${darkMode ? "#334155" : "#d6cfc4"}`, borderRadius: 10, overflow: "hidden", marginBottom: 6 }}>
+                          {previewDraft.image && <img src={previewDraft.image} alt="" style={{ width: "100%", maxHeight: 100, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
+                          <div style={{ padding: "6px 10px" }}>
+                            {previewDraft.domain && <div style={{ fontSize: 9, color: darkMode ? "#64748b" : "#6b7280" }}>{previewDraft.domain}</div>}
+                            {previewDraft.title && <div style={{ fontSize: 12, fontWeight: 700, color: darkMode ? "#e2e8f0" : "#1a1a2e" }}>{previewDraft.title}</div>}
                           </div>
                         </div>
                       )}
-                      {/* 본문 */}
-                      <textarea style={{ width: "100%", minHeight: 80, background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: "#1e293b", fontSize: 13, padding: "10px", resize: "none", outline: "none", boxSizing: "border-box", lineHeight: 1.6, marginBottom: 8 }}
-                        placeholder="내용을 입력하세요..."
-                        value={diaryText} onChange={e => setDiaryText(e.target.value)} />
-                      {/* 비밀글 토글 */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                        <button onClick={() => setDiarySecret(v => !v)}
-                          style={{ background: diarySecret ? "#fffbeb" : "#f1f5f9", border: `1px solid ${diarySecret ? "#f59e0b" : "#cbd5e1"}`, borderRadius: 8, color: diarySecret ? "#f59e0b" : "#94a3b8", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
-                          {diarySecret ? "🔒 비밀글" : "🔓 공개글"}
-                        </button>
-                        {diarySecret && <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>주인장만 볼 수 있어요</span>}
-                      </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setDiaryWriting(false); setDiaryText(""); setDiaryReplyTo(null); setDiaryNickname(""); setDiaryPassword(""); setDiaryLinkUrl(""); setDiarySecret(false); }}>취소</button>
-                        <button style={{ ...S.btnMain, flex: 1 }} onClick={addDiaryPost}>올리기</button>
-                      </div>
-                    </div>
+                    </>
                   )}
+
+                  {/* 메시지 입력 + 전송 버튼 (카카오톡 스타일) */}
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                    <div style={{ flex: 1, position: "relative" }}>
+                      <textarea
+                        autoFocus
+                        style={{ width: "100%", minHeight: 44, maxHeight: 120, background: darkMode ? "#1e293b" : "#ffffff", border: `1px solid ${darkMode ? "#334155" : "#d6cfc4"}`, borderRadius: 22, color: darkMode ? "#e2e8f0" : "#1a1a2e", fontSize: 14, padding: "10px 16px", resize: "none", outline: "none", boxSizing: "border-box", lineHeight: 1.5, display: "block" }}
+                        placeholder="Write a message..."
+                        value={diaryText}
+                        onChange={e => setDiaryText(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            if (diaryText.trim()) addDiaryPost();
+                          }
+                        }}
+                      />
+                    </div>
+                    {/* 비밀글 토글 */}
+                    <button onClick={() => setDiarySecret(v => !v)}
+                      title={diarySecret ? "비밀글" : "공개글"}
+                      style={{ width: 44, height: 44, borderRadius: "50%", border: `1px solid ${diarySecret ? "#f59e0b" : darkMode ? "#334155" : "#d6cfc4"}`, background: diarySecret ? "#fffbeb" : "transparent", fontSize: 18, cursor: "pointer", flexShrink: 0 }}>
+                      {diarySecret ? "🔒" : "🔓"}
+                    </button>
+                    {/* 전송 버튼 */}
+                    <button onClick={addDiaryPost}
+                      disabled={!diaryText.trim() && !diaryLinkUrl.trim()}
+                      style={{ width: 44, height: 44, borderRadius: "50%", background: (diaryText.trim() || diaryLinkUrl.trim()) ? "linear-gradient(135deg,#2563eb,#7c3aed)" : darkMode ? "#1e293b" : "#ede8e0", border: "none", color: (diaryText.trim() || diaryLinkUrl.trim()) ? "#fff" : darkMode ? "#475569" : "#9ca3af", fontSize: 18, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      ➤
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
