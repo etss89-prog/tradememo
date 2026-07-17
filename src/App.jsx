@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.4";
+const VERSION = "v9.5";
 
 function compressImage(file, maxWidth = 800) {
   return new Promise((resolve, reject) => {
@@ -70,20 +70,20 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, da
   });
 
   return (
-    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 12, marginBottom: 12 }}>
+    <div style={{ background: darkMode ? "#111827" : "#ffffff", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 16, padding: 12, marginBottom: 12 }}>
       {title && <div style={{ fontSize: 12, fontWeight: 700, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 10 }}>{title}</div>}
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <svg viewBox="0 0 100 100" style={{ width: 80, height: 80, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
           {centerText && (
             <>
-              <text x="50" y="47" textAnchor="middle" fill="#1e293b" fontSize="6" fontWeight="700">{centerText.line1}</text>
+              <text x="50" y="47" textAnchor="middle" fill={darkMode ? "#e2e8f0" : "#1e293b"} fontSize="6" fontWeight="700">{centerText.line1}</text>
               <text x="50" y="56" textAnchor="middle" fill={darkMode ? "#94a3b8" : "#374151"} fontSize="5">{centerText.line2}</text>
             </>
           )}
         </svg>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", gap: 4, marginBottom: 5, paddingBottom: 4, borderBottom: "1px solid #e2e8f0" }}>
+          <div style={{ display: "flex", gap: 4, marginBottom: 5, paddingBottom: 4, borderBottom: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0" }}>
             <span style={{ flex: 2, fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>{labelName || "종목명"}</span>
             <span style={{ flex: 1, fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "center" }}>{labelPct || "비중"}</span>
             <span style={{ flex: 1, fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "right" }}>{labelAvg || "평단"}</span>
@@ -92,7 +92,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, da
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 3, flex: 2, minWidth: 0 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                <span style={{ color: "#1e293b", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.ticker}</span>
+                <span style={{ color: darkMode ? "#e2e8f0" : "#1e293b", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.ticker}</span>
               </div>
               <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center", fontSize: 11, whiteSpace: "nowrap" }}>{Number(s.pct).toFixed(1)}%</span>
               <span style={{ flex: 1, color: darkMode ? "#94a3b8" : "#374151", textAlign: "right", fontSize: 11, whiteSpace: "nowrap" }}>{s.avgPrice?.toLocaleString()}원</span>
@@ -130,7 +130,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, darkMode = false })
   });
 
   return (
-    <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 16, marginBottom: 12 }}>
+    <div style={{ background: darkMode ? "#111827" : "#ffffff", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 16, padding: 16, marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: darkMode ? "#94a3b8" : "#374151" }}>📊 현재 포트폴리오</div>
         {data?.some?.(s => s.approximateData) && (
@@ -143,7 +143,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, darkMode = false })
         <svg viewBox="0 0 100 100" style={{ width: "38%", maxWidth: 150, minWidth: 100, flexShrink: 0 }}>
           {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} />)}
           <text x="50" y="48" textAnchor="middle" fill={darkMode ? "#94a3b8" : "#374151"} fontSize="7">포트폴리오</text>
-          <text x="50" y="58" textAnchor="middle" fill="#1e293b" fontSize="7" fontWeight="700">{slices.length}종목</text>
+          <text x="50" y="58" textAnchor="middle" fill={darkMode ? "#e2e8f0" : "#1e293b"} fontSize="7" fontWeight="700">{slices.length}종목</text>
         </svg>
         <div style={{ flex: 1, minWidth: 0 }}>
           {(() => {
@@ -172,8 +172,8 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, darkMode = false })
           })()}
         </div>
       </div>
-      <div style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-        <div style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", background: "#f1f5f9", padding: "8px 12px", gap: 4 }}>
+      <div style={{ borderRadius: 10, overflow: "hidden", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0" }}>
+        <div style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", background: darkMode ? "#0f172a" : "#f1f5f9", padding: "8px 12px", gap: 4 }}>
           <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>종목명</span>
           <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "center" }}>비중</span>
           <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151", textAlign: "center" }}>수익률</span>
@@ -181,22 +181,22 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, darkMode = false })
           {showWealth && <span style={{ fontSize: 10, color: "#15803d", textAlign: "right" }}>수량/보유금액</span>}
         </div>
         {slices.map((s, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: "1px solid #e2e8f0", background: i % 2 === 0 ? "#ffffff" : "#f9fafb" }}>
+          <div key={i} style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", background: i % 2 === 0 ? "#ffffff" : "#f9fafb" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-              <span style={{ color: "#1e293b", fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
+              <span style={{ color: darkMode ? "#e2e8f0" : "#1e293b", fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
               {isAdmin && onEdit && (
                 <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}>✏️</button>
               )}
             </div>
-            <span style={{ color: "#1e293b", fontWeight: 700, fontSize: 12, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
+            <span style={{ color: darkMode ? "#e2e8f0" : "#1e293b", fontWeight: 700, fontSize: 12, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
             <span style={{ fontSize: 12, textAlign: "center", fontWeight: 700,
               color: s.ret === null ? "#94a3b8" : s.ret >= 0 ? "#ef4444" : "#3b82f6" }}>
               {s.ret !== null ? (s.ret >= 0 ? "+" : "") + s.ret.toFixed(1) + "%" : "-"}
             </span>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151" }}>{s.avgBuy?.toLocaleString()}원</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b" }}>{s.current?.toLocaleString()}원</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: darkMode ? "#e2e8f0" : "#1e293b" }}>{s.current?.toLocaleString()}원</div>
             </div>
             {showWealth && (
               <div style={{ textAlign: "right" }}>
@@ -850,12 +850,12 @@ export default function App() {
       {/* 메인화면 편집 모달 - contentEditable + Range API (모바일 안전) */}
       {editingMain && (
         <div style={S.overlay}>
-          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 480, textAlign: "left", maxHeight: "92vh", overflowY: "auto" }}>
+          <div style={{ background: darkMode ? "#111827" : "#ffffff", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 16, padding: 20, width: "92vw", maxWidth: 480, textAlign: "left", maxHeight: "92vh", overflowY: "auto" }}>
             <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>✏️ 메인화면 편집</div>
             <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 10 }}>텍스트를 드래그해서 선택 후 아래 버튼으로 스타일 적용</div>
 
             {/* 툴바 */}
-            <div style={{ background: "#f1f5f9", borderRadius: 10, padding: "10px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ background: darkMode ? "#0f172a" : "#f1f5f9", borderRadius: 10, padding: "10px", marginBottom: 10, display: "flex", flexDirection: "column", gap: 8 }}>
 
               {/* 1행: 폰트 크기 */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
@@ -882,7 +882,7 @@ export default function App() {
                     range.collapse(true);
                     sel.removeAllRanges();
                     sel.addRange(range);
-                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>
+                  }} style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 6px", fontSize: 10, cursor: "pointer" }}>
                     {sz}
                   </button>
                 ))}
@@ -908,7 +908,7 @@ export default function App() {
                     range.insertNode(wrapper);
                     range.setStartAfter(wrapper); range.collapse(true);
                     sel.removeAllRanges(); sel.addRange(range);
-                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 10px", fontSize: 13, cursor: "pointer",
+                  }} style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 10px", fontSize: 13, cursor: "pointer",
                     fontWeight: b.label === "B" ? 700 : "normal",
                     fontStyle: b.label === "I" ? "italic" : "normal",
                     textDecoration: b.label === "U" ? "underline" : "none",
@@ -933,7 +933,7 @@ export default function App() {
                     while (block && block !== el && !["P","DIV","H1","H2","H3","LI"].includes(block.tagName)) block = block.parentElement;
                     if (block && block !== el) block.style.textAlign = a.align;
                     else el.style.textAlign = a.align;
-                  }} style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 8px", fontSize: 10, cursor: "pointer" }}>
+                  }} style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 5, color: darkMode ? "#94a3b8" : "#374151", padding: "3px 8px", fontSize: 10, cursor: "pointer" }}>
                     {a.label}
                   </button>
                 ))}
@@ -982,7 +982,7 @@ export default function App() {
 
               {/* 4행: 이미지 + 초기화 */}
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <label style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 6, color: darkMode ? "#94a3b8" : "#374151", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
+                <label style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 6, color: darkMode ? "#94a3b8" : "#374151", padding: "4px 10px", fontSize: 11, cursor: "pointer" }}>
                   🖼️ 이미지 업로드
                   <input type="file" accept="image/*" style={{ display: "none" }}
                     onChange={e => {
@@ -1030,11 +1030,11 @@ export default function App() {
               suppressContentEditableWarning
               style={{
                 minHeight: 180,
-                background: "#f8fafc",
-                border: "1px solid #cbd5e1",
+                background: darkMode ? "#0f172a" : "#f8fafc",
+                border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1",
                 borderRadius: 10,
                 padding: "20px 16px",
-                color: "#1e293b",
+                color: darkMode ? "#e2e8f0" : "#1e293b",
                 fontSize: 16,
                 lineHeight: 1.7,
                 outline: "none",
@@ -1201,7 +1201,7 @@ export default function App() {
               onClick={() => setShowWealth(v => !v)}
               style={{
                 background: showWealth ? "#f0fdf4" : "#f1f5f9",
-                border: showWealth ? "1px solid #22c55e" : "1px solid #cbd5e1",
+                border: showWealth ? "1px solid #22c55e" : darkMode ? "1px solid #334155" : "1px solid #cbd5e1",
                 borderRadius: 8, color: showWealth ? "#15803d" : "#94a3b8",
                 padding: "4px 10px", fontSize: 14, cursor: "pointer", lineHeight: 1,
               }}
@@ -1267,9 +1267,9 @@ export default function App() {
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {accounts.map(acc => (
-                <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 8, background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px" }}>
+                <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 8, background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px" }}>
                   <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{acc.name}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: darkMode ? "#e2e8f0" : "#1e293b" }}>{acc.name}</span>
                     {portfolios[acc.id] && (
                       <span style={{ fontSize: 11, color: "#16a34a", marginLeft: 8 }}>
                         ✅ {portfolios[acc.id].stocks?.length}종목
@@ -1280,7 +1280,7 @@ export default function App() {
                     )}
                   </div>
                   <button
-                    style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: darkMode ? "#94a3b8" : "#374151", padding: "5px 12px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
+                    style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 8, color: darkMode ? "#94a3b8" : "#374151", padding: "5px 12px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
                     disabled={portfolioLoading === acc.id}
                     onClick={() => { setUploadingAccount(acc.id); setTimeout(() => portfolioRef.current?.click(), 50); }}>
                     {portfolioLoading === acc.id ? "⏳" : "📤 업로드"}
@@ -1392,7 +1392,7 @@ export default function App() {
                               onClick={() => setPortfolioEditMode(v => !v)}
                               style={{
                                 background: portfolioEditMode ? "#eff6ff" : "#f1f5f9",
-                                border: portfolioEditMode ? "1px solid #60a5fa" : "1px solid #cbd5e1",
+                                border: portfolioEditMode ? "1px solid #60a5fa" : darkMode ? "1px solid #334155" : "1px solid #cbd5e1",
                                 borderRadius: 8, color: portfolioEditMode ? "#60a5fa" : "#94a3b8",
                                 padding: "4px 10px", fontSize: 12, cursor: "pointer"
                               }}>
@@ -1408,7 +1408,7 @@ export default function App() {
             fetchLivePrices(unique);
           }}
                             disabled={priceLoading}
-                            style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: priceLoading ? "#60a5fa" : "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: priceLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                            style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 8, color: priceLoading ? "#60a5fa" : "#94a3b8", padding: "4px 12px", fontSize: 12, cursor: priceLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                             {priceLoading ? <><span className="spinner" /><span>갱신 중...</span></> : "🔄 현재가 갱신"}
                           </button>
                         </div>
@@ -1451,7 +1451,7 @@ export default function App() {
                         return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate };
                       })} />
                   </>
-                : <div style={{ textAlign: "center", padding: "40px 20px", color: darkMode ? "#94a3b8" : "#374151", background: "#f8fafc", borderRadius: 16, border: "1px solid #e2e8f0" }}>
+                : <div style={{ textAlign: "center", padding: "40px 20px", color: darkMode ? "#94a3b8" : "#374151", background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 16, border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0" }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 6 }}>
                       {activeAccount === "all" ? "등록된 계좌가 없어요" : "아직 포트폴리오 등록이 되지 않았습니다."}
@@ -1469,7 +1469,7 @@ export default function App() {
             <>
               {/* 조회 기간 */}
               {allRecords.length > 0 && (
-                <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ background: darkMode ? "#111827" : "#ffffff", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 12, padding: 14, marginBottom: 14 }}>
                   <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 10 }}>📅 조회 기간 설정</div>
                   <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
                     {[
@@ -1486,14 +1486,14 @@ export default function App() {
                       <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>시작일</span>
                       <input type="date" value={startDate}
                         onChange={e => { const v = e.target.value; if (endDate && v > endDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setStartDate(v); } }}
-                        style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: "#1e293b", padding: "6px 10px", fontSize: 13, outline: "none" }} />
+                        style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 8, color: darkMode ? "#e2e8f0" : "#1e293b", padding: "6px 10px", fontSize: 13, outline: "none" }} />
                     </div>
                     <div style={{ color: darkMode ? "#94a3b8" : "#374151", paddingBottom: 8 }}>~</div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
                       <span style={{ fontSize: 10, color: darkMode ? "#94a3b8" : "#374151" }}>종료일</span>
                       <input type="date" value={endDate}
                         onChange={e => { const v = e.target.value; if (startDate && v < startDate) setDateError("시작일이 종료일보다 빠를 수 없습니다."); else { setDateError(""); setEndDate(v); } }}
-                        style={{ background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: "#1e293b", padding: "6px 10px", fontSize: 13, outline: "none" }} />
+                        style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 8, color: darkMode ? "#e2e8f0" : "#1e293b", padding: "6px 10px", fontSize: 13, outline: "none" }} />
                     </div>
                   </div>
                   {dateError && <div style={{ color: "#ef4444", fontSize: 11, marginTop: 6 }}>⚠️ {dateError}</div>}
@@ -1610,9 +1610,9 @@ export default function App() {
               })}
 
               {allRecords.length > 0 && historySubTab === "buy" && (
-                <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 16, marginTop: 12 }}>
+                <div style={{ background: darkMode ? "#111827" : "#ffffff", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 14, padding: 16, marginTop: 12 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>공유 텍스트</div>
-                  <pre style={{ background: "#f8fafc", borderRadius: 8, padding: "10px 12px", fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", whiteSpace: "pre-wrap", marginBottom: 10, border: "1px solid #e2e8f0", fontFamily: "monospace" }}>{shareText()}</pre>
+                  <pre style={{ background: darkMode ? "#0f172a" : "#f8fafc", borderRadius: 8, padding: "10px 12px", fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", whiteSpace: "pre-wrap", marginBottom: 10, border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", fontFamily: "monospace" }}>{shareText()}</pre>
                   <button style={S.btnMain} onClick={() => { navigator.clipboard.writeText(shareText()).then(() => { setShareMsg("✅ 복사됐어요!"); setTimeout(() => setShareMsg(""), 2500); }); }}>📋 텍스트 복사</button>
                   {shareMsg && <p style={{ color: "#16a34a", fontSize: 13, marginTop: 8 }}>{shareMsg}</p>}
                 </div>
@@ -1637,7 +1637,7 @@ export default function App() {
                           value={diaryEditPw} onChange={e => setDiaryEditPw(e.target.value)} />
                       </div>
                     )}
-                    <textarea style={{ width: "100%", minHeight: 100, background: "#f1f5f9", border: "1px solid #cbd5e1", borderRadius: 8, color: "#1e293b", fontSize: 13, padding: "10px", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+                    <textarea style={{ width: "100%", minHeight: 100, background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #334155" : "1px solid #cbd5e1", borderRadius: 8, color: darkMode ? "#e2e8f0" : "#1e293b", fontSize: 13, padding: "10px", resize: "vertical", outline: "none", boxSizing: "border-box" }}
                       value={diaryEditText} onChange={e => setDiaryEditText(e.target.value)} />
                     <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                       <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setDiaryEditModal(null); setDiaryEditPw(""); }}>취소</button>
@@ -1719,11 +1719,11 @@ export default function App() {
                             if (preview?.title) {
                               return (
                                 <a href={post.linkUrl} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginTop: 8, textDecoration: "none" }}>
-                                  <div style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
+                                  <div style={{ background: darkMode ? "#0f172a" : "#f1f5f9", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}>
                                     {preview.image && <img src={preview.image} alt="" style={{ width: "100%", maxHeight: 140, objectFit: "cover", display: "block" }} onError={e => { e.target.style.display = "none"; }} />}
                                     <div style={{ padding: "8px 10px" }}>
                                       {preview.domain && <div style={{ fontSize: 9, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 3 }}>{preview.domain}</div>}
-                                      <div style={{ fontSize: 12, fontWeight: 700, color: "#1e293b", marginBottom: 3 }}>{preview.title}</div>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: darkMode ? "#e2e8f0" : "#1e293b", marginBottom: 3 }}>{preview.title}</div>
                                       {preview.description && <div style={{ fontSize: 11, color: darkMode ? "#94a3b8" : "#374151", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{preview.description}</div>}
                                     </div>
                                   </div>
@@ -1857,13 +1857,13 @@ export default function App() {
             ? <div dangerouslySetInnerHTML={{ __html: mainText.html }} style={{ marginBottom: 24, lineHeight: 1.7 }} />
             : <>
                 <div style={{ fontSize: 56, marginBottom: 8 }}>{mainText.emoji}</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: "#1e293b", marginBottom: 4 }}>{mainText.title}</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: darkMode ? "#e2e8f0" : "#1e293b", marginBottom: 4 }}>{mainText.title}</div>
                 <div style={{ fontSize: 20, color: "#f59e0b", fontWeight: 900, marginBottom: 24, lineHeight: 1.7 }}>
                   {mainText.subtitle.split("\n").map((line, i) => <span key={i}>{line}{i < mainText.subtitle.split("\n").length - 1 && <br/>}</span>)}
                 </div>
               </>
           }
-          <div style={{ background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 16, padding: 24, maxWidth: 320, margin: "0 auto" }}>
+          <div style={{ background: darkMode ? "#111827" : "#ffffff", border: darkMode ? "1px solid #1e293b" : "1px solid #e2e8f0", borderRadius: 16, padding: 24, maxWidth: 320, margin: "0 auto" }}>
             <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>📋 조회 코드 입력</div>
             <div style={{ fontSize: 12, color: darkMode ? "#94a3b8" : "#374151", marginBottom: 16 }}>포트폴리오 및 매매 평단 리스트</div>
             <input style={{ ...S.pinInput, marginBottom: 12 }} type="password" inputMode="numeric" maxLength={6} placeholder="코드 입력"
@@ -1913,27 +1913,27 @@ function getTheme(dark) {
   };
   return {
     // 라이트모드 (베이지 따뜻한 톤)
-    page: { minHeight: "100vh", background: "#f5f0eb", color: "#1a1a2e", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", padding: "20px 14px 60px", maxWidth: 720, margin: "0 auto" },
+    page: { minHeight: "100vh", background: darkMode ? "#0a0f1e" : "#f5f0eb", color: darkMode ? "#e2e8f0" : "#1a1a2e", fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", padding: "20px 14px 60px", maxWidth: 720, margin: "0 auto" },
     header: { textAlign: "center", marginBottom: 20 },
     logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
     logoText: { fontSize: 22, fontWeight: 700, background: "linear-gradient(90deg,#2563eb,#7c3aed)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
-    verBadge: { background: "#ede8e0", color: "#6b7280", border: "1px solid #d6cfc4", borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
-    loginTag: { background: "#ede8e0", color: "#374151", border: "1px solid #d6cfc4", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
+    verBadge: { background: darkMode ? "#1e293b" : "#ede8e0", color: darkMode ? "#64748b" : "#6b7280", border: darkMode ? "1px solid #1e293b" : "1px solid #d6cfc4", borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
+    loginTag: { background: darkMode ? "#1e293b" : "#ede8e0", color: darkMode ? "#94a3b8" : "#374151", border: darkMode ? "1px solid #1e293b" : "1px solid #d6cfc4", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
     adminTag: { background: "#dbeafe", color: "#1d4ed8", border: "1px solid #93c5fd", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
-    sub: { color: "#4b5563", fontSize: 13, margin: 0 },
+    sub: { color: darkMode ? "#64748b" : "#4b5563", fontSize: 13, margin: 0 },
     overlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 },
-    modal: { background: "#faf7f3", border: "1px solid #d6cfc4", borderRadius: 16, padding: 24, width: 260, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.18)" },
-    pinInput: { width: "100%", background: "#ffffff", border: "2px solid #d6cfc4", borderRadius: 10, color: "#1a1a2e", fontSize: 20, padding: "10px", textAlign: "center", outline: "none", boxSizing: "border-box", letterSpacing: 8 },
-    drop: { border: "2px dashed #c8bfb4", borderRadius: 14, padding: "24px 16px", textAlign: "center", cursor: "pointer", marginBottom: 12, background: "#ede8e0" },
+    modal: { background: darkMode ? "#111827" : "#faf7f3", border: darkMode ? "1px solid #1e293b" : "1px solid #d6cfc4", borderRadius: 16, padding: 24, width: 260, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.18)" },
+    pinInput: { width: "100%", background: darkMode ? "#111827" : "#ffffff", border: "2px solid #d6cfc4", borderRadius: 10, color: darkMode ? "#e2e8f0" : "#1a1a2e", fontSize: 20, padding: "10px", textAlign: "center", outline: "none", boxSizing: "border-box", letterSpacing: 8 },
+    drop: { border: "2px dashed #c8bfb4", borderRadius: 14, padding: "24px 16px", textAlign: "center", cursor: "pointer", marginBottom: 12, background: darkMode ? "#1e293b" : "#ede8e0" },
     dropOn: { borderColor: "#2563eb", background: "#eff6ff" },
     grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 8, marginBottom: 12 },
-    card: { background: "#faf7f3", border: "1px solid #d6cfc4", borderRadius: 10, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.07)" },
+    card: { background: darkMode ? "#111827" : "#faf7f3", border: darkMode ? "1px solid #1e293b" : "1px solid #d6cfc4", borderRadius: 10, overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.07)" },
     thumb: { width: "100%", height: 100, objectFit: "cover", display: "block" },
     xBtn: { position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.45)", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer", fontSize: 9 },
-    stockCard: { background: "#faf7f3", border: "1px solid #d6cfc4", borderRadius: 12, padding: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.07)" },
-    insight: { marginTop: 8, padding: "6px 10px", background: "#ede8e0", borderRadius: 6, fontSize: 11, color: "#4b5563", borderLeft: "3px solid #7c3aed" },
+    stockCard: { background: darkMode ? "#111827" : "#faf7f3", border: darkMode ? "1px solid #1e293b" : "1px solid #d6cfc4", borderRadius: 12, padding: 14, marginBottom: 8, boxShadow: "0 2px 8px rgba(0,0,0,0.07)" },
+    insight: { marginTop: 8, padding: "6px 10px", background: darkMode ? "#1e293b" : "#ede8e0", borderRadius: 6, fontSize: 11, color: darkMode ? "#64748b" : "#4b5563", borderLeft: "3px solid #7c3aed" },
     btnMain: { background: "linear-gradient(135deg,#2563eb,#7c3aed)", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
-    btnSub: { background: "#ede8e0", color: "#374151", border: "1px solid #d6cfc4", borderRadius: 10, padding: "10px 14px", fontSize: 13, cursor: "pointer" },
+    btnSub: { background: darkMode ? "#1e293b" : "#ede8e0", color: darkMode ? "#94a3b8" : "#374151", border: darkMode ? "1px solid #1e293b" : "1px solid #d6cfc4", borderRadius: 10, padding: "10px 14px", fontSize: 13, cursor: "pointer" },
     btnDanger: { background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: 10, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
     // 테마 식별용
     bg: "#f5f0eb", cardBg: "#faf7f3", cardBorder: "#d6cfc4",
