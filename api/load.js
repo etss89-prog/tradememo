@@ -20,16 +20,17 @@ export default async function handler(req, res) {
     const token = process.env.KV_REST_API_TOKEN;
     if (!url || !token) return res.status(500).json({ error: 'DB not configured' });
 
-    const [recRes, portRes, accRes, mainRes, priceRes] = await Promise.all([
+    const [recRes, portRes, accRes, mainRes, priceRes, memoRes] = await Promise.all([
       fetch(`${url}/get/tradememo_records`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_portfolios`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_accounts`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_main`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_prices`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${url}/get/tradememo_memos`, { headers: { Authorization: `Bearer ${token}` } }),
     ]);
 
     const parse = async (r) => { const d = await r.json(); if (!d.result) return null; try { return typeof d.result === 'object' ? d.result : JSON.parse(d.result); } catch { return null; } };
-    const [records, portfolios, accounts, mainText, priceData] = await Promise.all([recRes, portRes, accRes, mainRes, priceRes].map(parse));
+    const [records, portfolios, accounts, mainText, priceData, memos] = await Promise.all([recRes, portRes, accRes, mainRes, priceRes, memoRes].map(parse));
 
     const responseData = {
       records: records || [],
@@ -37,6 +38,7 @@ export default async function handler(req, res) {
       accounts: accounts || [],
       mainText: mainText || null,
       livePrices: priceData?.livePrices || {},
+      memos: memos || {},
       priceUpdatedAt: priceData?.priceUpdatedAt || null,
     };
 
