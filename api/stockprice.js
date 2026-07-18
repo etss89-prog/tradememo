@@ -375,12 +375,11 @@ export default async function handler(req, res) {
 
     for (const name of domesticTickers) {
       // ✅ 최종 우선순위:
-      // 1) savedCodes: 이미지에서 직접 추출한 코드 (가장 신뢰도 높음)
-      // 2) TICKER_MAP: 사람이 수동 검증한 코드 (네이버API보다 신뢰도 높음)
-      // 3) dynamicCache: 이전 조회에서 성공적으로 캐시된 코드
-      // 4) 네이버 API: TICKER_MAP에도 없는 완전히 새로운 종목에만 사용
-      //    (네이버 자동완성은 유사 종목을 잘못 반환할 수 있어 최후 수단)
-      let code = savedCodes[name] || TICKER_MAP[name] || dynamicCache[name];
+      // 1) TICKER_MAP: 사람이 검증한 코드 (가장 신뢰)
+      // 2) savedCodes: 이미지에서 추출한 코드 (오염 가능성 있어서 2순위로)
+      // 3) dynamicCache: 이전 조회 캐시
+      // 4) KRX/네이버 API: 완전히 새로운 종목에만
+      let code = TICKER_MAP[name] || savedCodes[name] || dynamicCache[name];
 
       if (!code) {
         code = await guessTickerCode(name); // 네이버 API는 완전 새 종목에만
