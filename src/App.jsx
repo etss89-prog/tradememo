@@ -323,7 +323,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/load").then(r => r.json()).then(d => {
+    const storedPin = sessionStorage.getItem("jb_pin") || "";
+    fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: storedPin }) }).then(r => r.json()).then(d => {
+      if (d.error === "Unauthorized") return; // PIN 없으면 무시
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         let portfoliosToSet = d.portfolios;
@@ -358,13 +360,35 @@ export default function App() {
     }
   }, [editingMain]);
 
-  function checkViewerPin() {
-    if (viewerPinInput === VIEWER_PIN) { setIsViewer(true); setViewerPinInput(""); setViewerPinError(""); }
-    else { setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); }
+  async function checkViewerPin() {
+    // 서버에서 PIN 검증
+    const res = await fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: viewerPinInput }) });
+    const d = await res.json();
+    if (d.error === "Unauthorized") {
+      setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); return;
+    }
+    // 성공 - 데이터 로드 및 PIN 세션 저장
+    sessionStorage.setItem("jb_pin", viewerPinInput);
+    setIsViewer(true); setViewerPinInput(""); setViewerPinError("");
+    if (d.records) setAllRecords(d.records);
+    if (d.portfolios) {
+      let pts = d.portfolios;
+      if (d.livePrices) {
+        pts = Object.fromEntries(Object.entries(d.portfolios).map(([id, p]) => [id, { ...p, stocks: (p.stocks||[]).map(s => { const lp = d.livePrices[s.ticker]; if(!lp||s.approximateData||s.isOverseas) return s; return {...s, currentPrice:lp, currentValue:lp*s.quantity}; }) }]));
+      }
+      setPortfolios(pts);
+    }
+    if (d.accounts && d.accounts.length > 0) setAccounts(d.accounts);
+    if (d.mainText) setMainText(d.mainText);
+    if (d.livePrices) setLivePrices(d.livePrices);
+    if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
   }
-  function checkPin() {
-    if (pinInput === ADMIN_PIN) { setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError(""); }
-    else { setPinError("PIN이 틀렸습니다."); setPinInput(""); }
+  async function checkPin() {
+    const res = await fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: pinInput }) });
+    const d = await res.json();
+    if (d.error === "Unauthorized") { setPinError("PIN이 틀렸습니다."); setPinInput(""); return; }
+    sessionStorage.setItem("jb_pin", pinInput);
+    setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError("");
   }
 
   async function fetchLinkPreview(url, postId) {
@@ -627,7 +651,7 @@ export default function App() {
     page: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", padding: "20px 14px 60px", maxWidth: 720, margin: "0 auto" },
     header: { textAlign: "center", marginBottom: 20 },
     logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
-    logoText: {},
+    logoText: { fontSize: 22, fontWeight: 700, background: T.logoGrad, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
     verBadge: { background: T.section, color: T.textMuted, border: `1px solid ${T.sectionBorder}`, borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
     loginTag: { background: T.loginTagBg, color: T.loginTagText, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
     adminTag: { background: T.adminTagBg, color: T.adminTagText, border: `1px solid ${T.adminTagBorder}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
