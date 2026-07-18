@@ -1215,16 +1215,16 @@ export default function App() {
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 24 }}>🐜</span>
-          <svg height="28" viewBox="0 0 155 28" style={{ flexShrink: 0, overflow: "visible" }}>
-            <defs>
-              <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor={darkMode ? "#60a5fa" : "#2563eb"} />
-                <stop offset="100%" stopColor={darkMode ? "#a78bfa" : "#7c3aed"} />
-              </linearGradient>
-            </defs>
-            <text y="22" fontSize="22" fontWeight="700" fill="url(#lg)"
-              fontFamily="'Pretendard','Apple SD Gothic Neo',sans-serif">존버일기장</text>
-          </svg>
+          <span style={{
+            fontSize: 22, fontWeight: 700,
+            background: darkMode
+              ? "linear-gradient(90deg,#60a5fa,#a78bfa)"
+              : "linear-gradient(90deg,#2563eb,#7c3aed)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            display: "inline-block",
+          }}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 다크/라이트 토글 */}
           <button onClick={toggleDarkMode} style={{ background: T.section, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1 }} title={darkMode ? "라이트 모드" : "다크 모드"}>
