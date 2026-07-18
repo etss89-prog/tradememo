@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.6";
+const VERSION = "v9.7";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -627,7 +627,7 @@ export default function App() {
     page: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", padding: "20px 14px 60px", maxWidth: 720, margin: "0 auto" },
     header: { textAlign: "center", marginBottom: 20 },
     logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
-    logoText: { fontSize: 22, fontWeight: 700, background: T.logoGrad, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
+    logoText: {},
     verBadge: { background: T.section, color: T.textMuted, border: `1px solid ${T.sectionBorder}`, borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
     loginTag: { background: T.loginTagBg, color: T.loginTagText, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
     adminTag: { background: T.adminTagBg, color: T.adminTagText, border: `1px solid ${T.adminTagBorder}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
@@ -875,7 +875,17 @@ export default function App() {
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 24 }}>🐜</span>
-          <span style={S.logoText}>존버일기장</span>
+          <svg height="30" viewBox="0 0 160 30" style={{ flexShrink: 0 }}>
+            <defs>
+              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                {darkMode
+                  ? <><stop offset="0%" stopColor="#60a5fa"/><stop offset="100%" stopColor="#a78bfa"/></>
+                  : <><stop offset="0%" stopColor="#2563eb"/><stop offset="100%" stopColor="#7c3aed"/></>
+                }
+              </linearGradient>
+            </defs>
+            <text x="0" y="23" fontSize="22" fontWeight="700" fill="url(#logoGrad)" fontFamily="'Pretendard','Apple SD Gothic Neo',sans-serif">존버일기장</text>
+          </svg>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 다크/라이트 토글 */}
           <button onClick={toggleDarkMode} style={{ background: T.section, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1 }} title={darkMode ? "라이트 모드" : "다크 모드"}>
@@ -1253,7 +1263,7 @@ export default function App() {
                 <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
                   <textarea autoFocus style={{ flex:1, minHeight:44, maxHeight:120, background:T.inputBg, border:`1px solid ${T.border}`, borderRadius:22, color:T.text, fontSize:14, padding:"10px 16px", resize:"none", outline:"none", boxSizing:"border-box", lineHeight:1.5, display:"block" }}
                     placeholder="Write a message..." value={diaryText} onChange={e => setDiaryText(e.target.value)}
-                    onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(diaryText.trim())addDiaryPost();} }} />
+                    onKeyDown={e => { /* 엔터 = 줄바꿈, 전송은 ➤ 버튼만 */ }} />
                   <button onClick={() => setDiarySecret(v => !v)} title={diarySecret?"비밀글":"공개글"}
                     style={{ width:44, height:44, borderRadius:"50%", border:`1px solid ${diarySecret?"#f59e0b":T.border}`, background:diarySecret?(darkMode?"#1a1500":"#fffbeb"):"transparent", fontSize:18, cursor:"pointer", flexShrink:0 }}>
                     {diarySecret?"🔒":"🔓"}
