@@ -1210,16 +1210,7 @@ export default function App() {
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 24 }}>🐜</span>
-          <span style={{
-            fontSize: 22, fontWeight: 700,
-            background: darkMode
-              ? "linear-gradient(90deg,#60a5fa,#a78bfa)"
-              : "linear-gradient(90deg,#2563eb,#7c3aed)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-            display: "inline-block",
-          }}>존버일기장</span>
+          <span style={{ fontSize: 22, fontWeight: 700, color: darkMode ? "#60a5fa" : "#2563eb" }}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 다크/라이트 토글 */}
           <button onClick={toggleDarkMode} style={{ background: T.section, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1 }} title={darkMode ? "라이트 모드" : "다크 모드"}>
