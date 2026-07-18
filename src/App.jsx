@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.9";
+const VERSION = "v9.10";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -334,7 +334,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/load").then(r => r.json()).then(d => {
+    // 저장된 PIN으로 데이터 로드 (없으면 조회 PIN으로 시도)
+    const storedPin = sessionStorage.getItem("jb_pin") || "";
+    const loadPin = storedPin || "2026";
+    fetch("/api/load", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: loadPin })
+    }).then(r => r.json()).then(d => {
+      if (d.error === "Unauthorized") return;
+      // 저장된 PIN이 있으면 자동 로그인 상태 복원
+      if (storedPin === "4254") { setIsAdmin(true); setIsViewer(true); }
+      else if (storedPin === "2026") setIsViewer(true);
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         let portfoliosToSet = d.portfolios;
