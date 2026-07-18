@@ -334,18 +334,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // 저장된 PIN으로 데이터 로드 (없으면 조회 PIN으로 시도)
-    const storedPin = sessionStorage.getItem("jb_pin") || "";
-    const loadPin = storedPin || "2026";
+    // 페이지 로드 시 데이터 불러오기 (로그인 없이 mainText 등 기본 데이터만)
     fetch("/api/load", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: loadPin })
+      body: JSON.stringify({ pin: "2026" })
     }).then(r => r.json()).then(d => {
       if (d.error === "Unauthorized") return;
-      // 저장된 PIN이 있으면 자동 로그인 상태 복원
-      if (storedPin === "4254") { setIsAdmin(true); setIsViewer(true); }
-      else if (storedPin === "2026") setIsViewer(true);
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         let portfoliosToSet = d.portfolios;
