@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.7";
+const VERSION = "v9.8";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -128,7 +128,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, T 
   );
 }
 
-function PortfolioChart({ data, isAdmin, showWealth, onEdit, T }) {
+function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
   if (!data || data.length === 0) return null;
   const sorted = [...data].sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
@@ -203,7 +203,10 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, T }) {
           <div key={i} style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: `1px solid ${T.cardBorder}`, background: i % 2 === 0 ? T.tableRowEven : T.tableRowOdd }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-              <span style={{ color: T.text, fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.ticker}</span>
+              <span onClick={() => onChart && onChart(s)}
+                style={{ color: T.text, fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: onChart ? "pointer" : "default", textDecoration: onChart ? "underline dotted" : "none" }}>
+                {s.ticker}
+              </span>
               {isAdmin && onEdit && (
                 <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}>✏️</button>
               )}
@@ -251,6 +254,14 @@ export default function App() {
   const [viewerPinError, setViewerPinError] = useState("");
   const [images, setImages] = useState([]);
   const [allRecords, setAllRecords] = useState([]);
+  const [chartModal, setChartModal] = useState(null); // { ticker, tickerCode, isOverseas }
+  const [chartData, setChartData] = useState([]);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartTimeframe, setChartTimeframe] = useState('day');
+  const [chartTooltip, setChartTooltip] = useState(null); // { x, y, candle }
+  const [memos, setMemos] = useState({});
+  const [memoEditing, setMemoEditing] = useState(false);
+  const [memoDraft, setMemoDraft] = useState('');
   const [portfolios, setPortfolios] = useState({});
   const [activeAccount, setActiveAccount] = useState("all");
   const [portfolioLoading, setPortfolioLoading] = useState(null);
@@ -323,9 +334,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const storedPin = sessionStorage.getItem("jb_pin") || "";
-    fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: storedPin }) }).then(r => r.json()).then(d => {
-      if (d.error === "Unauthorized") return; // PIN 없으면 무시
+    fetch("/api/load").then(r => r.json()).then(d => {
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         let portfoliosToSet = d.portfolios;
@@ -344,6 +353,7 @@ export default function App() {
       if (d.mainText) setMainText(d.mainText);
       if (d.livePrices) setLivePrices(d.livePrices);
       if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
+      if (d.memos) setMemos(d.memos);
     }).catch(() => {});
     fetch("/api/diary-load").then(r => r.json()).then(d => {
       if (d.posts) {
@@ -360,35 +370,13 @@ export default function App() {
     }
   }, [editingMain]);
 
-  async function checkViewerPin() {
-    // 서버에서 PIN 검증
-    const res = await fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: viewerPinInput }) });
-    const d = await res.json();
-    if (d.error === "Unauthorized") {
-      setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); return;
-    }
-    // 성공 - 데이터 로드 및 PIN 세션 저장
-    sessionStorage.setItem("jb_pin", viewerPinInput);
-    setIsViewer(true); setViewerPinInput(""); setViewerPinError("");
-    if (d.records) setAllRecords(d.records);
-    if (d.portfolios) {
-      let pts = d.portfolios;
-      if (d.livePrices) {
-        pts = Object.fromEntries(Object.entries(d.portfolios).map(([id, p]) => [id, { ...p, stocks: (p.stocks||[]).map(s => { const lp = d.livePrices[s.ticker]; if(!lp||s.approximateData||s.isOverseas) return s; return {...s, currentPrice:lp, currentValue:lp*s.quantity}; }) }]));
-      }
-      setPortfolios(pts);
-    }
-    if (d.accounts && d.accounts.length > 0) setAccounts(d.accounts);
-    if (d.mainText) setMainText(d.mainText);
-    if (d.livePrices) setLivePrices(d.livePrices);
-    if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
+  function checkViewerPin() {
+    if (viewerPinInput === VIEWER_PIN) { setIsViewer(true); setViewerPinInput(""); setViewerPinError(""); }
+    else { setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); }
   }
-  async function checkPin() {
-    const res = await fetch("/api/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: pinInput }) });
-    const d = await res.json();
-    if (d.error === "Unauthorized") { setPinError("PIN이 틀렸습니다."); setPinInput(""); return; }
-    sessionStorage.setItem("jb_pin", pinInput);
-    setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError("");
+  function checkPin() {
+    if (pinInput === ADMIN_PIN) { setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError(""); }
+    else { setPinError("PIN이 틀렸습니다."); setPinInput(""); }
   }
 
   async function fetchLinkPreview(url, postId) {
@@ -398,6 +386,50 @@ export default function App() {
       if (postId) setLinkPreviews(prev => ({ ...prev, [postId]: data }));
       else setPreviewDraft(data);
     } catch {}
+  }
+
+  async function openChart(stock) {
+    setChartModal(stock);
+    setChartTimeframe('day');
+    setMemoEditing(false);
+    setMemoDraft(memos[stock.ticker] || '');
+    await loadChartData(stock, 'day');
+  }
+
+  async function loadChartData(stock, timeframe) {
+    setChartLoading(true);
+    setChartData([]);
+    try {
+      const res = await fetch('/api/chart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticker: stock.ticker,
+          tickerCode: stock.tickerCode || null,
+          timeframe,
+          isOverseas: stock.isOverseas || false,
+        })
+      });
+      const data = await res.json();
+      if (data.candles && data.candles.length > 0) {
+        setChartData(data.candles);
+      }
+    } catch (e) {
+      console.error('차트 로드 실패:', e);
+    }
+    setChartLoading(false);
+  }
+
+  async function saveMemo(ticker, text) {
+    const newMemos = { ...memos, [ticker]: text };
+    setMemos(newMemos);
+    setMemoEditing(false);
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    await fetch('/api/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin, records: allRecords, portfolios, accounts, mainText, memos: newMemos })
+    });
   }
 
   async function addDiaryPost() {
@@ -675,6 +707,279 @@ export default function App() {
   return (
     <div style={S.page}>
       {/* PIN 모달 */}
+      {/* ========== 차트 모달 ========== */}
+      {chartModal && (
+        <div style={{ position:"fixed", inset:0, background:T.overlay, zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div style={{ background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:"20px 20px 0 0", width:"100%", maxWidth:720, maxHeight:"92vh", overflowY:"auto", padding:"0 0 24px" }}>
+            {/* 헤더 */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"16px 20px 12px", borderBottom:`1px solid ${T.cardBorder}`, position:"sticky", top:0, background:T.card, zIndex:1 }}>
+              <div>
+                <div style={{ fontSize:18, fontWeight:800, color:T.text }}>{chartModal.ticker}</div>
+                <div style={{ fontSize:11, color:T.textMuted }}>
+                  {chartData.length > 0 ? `${chartData[0].date} ~ ${chartData[chartData.length-1].date}` : ''}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                {/* 메모 버튼 */}
+                <button onClick={() => { setMemoEditing(true); setMemoDraft(memos[chartModal.ticker] || ''); }}
+                  style={{ background:memos[chartModal.ticker] ? (darkMode?"#1a2a1a":"#dcfce7") : T.section, border:`1px solid ${memos[chartModal.ticker]?"#22c55e":T.border}`, borderRadius:8, color:memos[chartModal.ticker]?"#22c55e":T.textMuted, padding:"5px 10px", fontSize:12, cursor:"pointer" }}>
+                  📝 {memos[chartModal.ticker] ? "메모보기" : "메모없음"}
+                </button>
+                <button onClick={() => { setChartModal(null); setChartData([]); setChartTooltip(null); setMemoEditing(false); }}
+                  style={{ background:"none", border:"none", color:T.textMuted, fontSize:22, cursor:"pointer", lineHeight:1 }}>✕</button>
+              </div>
+            </div>
+
+            {/* 메모 편집 패널 */}
+            {memoEditing && (
+              <div style={{ margin:"12px 20px", background:T.section, border:`1px solid ${T.border}`, borderRadius:12, padding:14 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>📝 종목 메모</div>
+                <div style={{ fontSize:11, color:T.textMuted, marginBottom:8 }}>목표가, 매매 계획 등 자유롭게 기록하세요</div>
+                <textarea
+                  value={memoDraft} onChange={e => setMemoDraft(e.target.value)}
+                  placeholder={`예시:
+목표가: 350,000원
+매도 시점: 2026 하반기
+추가 매수: 240,000원 이하`}
+                  style={{ width:"100%", minHeight:100, background:T.inputBg, border:`1px solid ${T.border}`, borderRadius:8, color:T.text, fontSize:13, padding:"10px", resize:"vertical", outline:"none", boxSizing:"border-box", lineHeight:1.6 }} />
+                <div style={{ display:"flex", gap:8, marginTop:10 }}>
+                  <button onClick={() => setMemoEditing(false)} style={{ ...S.btnSub, flex:1, fontSize:12, padding:"7px" }}>취소</button>
+                  <button onClick={() => saveMemo(chartModal.ticker, memoDraft)} style={{ ...S.btnMain, flex:1, fontSize:12, padding:"7px" }}>저장</button>
+                </div>
+              </div>
+            )}
+
+            {/* 메모 표시 (편집 아닐 때) */}
+            {!memoEditing && memos[chartModal.ticker] && (
+              <div style={{ margin:"12px 20px 0", background:darkMode?"#1a2a1a":"#f0fdf4", border:`1px solid ${darkMode?"#166534":"#86efac"}`, borderRadius:10, padding:"10px 14px" }}>
+                <div style={{ fontSize:11, color:"#22c55e", fontWeight:700, marginBottom:4 }}>📝 메모</div>
+                <div style={{ fontSize:12, color:T.text, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{memos[chartModal.ticker]}</div>
+                <button onClick={() => { setMemoEditing(true); setMemoDraft(memos[chartModal.ticker]); }}
+                  style={{ background:"none", border:"none", color:"#22c55e", fontSize:11, cursor:"pointer", marginTop:4 }}>✏️ 수정</button>
+              </div>
+            )}
+
+            {/* 기간 탭 */}
+            <div style={{ display:"flex", gap:6, padding:"14px 20px 10px" }}>
+              {[{k:'day',l:'일봉'},{k:'week',l:'주봉'},{k:'month',l:'월봉'}].map(tf => (
+                <button key={tf.k} onClick={async () => { setChartTimeframe(tf.k); await loadChartData(chartModal, tf.k); }}
+                  style={{ flex:1, padding:"6px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
+                    background: chartTimeframe===tf.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
+                    borderColor: chartTimeframe===tf.k ? "#3b82f6" : T.border,
+                    color: chartTimeframe===tf.k ? "#3b82f6" : T.textMuted,
+                  }}>{tf.l}</button>
+              ))}
+            </div>
+
+            {/* 차트 영역 */}
+            <div style={{ padding:"0 16px" }}>
+              {chartLoading && (
+                <div style={{ textAlign:"center", padding:"40px", color:T.textMuted }}>
+                  <div style={{ fontSize:24, marginBottom:8 }}>📊</div>
+                  <div>차트 불러오는 중...</div>
+                </div>
+              )}
+              {!chartLoading && chartData.length === 0 && (
+                <div style={{ textAlign:"center", padding:"40px", color:T.textMuted }}>
+                  <div style={{ fontSize:24, marginBottom:8 }}>😞</div>
+                  <div>차트 데이터를 불러올 수 없어요</div>
+                  <div style={{ fontSize:11, marginTop:4 }}>종목코드를 확인해주세요</div>
+                </div>
+              )}
+              {!chartLoading && chartData.length > 0 && (() => {
+                // 차트 계산
+                const W = Math.min(680, window.innerWidth - 32);
+                const H = 220;
+                const VH = 60; // 거래량 높이
+                const PAD = { l:52, r:10, t:10, b:20 };
+                const n = chartData.length;
+                const candleW = Math.max(2, Math.floor((W - PAD.l - PAD.r) / n) - 1);
+                const spacing = (W - PAD.l - PAD.r) / n;
+
+                // 매매기록에서 해당 종목 거래 추출
+                const ticker = chartModal.ticker;
+                const tradesByDate = {};
+                allRecords.flatMap(r => r.result?.stocks || [])
+                  .filter(s => s.ticker === ticker)
+                  .flatMap(s => s.trades || [])
+                  .forEach(t => {
+                    if (!tradesByDate[t.date]) tradesByDate[t.date] = [];
+                    tradesByDate[t.date].push(t);
+                  });
+
+                // 가격 범위
+                const highs = chartData.map(c => c.high);
+                const lows = chartData.map(c => c.low);
+                const maxP = Math.max(...highs);
+                const minP = Math.min(...lows);
+                const priceRange = maxP - minP || 1;
+                const py = p => PAD.t + (H - PAD.t - PAD.b) * (1 - (p - minP) / priceRange);
+
+                // 거래량 범위
+                const maxV = Math.max(...chartData.map(c => c.volume)) || 1;
+                const vy = v => VH * (1 - v / maxV) + 4;
+
+                // 현재가 (마지막 캔들)
+                const lastCandle = chartData[chartData.length - 1];
+                const prevCandle = chartData[chartData.length - 2];
+                const priceChange = prevCandle ? lastCandle.close - prevCandle.close : 0;
+                const pctChange = prevCandle ? (priceChange / prevCandle.close * 100) : 0;
+                const priceColor = priceChange >= 0 ? "#ef4444" : "#3b82f6";
+
+                // Y축 레이블
+                const yLabels = [];
+                const steps = 4;
+                for (let i = 0; i <= steps; i++) {
+                  const p = minP + priceRange * i / steps;
+                  yLabels.push({ p, y: py(p), label: p >= 10000 ? Math.round(p/100)/10+'만' : Math.round(p).toLocaleString() });
+                }
+
+                // 현재가 정보 표시
+                return (
+                  <div>
+                    {/* 현재가 요약 */}
+                    <div style={{ display:"flex", alignItems:"baseline", gap:10, marginBottom:10, paddingLeft:PAD.l }}>
+                      <span style={{ fontSize:22, fontWeight:900, color:priceColor }}>{lastCandle.close?.toLocaleString()}원</span>
+                      <span style={{ fontSize:13, color:priceColor, fontWeight:700 }}>
+                        {priceChange >= 0 ? "+" : ""}{priceChange?.toLocaleString()}원 ({pctChange >= 0 ? "+" : ""}{pctChange.toFixed(2)}%)
+                      </span>
+                    </div>
+
+                    {/* 캔들스틱 차트 SVG */}
+                    <div style={{ overflowX:"auto", cursor:"crosshair" }}>
+                      <svg width={W} height={H + VH + 30} style={{ display:"block" }}
+                        onMouseLeave={() => setChartTooltip(null)}
+                        onMouseMove={e => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const mx = e.clientX - rect.left - PAD.l;
+                          const idx = Math.round(mx / spacing);
+                          if (idx >= 0 && idx < n) {
+                            setChartTooltip({ idx, x: PAD.l + idx * spacing, candle: chartData[idx] });
+                          }
+                        }}>
+
+                        {/* Y축 그리드 */}
+                        {yLabels.map((yl, i) => (
+                          <g key={i}>
+                            <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth="0.5" strokeDasharray="3,3" />
+                            <text x={PAD.l-4} y={yl.y+4} textAnchor="end" fontSize="9" fill={T.textMuted}>{yl.label}</text>
+                          </g>
+                        ))}
+
+                        {/* 캔들스틱 */}
+                        {chartData.map((c, i) => {
+                          const x = PAD.l + i * spacing;
+                          const isUp = c.close >= c.open;
+                          const color = isUp ? "#ef4444" : "#3b82f6";
+                          const bodyTop = py(Math.max(c.open, c.close));
+                          const bodyBot = py(Math.min(c.open, c.close));
+                          const bodyH = Math.max(1, bodyBot - bodyTop);
+                          const cw = Math.max(1, candleW);
+                          return (
+                            <g key={i}>
+                              {/* 심지 */}
+                              <line x1={x} y1={py(c.high)} x2={x} y2={py(c.low)} stroke={color} strokeWidth="1" />
+                              {/* 몸통 */}
+                              <rect x={x - cw/2} y={bodyTop} width={cw} height={bodyH} fill={color} opacity="0.9" />
+                            </g>
+                          );
+                        })}
+
+                        {/* 매수/매도 화살표 */}
+                        {chartData.map((c, i) => {
+                          const trades = tradesByDate[c.date];
+                          if (!trades || trades.length === 0) return null;
+                          const x = PAD.l + i * spacing;
+                          return trades.map((t, j) => {
+                            const isBuy = t.type === '매수';
+                            const arrowY = isBuy ? py(c.low) + 14 : py(c.high) - 14;
+                            const arrowColor = isBuy ? "#ef4444" : "#3b82f6";
+                            const label = `${t.type} ${t.price?.toLocaleString()}원${t.quantity ? ' ' + t.quantity + '주' : ''}`;
+                            return (
+                              <g key={j} style={{ cursor:"pointer" }}
+                                onClick={() => setChartTooltip({ idx: i, x, candle: c, trade: t })}>
+                                {/* 화살표 삼각형 */}
+                                <polygon
+                                  points={isBuy
+                                    ? `${x},${arrowY-10} ${x-6},${arrowY} ${x+6},${arrowY}`
+                                    : `${x},${arrowY+10} ${x-6},${arrowY} ${x+6},${arrowY}`
+                                  }
+                                  fill={arrowColor} opacity="0.9" />
+                              </g>
+                            );
+                          });
+                        })}
+
+                        {/* 툴팁 수직선 */}
+                        {chartTooltip && (
+                          <line x1={chartTooltip.x} y1={PAD.t} x2={chartTooltip.x} y2={H+VH+10}
+                            stroke={T.textMuted} strokeWidth="0.8" strokeDasharray="4,2" />
+                        )}
+
+                        {/* 현재가 수평선 */}
+                        <line x1={PAD.l} y1={py(lastCandle.close)} x2={W-PAD.r} y2={py(lastCandle.close)}
+                          stroke={priceColor} strokeWidth="0.8" strokeDasharray="4,2" />
+                        <rect x={W-PAD.r} y={py(lastCandle.close)-8} width={PAD.r+2} height={16} fill={priceColor} rx="2" />
+
+                        {/* 거래량 */}
+                        {chartData.map((c, i) => {
+                          const x = PAD.l + i * spacing;
+                          const isUp = c.close >= c.open;
+                          const vh = VH - vy(c.volume);
+                          const cw = Math.max(1, candleW);
+                          return (
+                            <rect key={i} x={x-cw/2} y={H + vy(c.volume)} width={cw} height={Math.max(1, vh)}
+                              fill={isUp ? "#ef4444" : "#3b82f6"} opacity="0.5" />
+                          );
+                        })}
+
+                        {/* 거래량 레이블 */}
+                        <text x={PAD.l-4} y={H+8} textAnchor="end" fontSize="8" fill={T.textMuted}>거래량</text>
+
+                        {/* X축 날짜 */}
+                        {chartData.map((c, i) => {
+                          if (n <= 30 ? i % 5 !== 0 : n <= 60 ? i % 10 !== 0 : i % 20 !== 0) return null;
+                          const x = PAD.l + i * spacing;
+                          const label = c.date.slice(5); // MM-DD
+                          return <text key={i} x={x} y={H+VH+18} textAnchor="middle" fontSize="8" fill={T.textMuted}>{label}</text>;
+                        })}
+                      </svg>
+                    </div>
+
+                    {/* 툴팁 박스 */}
+                    {chartTooltip && (
+                      <div style={{ margin:"8px 0 4px", padding:"10px 14px", background:T.section, border:`1px solid ${T.border}`, borderRadius:10, fontSize:12 }}>
+                        {chartTooltip.trade ? (
+                          // 매수/매도 거래 툴팁
+                          <div>
+                            <div style={{ fontWeight:700, color:chartTooltip.trade.type==='매수'?"#ef4444":"#3b82f6", marginBottom:4 }}>
+                              {chartTooltip.trade.type} ({chartTooltip.candle.date})
+                            </div>
+                            <div style={{ color:T.text }}>가격: {chartTooltip.trade.price?.toLocaleString()}원</div>
+                            {chartTooltip.trade.quantity && <div style={{ color:T.text }}>수량: {chartTooltip.trade.quantity}주</div>}
+                            {chartTooltip.trade.total && <div style={{ color:T.text }}>금액: {chartTooltip.trade.total?.toLocaleString()}원</div>}
+                          </div>
+                        ) : (
+                          // 일반 캔들 툴팁
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"2px 16px" }}>
+                            <div style={{ color:T.textMuted }}>날짜 <span style={{ color:T.text, fontWeight:600 }}>{chartTooltip.candle.date}</span></div>
+                            <div style={{ color:T.textMuted }}>종가 <span style={{ color:T.text, fontWeight:700 }}>{chartTooltip.candle.close?.toLocaleString()}원</span></div>
+                            <div style={{ color:T.textMuted }}>시가 <span style={{ color:T.text }}>{chartTooltip.candle.open?.toLocaleString()}원</span></div>
+                            <div style={{ color:T.textMuted }}>고가 <span style={{ color:"#ef4444" }}>{chartTooltip.candle.high?.toLocaleString()}원</span></div>
+                            <div style={{ color:T.textMuted }}>저가 <span style={{ color:"#3b82f6" }}>{chartTooltip.candle.low?.toLocaleString()}원</span></div>
+                            <div style={{ color:T.textMuted }}>거래량 <span style={{ color:T.text }}>{chartTooltip.candle.volume?.toLocaleString()}</span></div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showPin && (
         <div style={S.overlay}>
           <div style={S.modal}>
@@ -899,17 +1204,7 @@ export default function App() {
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 24 }}>🐜</span>
-          <svg height="30" viewBox="0 0 160 30" style={{ flexShrink: 0 }}>
-            <defs>
-              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                {darkMode
-                  ? <><stop offset="0%" stopColor="#60a5fa"/><stop offset="100%" stopColor="#a78bfa"/></>
-                  : <><stop offset="0%" stopColor="#2563eb"/><stop offset="100%" stopColor="#7c3aed"/></>
-                }
-              </linearGradient>
-            </defs>
-            <text x="0" y="23" fontSize="22" fontWeight="700" fill="url(#logoGrad)" fontFamily="'Pretendard','Apple SD Gothic Neo',sans-serif">존버일기장</text>
-          </svg>
+          <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 다크/라이트 토글 */}
           <button onClick={toggleDarkMode} style={{ background: T.section, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1 }} title={darkMode ? "라이트 모드" : "다크 모드"}>
@@ -1074,6 +1369,12 @@ export default function App() {
                     </div>
                   )}
                   <PortfolioChart T={T} isAdmin={isAdmin} showWealth={showWealth}
+                    onChart={(s) => {
+                      // 원본 stock에서 tickerCode, isOverseas 찾기
+                      const allS = Object.values(portfolios).flatMap(p => p.stocks || []);
+                      const orig = allS.find(st => st.ticker === s.ticker) || s;
+                      openChart({ ticker: s.ticker, tickerCode: orig.tickerCode, isOverseas: orig.isOverseas || false });
+                    }}
                     onEdit={(activeAccount !== "all" && portfolioEditMode) ? (s) => {
                       const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
                       if (origStock) { setEditStockModal({ accountId: activeAccount, stock: origStock }); setEditStockQty(String(origStock.quantity||"")); setEditStockAvg(String(origStock.avgBuyPrice||"")); }
@@ -1287,7 +1588,7 @@ export default function App() {
                 <div style={{ display:"flex", gap:8, alignItems:"flex-end" }}>
                   <textarea autoFocus style={{ flex:1, minHeight:44, maxHeight:120, background:T.inputBg, border:`1px solid ${T.border}`, borderRadius:22, color:T.text, fontSize:14, padding:"10px 16px", resize:"none", outline:"none", boxSizing:"border-box", lineHeight:1.5, display:"block" }}
                     placeholder="Write a message..." value={diaryText} onChange={e => setDiaryText(e.target.value)}
-                    onKeyDown={e => { /* 엔터 = 줄바꿈, 전송은 ➤ 버튼만 */ }} />
+                    onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();if(diaryText.trim())addDiaryPost();} }} />
                   <button onClick={() => setDiarySecret(v => !v)} title={diarySecret?"비밀글":"공개글"}
                     style={{ width:44, height:44, borderRadius:"50%", border:`1px solid ${diarySecret?"#f59e0b":T.border}`, background:diarySecret?(darkMode?"#1a1500":"#fffbeb"):"transparent", fontSize:18, cursor:"pointer", flexShrink:0 }}>
                     {diarySecret?"🔒":"🔓"}
