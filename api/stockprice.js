@@ -110,6 +110,8 @@ const TICKER_MAP = {
   "PLUS 글로벌희토류&전략자원생산기업": "415920",
   "PLUS 글로벌히토류&전략자원생산기업": "415920",
 
+  "HD현대에너지솔루션": "322000",
+
   // 오인식 대비 매핑
   "가가비스": "420770",
   "가비스": "420770",
@@ -129,6 +131,64 @@ const TICKER_MAP = {
 const dynamicCache = {};
 let cachedToken = null;
 let tokenExpiry = null;
+
+// ✅ KRX 전체 종목 캐시 - 한 번 로드하면 메모리에 유지
+let krxStockMap = null; // { 종목명: 종목코드 }
+let krxLoadedAt = null;
+
+// KRX에서 전체 상장 종목 목록 가져오기
+async function loadKrxStockMap() {
+  // 1시간마다 갱신
+  if (krxStockMap && krxLoadedAt && Date.now() - krxLoadedAt < 3600000) {
+    return krxStockMap;
+  }
+  try {
+    // KRX 전체 종목 리스트 (코스피+코스닥+ETF)
+    const res = await fetch('https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13', {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://kind.krx.co.kr' }
+    });
+    const text = await res.text();
+    // HTML 테이블 파싱
+    const map = {};
+    const rows = text.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
+    for (const row of rows) {
+      const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+      if (cells.length >= 2) {
+        const name = cells[0]?.replace(/<[^>]+>/g, '').trim();
+        const code = cells[1]?.replace(/<[^>]+>/g, '').trim();
+        if (name && code && /^\d{6}$/.test(code)) {
+          map[name] = code;
+        }
+      }
+    }
+    if (Object.keys(map).length > 100) {
+      krxStockMap = map;
+      krxLoadedAt = Date.now();
+      console.log(`KRX 종목 로드 완료: ${Object.keys(map).length}개`);
+      return map;
+    }
+  } catch (e) {
+    console.error('KRX 로드 실패:', e.message);
+  }
+  return null;
+}
+
+// 종목명으로 KRX에서 코드 검색 (정확 일치 우선, 없으면 포함 검색)
+async function findCodeFromKrx(tickerName) {
+  const map = await loadKrxStockMap();
+  if (!map) return null;
+
+  // 1. 정확히 일치
+  if (map[tickerName]) return map[tickerName];
+
+  // 2. 공백 제거 후 일치
+  const norm = tickerName.replace(/\s/g, '');
+  for (const [name, code] of Object.entries(map)) {
+    if (name.replace(/\s/g, '') === norm) return code;
+  }
+
+  return null;
+}
 
 // ✅ Yahoo Finance로 해외주식 현재가 조회 (API 키 불필요)
 async function getOverseasPrice(ticker) {
@@ -231,7 +291,16 @@ async function getCurrentPrice(token, code) {
 async function guessTickerCode(tickerName) {
   if (dynamicCache[tickerName]) return dynamicCache[tickerName];
 
-  // 네이버 자동완성 - 정확히 일치하는 경우에만 반환 (유사 종목 절대 사용 안 함)
+  // 1순위: KRX 전체 종목 목록에서 정확히 검색 (가장 신뢰도 높음, 모든 상장 종목 포함)
+  try {
+    const krxCode = await findCodeFromKrx(tickerName);
+    if (krxCode) {
+      dynamicCache[tickerName] = krxCode;
+      return krxCode;
+    }
+  } catch {}
+
+  // 2순위: 네이버 자동완성 - 정확히 일치하는 경우에만 반환 (유사 종목 절대 사용 안 함)
   try {
     const res = await fetch(
       `https://ac.finance.naver.com/ac?q=${encodeURIComponent(tickerName)}&q_enc=UTF-8&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1&run=2&rev=4`,
@@ -247,13 +316,9 @@ async function guessTickerCode(tickerName) {
       if (name && code) {
         const normName = name.replace(/\s/g, '').toLowerCase();
         const normTicker = tickerName.replace(/\s/g, '').toLowerCase();
-        if (normName === normTicker) {
-          // dynamicCache에 저장하지 않음 (Redis 오염 방지)
-          return code;
-        }
+        if (normName === normTicker) return code;
       }
     }
-    // 정확히 일치 없으면 null (한솔홀딩스 같은 유사 종목 절대 사용 안 함)
   } catch {}
 
   return null;
