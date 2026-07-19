@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.4";
+const VERSION = "v1.0.5";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -790,7 +790,7 @@ export default function App() {
               <div style={{ display:"flex", gap:6, marginBottom:8 }}>
                 {[{k:'day',l:'일봉'},{k:'week',l:'주봉'},{k:'month',l:'월봉'}].map(tf => (
                   <button key={tf.k} onClick={async () => {
-                    const defaultRange = tf.k==='day' ? '3mo' : tf.k==='week' ? '1y' : '5y';
+                    const defaultRange = tf.k==='day' ? '3mo' : tf.k==='week' ? '1y' : '1y';
                     setChartTimeframe(tf.k);
                     setChartRange(defaultRange);
                     if (tf.k !== 'day') setShowTrades(false);
@@ -808,10 +808,10 @@ export default function App() {
               {/* 기간 선택 버튼 */}
               <div style={{ display:"flex", gap:4, marginBottom:8, overflowX:"auto" }}>
                 {(chartTimeframe==='day'
-                  ? [{k:'1mo',l:'1개월'},{k:'3mo',l:'3개월'},{k:'6mo',l:'6개월'},{k:'1y',l:'1년'}]
+                  ? [{k:'1mo',l:'1개월'},{k:'3mo',l:'3개월'},{k:'6mo',l:'6개월'},{k:'1y',l:'1년'},{k:'3y',l:'3년'},{k:'5y',l:'5년'}]
                   : chartTimeframe==='week'
-                  ? [{k:'6mo',l:'6개월'},{k:'1y',l:'1년'},{k:'2y',l:'2년'},{k:'3y',l:'3년'}]
-                  : [{k:'5y',l:'5년'},{k:'10y',l:'10년'}]
+                  ? [{k:'6mo',l:'6개월'},{k:'1y',l:'1년'},{k:'3y',l:'3년'},{k:'5y',l:'5년'},{k:'10y',l:'10년'}]
+                  : [{k:'1y',l:'1년'},{k:'5y',l:'5년'},{k:'10y',l:'10년'}]
                 ).map(r => (
                   <button key={r.k} onClick={async () => {
                     setChartRange(r.k);
@@ -831,7 +831,11 @@ export default function App() {
                 const ticker = chartModal?.ticker;
                 const hasTrades = allRecords.flatMap(r => r.result?.stocks||[])
                   .some(s => s.ticker === ticker && s.trades?.length > 0);
-                if (!hasTrades) return null;
+                if (!hasTrades) return (
+                  <div style={{ width:"100%", padding:"6px 10px", fontSize:11, borderRadius:8, border:`1px solid ${T.border}`, background:T.section, color:T.textMuted, textAlign:"center" }}>
+                    📋 매매기록 업데이트 내용이 없습니다
+                  </div>
+                );
                 return (
                   <button onClick={() => setShowTrades(v => !v)}
                     style={{ width:"100%", padding:"6px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
