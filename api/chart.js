@@ -47,7 +47,7 @@ export default async function handler(req, res) {
       const yRes = await fetch(yUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const yData = await yRes.json();
       const result = yData?.chart?.result?.[0];
-      if (!result) return res.status(200).json({ candles: [] });
+      if (!result) return res.status(200).json({ candles: [], scale: 1 });
       const ts = result.timestamp || [];
       const q = result.indicators?.quote?.[0] || {};
       let usdKrw = 1380;
@@ -62,16 +62,18 @@ export default async function handler(req, res) {
         low: Math.round((q.low?.[i]||0)*usdKrw), close: Math.round((q.close?.[i]||0)*usdKrw),
         volume: q.volume?.[i]||0,
       })).filter(c => c.close > 0);
-      return res.status(200).json({ candles });
+      return res.status(200).json({ candles, scale: 1 });
     }
 
     // 국내주식
     const code = tickerCode || TICKER_MAP[ticker];
-    if (!code) return res.status(200).json({ candles: [], error: `종목코드 없음: ${ticker}` });
+    if (!code) return res.status(200).json({ candles: [], scale: 1, error: `종목코드 없음: ${ticker}` });
 
     const suffixes = KOSDAQ_CODES.has(code) ? ['.KQ', '.KS'] : ['.KS', '.KQ'];
 
     let candles = [];
+    let scale = 1; // 보정 비율 (1 = 정상, 0.1 = 10배였음)
+
     for (const suffix of suffixes) {
       const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${code}${suffix}?interval=${yInterval}&range=${yRange}`;
       try {
@@ -99,22 +101,23 @@ export default async function handler(req, res) {
 
         if (parsed.length < 5) continue;
 
-        // ✅ 핵심: currentPrice(실제 현재가)와 마지막 캔들 비교로 배율 보정
-        // stockprice.js에서 이미 검증된 현재가를 기준으로 삼음
+        // currentPrice(실제 현재가)와 마지막 캔들 비교로 배율 감지
         if (currentPrice && currentPrice > 0) {
           const lastClose = parsed[parsed.length - 1].close;
           const ratio = lastClose / currentPrice;
 
           if (ratio > 5 && ratio < 20) {
-            // Yahoo Finance가 10배로 줌 → 10으로 나누기
+            // 10배로 오고 있음 → 보정
+            scale = 0.1;
             candles = parsed.map(c => ({
               ...c,
-              open: Math.round(c.open / 10),
-              high: Math.round(c.high / 10),
-              low: Math.round(c.low / 10),
-              close: Math.round(c.close / 10),
+              open: Math.round(c.open * scale),
+              high: Math.round(c.high * scale),
+              low: Math.round(c.low * scale),
+              close: Math.round(c.close * scale),
             }));
           } else {
+            scale = 1;
             candles = parsed;
           }
         } else {
@@ -124,8 +127,9 @@ export default async function handler(req, res) {
       } catch {}
     }
 
-    return res.status(200).json({ candles });
+    // scale 응답에 포함 → App.jsx에서 avgBuy 보정에 사용
+    return res.status(200).json({ candles, scale });
   } catch (error) {
-    return res.status(200).json({ candles: [], error: error.message });
+    return res.status(200).json({ candles: [], scale: 1, error: error.message });
   }
 }
