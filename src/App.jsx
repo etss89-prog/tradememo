@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.6";
+const VERSION = "v1.0.7";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -430,12 +430,16 @@ export default function App() {
           timeframe,
           range: range || chartRange,
           isOverseas: stock.isOverseas || false,
-          currentPrice: livePrices[stock.ticker] || stock.currentPrice || null,
+          currentPrice: livePrices[stock.ticker] || null,
         })
       });
       const data = await res.json();
       if (data.candles && data.candles.length > 0) {
         setChartData(data.candles);
+      }
+      // chart.js에서 보정 비율 반환 시 avgBuy도 보정
+      if (data.scale && data.scale !== 1 && chartModal?.avgBuy) {
+        setChartModal(prev => prev ? { ...prev, avgBuy: Math.round(prev.avgBuy * data.scale) } : prev);
       }
     } catch (e) {
       console.error('차트 로드 실패:', e);
