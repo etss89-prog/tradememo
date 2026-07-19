@@ -19,6 +19,37 @@ const TICKER_MAP = {
   "아이앤씨": "052860", "티에프이": "425420",
 };
 
+// 코스피/코스닥 구분 - 코스닥 종목은 .KQ 우선
+const KOSDAQ_CODES = new Set([
+  "086390", // 유니테스트
+  "420770", // 기가비스
+  "453450", // 그리드위즈
+  "004710", // 한솔테크닉스
+  "158430", // 아톤
+  "074600", // 원익QnC
+  "195870", // 해성디에스
+  "098120", // 마이크로컨텍솔
+  "149530", // 티에프피
+  "172670", // 에이엘티
+  "388050", // 지투파워
+  "089980", // 상아프론테크
+  "049630", // 시지트로닉스
+  "089010", // 켐트로닉스
+  "399720", // 가온칩스
+  "263750", // 펄어비스
+  "131290", // 티에스이
+  "348340", // 뉴로메카
+  "271940", // 일진하이솔루스
+  "328130", // 서울바이오시스
+  "040160", // 누리플렉스
+  "085670", // 뉴프렉스
+  "327260", // RF머트리얼즈
+  "068270", // 셀트리온
+  "052860", // 아이앤씨
+  "425420", // 티에프이
+  "100090", // SK오션플랜트
+]);
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -28,22 +59,13 @@ export default async function handler(req, res) {
   const { ticker, tickerCode, timeframe = 'day', range, isOverseas = false } = req.body || {};
   if (!ticker) return res.status(400).json({ error: 'ticker 필요' });
 
-  // range → Yahoo Finance 형식 매핑
-  const rangeMap = {
-    '1mo': '1mo', '3mo': '3mo', '6mo': '6mo',
-    '1y': '1y', '2y': '2y', '3y': '3y',
-    '5y': '5y', '10y': '10y',
-  };
-  // timeframe → Yahoo Finance interval 매핑
-  const intervalMap = {
-    'day': '1d', 'week': '1wk', 'month': '1mo',
-  };
-
+  const intervalMap = { 'day': '1d', 'week': '1wk', 'month': '1mo' };
+  const defaultRange = { 'day': '3mo', 'week': '1y', 'month': '5y' };
   const yInterval = intervalMap[timeframe] || '1d';
-  const yRange = rangeMap[range] || (timeframe === 'day' ? '3mo' : timeframe === 'week' ? '1y' : '5y');
+  const yRange = range || defaultRange[timeframe] || '3mo';
 
   try {
-    // 해외주식: Yahoo Finance (tickerCode 그대로 사용)
+    // 해외주식
     if (isOverseas && tickerCode) {
       const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${tickerCode}?interval=${yInterval}&range=${yRange}`;
       const yRes = await fetch(yUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -67,29 +89,36 @@ export default async function handler(req, res) {
       return res.status(200).json({ candles });
     }
 
-    // 국내주식: Yahoo Finance KRX 방식 (.KS / .KQ)
+    // 국내주식
     const code = tickerCode || TICKER_MAP[ticker];
     if (!code) return res.status(200).json({ candles: [], error: `종목코드 없음: ${ticker}` });
 
+    // 코스닥이면 .KQ 먼저, 코스피이면 .KS 먼저
+    const suffixes = KOSDAQ_CODES.has(code) ? ['.KQ', '.KS'] : ['.KS', '.KQ'];
+
     let candles = [];
-    for (const suffix of ['.KS', '.KQ']) {
+    for (const suffix of suffixes) {
       const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${code}${suffix}?interval=${yInterval}&range=${yRange}`;
       try {
         const yRes = await fetch(yUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'application/json' }
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
+          }
         });
         const yData = await yRes.json();
         const result = yData?.chart?.result?.[0];
-        if (!result?.timestamp) continue;
+        if (!result?.timestamp || result.timestamp.length < 2) continue;
         const ts = result.timestamp;
         const q = result.indicators?.quote?.[0] || {};
-        candles = ts.map((t, i) => ({
+        const parsed = ts.map((t, i) => ({
           date: new Date(t * 1000).toISOString().split('T')[0],
           open: Math.round(q.open?.[i]||0), high: Math.round(q.high?.[i]||0),
           low: Math.round(q.low?.[i]||0), close: Math.round(q.close?.[i]||0),
           volume: q.volume?.[i]||0,
         })).filter(c => c.close > 0);
-        if (candles.length > 0) break;
+        // 데이터가 충분하면 (5개 이상) 채택
+        if (parsed.length >= 5) { candles = parsed; break; }
       } catch {}
     }
 
