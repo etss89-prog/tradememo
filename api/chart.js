@@ -111,14 +111,33 @@ export default async function handler(req, res) {
         if (!result?.timestamp || result.timestamp.length < 2) continue;
         const ts = result.timestamp;
         const q = result.indicators?.quote?.[0] || {};
-        const parsed = ts.map((t, i) => ({
+        let parsed = ts.map((t, i) => ({
           date: new Date(t * 1000).toISOString().split('T')[0],
           open: Math.round(q.open?.[i]||0), high: Math.round(q.high?.[i]||0),
           low: Math.round(q.low?.[i]||0), close: Math.round(q.close?.[i]||0),
           volume: q.volume?.[i]||0,
         })).filter(c => c.close > 0);
         // 데이터가 충분하면 (5개 이상) 채택
-        if (parsed.length >= 5) { candles = parsed; break; }
+        if (parsed.length >= 5) {
+          // Yahoo Finance KRX 종목은 가격이 실제의 10배로 오는 경우 있음
+          // meta.regularMarketPrice와 비교해서 10배 차이나면 보정
+          const metaPrice = result.meta?.regularMarketPrice || 0;
+          const lastClose = parsed[parsed.length - 1]?.close || 0;
+          if (metaPrice > 0 && lastClose > 0) {
+            const ratio = lastClose / metaPrice;
+            if (ratio > 5 && ratio < 15) {
+              // 10배 차이 → 전체 가격 10으로 나누기
+              parsed = parsed.map(c => ({
+                ...c,
+                open: Math.round(c.open / 10),
+                high: Math.round(c.high / 10),
+                low: Math.round(c.low / 10),
+                close: Math.round(c.close / 10),
+              }));
+            }
+          }
+          candles = parsed; break;
+        }
       } catch {}
     }
 
