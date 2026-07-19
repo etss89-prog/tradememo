@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v9.8";
+const VERSION = "v9.9";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -334,13 +334,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // 페이지 로드 시 데이터 불러오기 (로그인 없이 mainText 등 기본 데이터만)
+    // 저장된 PIN으로 데이터 로드 (없으면 조회 PIN으로 시도)
+    const storedPin = sessionStorage.getItem("jb_pin") || "";
+    const loadPin = storedPin || "2026";
     fetch("/api/load", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pin: "2026" })
+      body: JSON.stringify({ pin: loadPin })
     }).then(r => r.json()).then(d => {
       if (d.error === "Unauthorized") return;
+      // 저장된 PIN이 있으면 자동 로그인 상태 복원
+      if (storedPin === "4254") { setIsAdmin(true); setIsViewer(true); }
+      else if (storedPin === "2026") setIsViewer(true);
       if (d.records) setAllRecords(d.records);
       if (d.portfolios) {
         let portfoliosToSet = d.portfolios;
@@ -689,7 +694,7 @@ export default function App() {
     page: { minHeight: "100vh", background: T.bg, color: T.text, fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif", padding: "20px 14px 60px", maxWidth: 720, margin: "0 auto" },
     header: { textAlign: "center", marginBottom: 20 },
     logoRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" },
-    logoText: {}, // SVG로 대체
+    logoText: { fontSize: 22, fontWeight: 700, background: T.logoGrad, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" },
     verBadge: { background: T.section, color: T.textMuted, border: `1px solid ${T.sectionBorder}`, borderRadius: 6, padding: "2px 7px", fontSize: 10, fontWeight: 600 },
     loginTag: { background: T.loginTagBg, color: T.loginTagText, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
     adminTag: { background: T.adminTagBg, color: T.adminTagText, border: `1px solid ${T.adminTagBorder}`, borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer" },
@@ -726,18 +731,20 @@ export default function App() {
                 </div>
               </div>
               <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                {/* 메모 버튼 */}
-                <button onClick={() => { setMemoEditing(true); setMemoDraft(memos[chartModal.ticker] || ''); }}
-                  style={{ background:memos[chartModal.ticker] ? (darkMode?"#1a2a1a":"#dcfce7") : T.section, border:`1px solid ${memos[chartModal.ticker]?"#22c55e":T.border}`, borderRadius:8, color:memos[chartModal.ticker]?"#22c55e":T.textMuted, padding:"5px 10px", fontSize:12, cursor:"pointer" }}>
-                  📝 {memos[chartModal.ticker] ? "메모보기" : "메모없음"}
-                </button>
+                {/* 메모 버튼 - 관리자: 편집 가능 / 조회자: 메모 있을 때만 조회 */}
+                {(isAdmin || memos[chartModal.ticker]) && (
+                  <button onClick={() => { if(isAdmin) { setMemoEditing(true); setMemoDraft(memos[chartModal.ticker] || ''); } else { setMemoEditing(false); } }}
+                    style={{ background:memos[chartModal.ticker] ? (darkMode?"#1a2a1a":"#dcfce7") : T.section, border:`1px solid ${memos[chartModal.ticker]?"#22c55e":T.border}`, borderRadius:8, color:memos[chartModal.ticker]?"#22c55e":T.textMuted, padding:"5px 10px", fontSize:12, cursor:"pointer" }}>
+                    📝 {memos[chartModal.ticker] ? "메모보기" : "메모없음"}
+                  </button>
+                )}
                 <button onClick={() => { setChartModal(null); setChartData([]); setChartTooltip(null); setMemoEditing(false); }}
                   style={{ background:"none", border:"none", color:T.textMuted, fontSize:22, cursor:"pointer", lineHeight:1 }}>✕</button>
               </div>
             </div>
 
-            {/* 메모 편집 패널 */}
-            {memoEditing && (
+            {/* 메모 편집 패널 - 관리자만 */}
+            {memoEditing && isAdmin && (
               <div style={{ margin:"12px 20px", background:T.section, border:`1px solid ${T.border}`, borderRadius:12, padding:14 }}>
                 <div style={{ fontSize:12, fontWeight:700, color:T.text, marginBottom:8 }}>📝 종목 메모</div>
                 <div style={{ fontSize:11, color:T.textMuted, marginBottom:8 }}>목표가, 매매 계획 등 자유롭게 기록하세요</div>
@@ -760,8 +767,10 @@ export default function App() {
               <div style={{ margin:"12px 20px 0", background:darkMode?"#1a2a1a":"#f0fdf4", border:`1px solid ${darkMode?"#166534":"#86efac"}`, borderRadius:10, padding:"10px 14px" }}>
                 <div style={{ fontSize:11, color:"#22c55e", fontWeight:700, marginBottom:4 }}>📝 메모</div>
                 <div style={{ fontSize:12, color:T.text, lineHeight:1.7, whiteSpace:"pre-wrap" }}>{memos[chartModal.ticker]}</div>
-                <button onClick={() => { setMemoEditing(true); setMemoDraft(memos[chartModal.ticker]); }}
-                  style={{ background:"none", border:"none", color:"#22c55e", fontSize:11, cursor:"pointer", marginTop:4 }}>✏️ 수정</button>
+                {isAdmin && (
+                  <button onClick={() => { setMemoEditing(true); setMemoDraft(memos[chartModal.ticker]); }}
+                    style={{ background:"none", border:"none", color:"#22c55e", fontSize:11, cursor:"pointer", marginTop:4 }}>✏️ 수정</button>
+                )}
               </div>
             )}
 
@@ -1210,7 +1219,7 @@ export default function App() {
       <div style={S.header}>
         <div style={S.logoRow}>
           <span style={{ fontSize: 24 }}>🐜</span>
-          <span style={{ fontSize: 22, fontWeight: 700, color: darkMode ? "#60a5fa" : "#2563eb" }}>존버일기장</span>
+          <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 다크/라이트 토글 */}
           <button onClick={toggleDarkMode} style={{ background: T.section, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1 }} title={darkMode ? "라이트 모드" : "다크 모드"}>
