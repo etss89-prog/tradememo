@@ -25,15 +25,27 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { ticker, tickerCode, timeframe = 'day', isOverseas = false } = req.body || {};
+  const { ticker, tickerCode, timeframe = 'day', range, isOverseas = false } = req.body || {};
   if (!ticker) return res.status(400).json({ error: 'ticker 필요' });
 
+  // range → Yahoo Finance 형식 매핑
+  const rangeMap = {
+    '1mo': '1mo', '3mo': '3mo', '6mo': '6mo',
+    '1y': '1y', '2y': '2y', '3y': '3y',
+    '5y': '5y', '10y': '10y',
+  };
+  // timeframe → Yahoo Finance interval 매핑
+  const intervalMap = {
+    'day': '1d', 'week': '1wk', 'month': '1mo',
+  };
+
+  const yInterval = intervalMap[timeframe] || '1d';
+  const yRange = rangeMap[range] || (timeframe === 'day' ? '3mo' : timeframe === 'week' ? '1y' : '5y');
+
   try {
-    // 해외주식: Yahoo Finance
+    // 해외주식: Yahoo Finance (tickerCode 그대로 사용)
     if (isOverseas && tickerCode) {
-      const intervalMap = { day: '1d', week: '1wk', month: '1mo' };
-      const rangeMap = { day: '3mo', week: '1y', month: '3y' };
-      const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${tickerCode}?interval=${intervalMap[timeframe]||'1d'}&range=${rangeMap[timeframe]||'3mo'}`;
+      const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${tickerCode}?interval=${yInterval}&range=${yRange}`;
       const yRes = await fetch(yUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const yData = await yRes.json();
       const result = yData?.chart?.result?.[0];
@@ -55,40 +67,29 @@ export default async function handler(req, res) {
       return res.status(200).json({ candles });
     }
 
-    // 국내주식: Yahoo Finance KRX 방식 (000660.KS 형태)
+    // 국내주식: Yahoo Finance KRX 방식 (.KS / .KQ)
     const code = tickerCode || TICKER_MAP[ticker];
     if (!code) return res.status(200).json({ candles: [], error: `종목코드 없음: ${ticker}` });
 
-    // KRX 상장 종목은 Yahoo Finance에서 .KS (코스피) 또는 .KQ (코스닥) 접미사로 조회
-    // 먼저 .KS로 시도, 실패하면 .KQ로 시도
-    const intervalMap = { day: '1d', week: '1wk', month: '1mo' };
-    const rangeMap = { day: '6mo', week: '2y', month: '5y' };
-    const interval = intervalMap[timeframe] || '1d';
-    const range = rangeMap[timeframe] || '6mo';
-
     let candles = [];
     for (const suffix of ['.KS', '.KQ']) {
-      const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${code}${suffix}?interval=${interval}&range=${range}`;
+      const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${code}${suffix}?interval=${yInterval}&range=${yRange}`;
       try {
         const yRes = await fetch(yUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'application/json' }
         });
         const yData = await yRes.json();
         const result = yData?.chart?.result?.[0];
-        if (!result || !result.timestamp) continue;
-
+        if (!result?.timestamp) continue;
         const ts = result.timestamp;
         const q = result.indicators?.quote?.[0] || {};
         candles = ts.map((t, i) => ({
           date: new Date(t * 1000).toISOString().split('T')[0],
-          open: Math.round(q.open?.[i] || 0),
-          high: Math.round(q.high?.[i] || 0),
-          low: Math.round(q.low?.[i] || 0),
-          close: Math.round(q.close?.[i] || 0),
-          volume: q.volume?.[i] || 0,
+          open: Math.round(q.open?.[i]||0), high: Math.round(q.high?.[i]||0),
+          low: Math.round(q.low?.[i]||0), close: Math.round(q.close?.[i]||0),
+          volume: q.volume?.[i]||0,
         })).filter(c => c.close > 0);
-
-        if (candles.length > 0) break; // 성공하면 루프 중단
+        if (candles.length > 0) break;
       } catch {}
     }
 
