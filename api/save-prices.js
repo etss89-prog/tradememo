@@ -4,10 +4,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ✅ 관리자 PIN만 허용
-  const { pin, livePrices, priceUpdatedAt } = req.body || {};
-  const ADMIN_PIN = process.env.ADMIN_PIN || "4254";
-  if (pin !== ADMIN_PIN) return res.status(401).json({ error: "Unauthorized" });
+  const { livePrices, priceUpdatedAt } = req.body || {};
 
   try {
     const url = process.env.KV_REST_API_URL;
