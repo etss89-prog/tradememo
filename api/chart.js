@@ -19,35 +19,11 @@ const TICKER_MAP = {
   "아이앤씨": "052860", "티에프이": "425420",
 };
 
-// 코스피/코스닥 구분 - 코스닥 종목은 .KQ 우선
 const KOSDAQ_CODES = new Set([
-  "086390", // 유니테스트
-  "420770", // 기가비스
-  "453450", // 그리드위즈
-  "004710", // 한솔테크닉스
-  "158430", // 아톤
-  "074600", // 원익QnC
-  "195870", // 해성디에스
-  "098120", // 마이크로컨텍솔
-  "149530", // 티에프피
-  "172670", // 에이엘티
-  "388050", // 지투파워
-  "089980", // 상아프론테크
-  "049630", // 시지트로닉스
-  "089010", // 켐트로닉스
-  "399720", // 가온칩스
-  "263750", // 펄어비스
-  "131290", // 티에스이
-  "348340", // 뉴로메카
-  "271940", // 일진하이솔루스
-  "328130", // 서울바이오시스
-  "040160", // 누리플렉스
-  "085670", // 뉴프렉스
-  "327260", // RF머트리얼즈
-  "068270", // 셀트리온
-  "052860", // 아이앤씨
-  "425420", // 티에프이
-  "100090", // SK오션플랜트
+  "086390","420770","453450","004710","158430","074600","195870","098120",
+  "149530","172670","388050","089980","049630","089010","399720","263750",
+  "131290","348340","271940","328130","040160","085670","327260","068270",
+  "052860","425420","100090",
 ]);
 
 export default async function handler(req, res) {
@@ -56,11 +32,11 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { ticker, tickerCode, timeframe = 'day', range, isOverseas = false } = req.body || {};
+  const { ticker, tickerCode, timeframe = 'day', range, isOverseas = false, currentPrice } = req.body || {};
   if (!ticker) return res.status(400).json({ error: 'ticker 필요' });
 
   const intervalMap = { 'day': '1d', 'week': '1wk', 'month': '1mo' };
-  const defaultRange = { 'day': '3mo', 'week': '1y', 'month': '5y' };
+  const defaultRange = { 'day': '3mo', 'week': '1y', 'month': '1y' };
   const yInterval = intervalMap[timeframe] || '1d';
   const yRange = range || defaultRange[timeframe] || '3mo';
 
@@ -93,7 +69,6 @@ export default async function handler(req, res) {
     const code = tickerCode || TICKER_MAP[ticker];
     if (!code) return res.status(200).json({ candles: [], error: `종목코드 없음: ${ticker}` });
 
-    // 코스닥이면 .KQ 먼저, 코스피이면 .KS 먼저
     const suffixes = KOSDAQ_CODES.has(code) ? ['.KQ', '.KS'] : ['.KS', '.KQ'];
 
     let candles = [];
@@ -109,18 +84,43 @@ export default async function handler(req, res) {
         const yData = await yRes.json();
         const result = yData?.chart?.result?.[0];
         if (!result?.timestamp || result.timestamp.length < 2) continue;
+
         const ts = result.timestamp;
         const q = result.indicators?.quote?.[0] || {};
+
         const parsed = ts.map((t, i) => ({
           date: new Date(t * 1000).toISOString().split('T')[0],
-          // Yahoo Finance KRX 종목은 항상 실제가의 10배로 반환 → 10으로 나눔
-          open: Math.round((q.open?.[i]||0) / 10),
-          high: Math.round((q.high?.[i]||0) / 10),
-          low: Math.round((q.low?.[i]||0) / 10),
-          close: Math.round((q.close?.[i]||0) / 10),
+          open: Math.round(q.open?.[i]||0),
+          high: Math.round(q.high?.[i]||0),
+          low: Math.round(q.low?.[i]||0),
+          close: Math.round(q.close?.[i]||0),
           volume: q.volume?.[i]||0,
         })).filter(c => c.close > 0);
-        if (parsed.length >= 5) { candles = parsed; break; }
+
+        if (parsed.length < 5) continue;
+
+        // ✅ 핵심: currentPrice(실제 현재가)와 마지막 캔들 비교로 배율 보정
+        // stockprice.js에서 이미 검증된 현재가를 기준으로 삼음
+        if (currentPrice && currentPrice > 0) {
+          const lastClose = parsed[parsed.length - 1].close;
+          const ratio = lastClose / currentPrice;
+
+          if (ratio > 5 && ratio < 20) {
+            // Yahoo Finance가 10배로 줌 → 10으로 나누기
+            candles = parsed.map(c => ({
+              ...c,
+              open: Math.round(c.open / 10),
+              high: Math.round(c.high / 10),
+              low: Math.round(c.low / 10),
+              close: Math.round(c.close / 10),
+            }));
+          } else {
+            candles = parsed;
+          }
+        } else {
+          candles = parsed;
+        }
+        break;
       } catch {}
     }
 
