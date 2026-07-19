@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.7";
+const VERSION = "v1.0.8";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -915,7 +915,7 @@ export default function App() {
                 const steps = 4;
                 for (let i = 0; i <= steps; i++) {
                   const p = minP + priceRange * i / steps;
-                  yLabels.push({ p, y: py(p), label: p >= 10000 ? Math.round(p/100)/10+'만' : Math.round(p).toLocaleString() });
+                  yLabels.push({ p, y: py(p), label: p >= 100000 ? Math.round(p/1000)/10+'만' : Math.round(p).toLocaleString() });
                 }
 
                 // 현재가 정보 표시
@@ -1012,8 +1012,8 @@ export default function App() {
                         {/* 평단가 점선 (포트폴리오에서 avgBuy 있을 때만) */}
                         {chartModal?.avgBuy && chartModal.avgBuy > 0 && (() => {
                           const avgY = py(chartModal.avgBuy);
-                          const avgLabel = chartModal.avgBuy >= 10000
-                            ? `평단 ${Math.round(chartModal.avgBuy/100)/10}만`
+                          const avgLabel = chartModal.avgBuy >= 100000
+                            ? `평단 ${Math.round(chartModal.avgBuy/1000)/10}만`
                             : `평단 ${chartModal.avgBuy.toLocaleString()}원`;
                           return (
                             <g>
