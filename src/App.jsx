@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.2";
+const VERSION = "v1.0.3";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -257,8 +257,9 @@ export default function App() {
   const [chartModal, setChartModal] = useState(null); // { ticker, tickerCode, isOverseas }
   const [chartData, setChartData] = useState([]);
   const [chartLoading, setChartLoading] = useState(false);
-  const [showTrades, setShowTrades] = useState(false); // 매매기록 화살표 표시 여부
+  const [showTrades, setShowTrades] = useState(false);
   const [chartTimeframe, setChartTimeframe] = useState('day');
+  const [chartRange, setChartRange] = useState('3mo'); // 기간 선택
   const [chartTooltip, setChartTooltip] = useState(null); // { x, y, candle }
   const [memos, setMemos] = useState({});
   const [memoEditing, setMemoEditing] = useState(false);
@@ -407,15 +408,18 @@ export default function App() {
   async function openChart(stock) {
     setChartModal(stock);
     setChartTimeframe('day');
+    setChartRange('3mo');
     setShowTrades(false);
+    setChartTooltip(null);
     setMemoEditing(false);
     setMemoDraft(memos[stock.ticker] || '');
-    await loadChartData(stock, 'day');
+    await loadChartData(stock, 'day', '3mo');
   }
 
-  async function loadChartData(stock, timeframe) {
+  async function loadChartData(stock, timeframe, range) {
     setChartLoading(true);
     setChartData([]);
+    setChartTooltip(null);
     try {
       const res = await fetch('/api/chart', {
         method: 'POST',
@@ -424,6 +428,7 @@ export default function App() {
           ticker: stock.ticker,
           tickerCode: stock.tickerCode || null,
           timeframe,
+          range: range || chartRange,
           isOverseas: stock.isOverseas || false,
         })
       });
@@ -780,23 +785,48 @@ export default function App() {
               </div>
             )}
 
-            {/* 기간 탭 + 매매기록 버튼 */}
-            <div style={{ padding:"14px 20px 10px" }}>
-              <div style={{ display:"flex", gap:6, marginBottom: chartTimeframe==='day' ? 8 : 0 }}>
+            {/* 봉 종류 탭 */}
+            <div style={{ padding:"14px 20px 6px" }}>
+              <div style={{ display:"flex", gap:6, marginBottom:8 }}>
                 {[{k:'day',l:'일봉'},{k:'week',l:'주봉'},{k:'month',l:'월봉'}].map(tf => (
                   <button key={tf.k} onClick={async () => {
+                    const defaultRange = tf.k==='day' ? '3mo' : tf.k==='week' ? '1y' : '5y';
                     setChartTimeframe(tf.k);
+                    setChartRange(defaultRange);
                     if (tf.k !== 'day') setShowTrades(false);
-                    await loadChartData(chartModal, tf.k);
+                    setChartTooltip(null);
+                    await loadChartData(chartModal, tf.k, defaultRange);
                   }}
-                    style={{ flex:1, padding:"6px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
+                    style={{ flex:1, padding:"7px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
                       background: chartTimeframe===tf.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
                       borderColor: chartTimeframe===tf.k ? "#3b82f6" : T.border,
                       color: chartTimeframe===tf.k ? "#3b82f6" : T.textMuted,
                     }}>{tf.l}</button>
                 ))}
               </div>
-              {/* 매매기록 버튼 - 일봉에서만 표시 */}
+
+              {/* 기간 선택 버튼 */}
+              <div style={{ display:"flex", gap:4, marginBottom:8, overflowX:"auto" }}>
+                {(chartTimeframe==='day'
+                  ? [{k:'1mo',l:'1개월'},{k:'3mo',l:'3개월'},{k:'6mo',l:'6개월'},{k:'1y',l:'1년'}]
+                  : chartTimeframe==='week'
+                  ? [{k:'6mo',l:'6개월'},{k:'1y',l:'1년'},{k:'2y',l:'2년'},{k:'3y',l:'3년'}]
+                  : [{k:'5y',l:'5년'},{k:'10y',l:'10년'}]
+                ).map(r => (
+                  <button key={r.k} onClick={async () => {
+                    setChartRange(r.k);
+                    setChartTooltip(null);
+                    await loadChartData(chartModal, chartTimeframe, r.k);
+                  }}
+                    style={{ flexShrink:0, padding:"4px 10px", fontSize:11, fontWeight:600, borderRadius:6, cursor:"pointer", border:"1px solid",
+                      background: chartRange===r.k ? (darkMode?"#1a2a1a":"#dcfce7") : T.section,
+                      borderColor: chartRange===r.k ? "#22c55e" : T.border,
+                      color: chartRange===r.k ? "#22c55e" : T.textMuted,
+                    }}>{r.l}</button>
+                ))}
+              </div>
+
+              {/* 매매기록 버튼 - 일봉에서만 */}
               {chartTimeframe === 'day' && (() => {
                 const ticker = chartModal?.ticker;
                 const hasTrades = allRecords.flatMap(r => r.result?.stocks||[])
@@ -810,9 +840,7 @@ export default function App() {
                       color: showTrades ? "#ef4444" : T.textMuted,
                     }}>
                     {showTrades ? "📍 매매기록 숨기기" : "📍 매매기록 보기"}
-                    <span style={{ fontSize:10, marginLeft:6, opacity:0.7 }}>
-                      매수▲빨강 · 매도▼파랑
-                    </span>
+                    <span style={{ fontSize:10, marginLeft:6, opacity:0.7 }}>매수▲빨강 · 매도▼파랑</span>
                   </button>
                 );
               })()}
@@ -895,13 +923,19 @@ export default function App() {
                     {/* 캔들스틱 차트 SVG */}
                     <div style={{ overflowX:"auto", cursor:"crosshair" }}>
                       <svg width={W} height={H + VH + 30} style={{ display:"block" }}
-                        onMouseLeave={() => setChartTooltip(null)}
-                        onMouseMove={e => {
+                        onClick={e => {
+                          // 캔들 클릭 시 툴팁 (화살표 클릭은 stopPropagation으로 별도 처리)
                           const rect = e.currentTarget.getBoundingClientRect();
                           const mx = e.clientX - rect.left - PAD.l;
                           const idx = Math.round(mx / spacing);
                           if (idx >= 0 && idx < n) {
-                            setChartTooltip({ idx, x: PAD.l + idx * spacing, candle: chartData[idx] });
+                            const candle = chartData[idx];
+                            // 이미 같은 캔들 클릭이면 닫기
+                            if (chartTooltip && chartTooltip.idx === idx && !chartTooltip.trade) {
+                              setChartTooltip(null);
+                            } else {
+                              setChartTooltip({ idx, x: PAD.l + idx * spacing, candle });
+                            }
                           }
                         }}>
 
@@ -967,10 +1001,21 @@ export default function App() {
                             stroke={T.textMuted} strokeWidth="0.8" strokeDasharray="4,2" />
                         )}
 
-                        {/* 현재가 수평선 */}
-                        <line x1={PAD.l} y1={py(lastCandle.close)} x2={W-PAD.r} y2={py(lastCandle.close)}
-                          stroke={priceColor} strokeWidth="0.8" strokeDasharray="4,2" />
-                        <rect x={W-PAD.r} y={py(lastCandle.close)-8} width={PAD.r+2} height={16} fill={priceColor} rx="2" />
+                        {/* 평단가 점선 (포트폴리오에서 avgBuy 있을 때만) */}
+                        {chartModal?.avgBuy && chartModal.avgBuy > 0 && (() => {
+                          const avgY = py(chartModal.avgBuy);
+                          const avgLabel = chartModal.avgBuy >= 10000
+                            ? `평단 ${Math.round(chartModal.avgBuy/100)/10}만`
+                            : `평단 ${chartModal.avgBuy.toLocaleString()}원`;
+                          return (
+                            <g>
+                              <line x1={PAD.l} y1={avgY} x2={W-PAD.r} y2={avgY}
+                                stroke={darkMode ? "#e2e8f0" : "#1a1a2e"} strokeWidth="1" strokeDasharray="5,3" opacity="0.7" />
+                              <rect x={PAD.l} y={avgY-9} width={avgLabel.length*5.5} height={16} fill={darkMode?"#1e293b":"#ffffff"} rx="3" opacity="0.85" />
+                              <text x={PAD.l+3} y={avgY+3} fontSize="9" fill={darkMode?"#e2e8f0":"#1a1a2e"} fontWeight="600">{avgLabel}</text>
+                            </g>
+                          );
+                        })()}
 
                         {/* 거래량 */}
                         {chartData.map((c, i) => {
@@ -987,11 +1032,18 @@ export default function App() {
                         {/* 거래량 레이블 */}
                         <text x={PAD.l-4} y={H+8} textAnchor="end" fontSize="8" fill={T.textMuted}>거래량</text>
 
-                        {/* X축 날짜 */}
+                        {/* X축 날짜 - 연도 포함 */}
                         {chartData.map((c, i) => {
-                          if (n <= 30 ? i % 5 !== 0 : n <= 60 ? i % 10 !== 0 : i % 20 !== 0) return null;
+                          const step = n <= 30 ? 5 : n <= 60 ? 10 : n <= 120 ? 20 : n <= 260 ? 40 : 60;
+                          if (i % step !== 0) return null;
                           const x = PAD.l + i * spacing;
-                          const label = c.date.slice(5); // MM-DD
+                          const [yyyy, mm, dd] = c.date.split('-');
+                          // 기간에 따라 표시 형식 다르게
+                          const label = chartTimeframe === 'month'
+                            ? `${yyyy}.${mm}`
+                            : chartTimeframe === 'week'
+                            ? `${yyyy.slice(2)}.${mm}.${dd}`
+                            : `${yyyy.slice(2)}.${mm}.${dd}`;
                           return <text key={i} x={x} y={H+VH+18} textAnchor="middle" fontSize="8" fill={T.textMuted}>{label}</text>;
                         })}
                       </svg>
@@ -1424,7 +1476,7 @@ export default function App() {
                       // 원본 stock에서 tickerCode, isOverseas 찾기
                       const allS = Object.values(portfolios).flatMap(p => p.stocks || []);
                       const orig = allS.find(st => st.ticker === s.ticker) || s;
-                      openChart({ ticker: s.ticker, tickerCode: orig.tickerCode, isOverseas: orig.isOverseas || false });
+                      openChart({ ticker: s.ticker, tickerCode: orig.tickerCode, isOverseas: orig.isOverseas || false, avgBuy: orig.avgBuyPrice || s.avgBuy || null });
                     }}
                     onEdit={(activeAccount !== "all" && portfolioEditMode) ? (s) => {
                       const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
