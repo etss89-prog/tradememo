@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.0";
+const VERSION = "v1.0.1";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -382,12 +382,16 @@ export default function App() {
   }, [editingMain]);
 
   function checkViewerPin() {
-    if (viewerPinInput === VIEWER_PIN) { setIsViewer(true); setViewerPinInput(""); setViewerPinError(""); }
-    else { setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); }
+    if (viewerPinInput === VIEWER_PIN) {
+      sessionStorage.setItem("jb_pin", viewerPinInput);
+      setIsViewer(true); setViewerPinInput(""); setViewerPinError("");
+    } else { setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); }
   }
   function checkPin() {
-    if (pinInput === ADMIN_PIN) { setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError(""); }
-    else { setPinError("PIN이 틀렸습니다."); setPinInput(""); }
+    if (pinInput === ADMIN_PIN) {
+      sessionStorage.setItem("jb_pin", pinInput);
+      setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError("");
+    } else { setPinError("PIN이 틀렸습니다."); setPinInput(""); }
   }
 
   async function fetchLinkPreview(url, postId) {
@@ -1226,7 +1230,7 @@ export default function App() {
             {darkMode ? "☀️" : "🌙"}
           </button>
           {isAdmin && <button onClick={() => setShowWealth(v => !v)} style={{ background: showWealth ? (darkMode ? "#1a2a1a" : "#dcfce7") : T.section, border: `1px solid ${showWealth ? "#22c55e" : T.border}`, borderRadius: 8, color: showWealth ? "#22c55e" : T.textMuted, padding: "4px 10px", fontSize: 14, cursor: "pointer", lineHeight: 1 }} title={showWealth ? "자산 비공개" : "자산 공개"}>{showWealth ? "🔓" : "🔒"}</button>}
-          {isAdmin ? <button style={S.adminTag} onClick={() => { setIsAdmin(false); setIsViewer(false); setShowWealth(false); }}>관리자 ✕</button>
+          {isAdmin ? <button style={S.adminTag} onClick={() => { sessionStorage.removeItem("jb_pin"); setIsAdmin(false); setIsViewer(false); setShowWealth(false); }}>관리자 ✕</button>
             : isViewer ? <button style={S.adminTag} onClick={() => setIsViewer(false)}>조회중 ✕</button>
             : <button style={S.loginTag} onClick={() => setShowPin(true)}>관리자</button>}
         </div>
