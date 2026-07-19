@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.3";
+const VERSION = "v1.0.4";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -257,7 +257,7 @@ export default function App() {
   const [chartModal, setChartModal] = useState(null); // { ticker, tickerCode, isOverseas }
   const [chartData, setChartData] = useState([]);
   const [chartLoading, setChartLoading] = useState(false);
-  const [showTrades, setShowTrades] = useState(false);
+  const [showTrades, setShowTrades] = useState(true);
   const [chartTimeframe, setChartTimeframe] = useState('day');
   const [chartRange, setChartRange] = useState('3mo'); // 기간 선택
   const [chartTooltip, setChartTooltip] = useState(null); // { x, y, candle }
@@ -409,7 +409,7 @@ export default function App() {
     setChartModal(stock);
     setChartTimeframe('day');
     setChartRange('3mo');
-    setShowTrades(false);
+    setShowTrades(true);
     setChartTooltip(null);
     setMemoEditing(false);
     setMemoDraft(memos[stock.ticker] || '');
@@ -966,30 +966,29 @@ export default function App() {
                           );
                         })}
 
-                        {/* 매수/매도 화살표 - 일봉 + showTrades 일 때만 */}
+                        {/* 매수/매도 원형 버튼 - 일봉 + showTrades 일 때만 */}
                         {showTrades && chartTimeframe === 'day' && chartData.map((c, i) => {
                           const trades = tradesByDate[c.date];
                           if (!trades || trades.length === 0) return null;
                           const x = PAD.l + i * spacing;
                           return trades.map((t, j) => {
                             const isBuy = t.type === '매수';
-                            // 매수: 캔들 아래 빨간 위쪽 화살표 / 매도: 캔들 위 파란 아래쪽 화살표
-                            const arrowBaseY = isBuy ? py(c.low) + 16 : py(c.high) - 16;
-                            const arrowColor = isBuy ? "#ef4444" : "#3b82f6";
-                            const arrowSize = 5; // 작은 크기
-                            const points = isBuy
-                              ? `${x},${arrowBaseY-arrowSize*2} ${x-arrowSize},${arrowBaseY} ${x+arrowSize},${arrowBaseY}`
-                              : `${x},${arrowBaseY+arrowSize*2} ${x-arrowSize},${arrowBaseY} ${x+arrowSize},${arrowBaseY}`;
+                            const btnY = isBuy ? py(c.low) + 18 : py(c.high) - 18;
+                            const btnColor = isBuy ? "#ef4444" : "#3b82f6";
+                            const R = 7; // 원 반지름
+                            const isSelected = chartTooltip?.trade === t;
                             return (
                               <g key={`${i}-${j}`} style={{ cursor:"pointer" }}
-                                onClick={e => { e.stopPropagation(); setChartTooltip({ idx: i, x, candle: c, trade: t }); }}>
-                                {/* 화살표 */}
-                                <polygon points={points} fill={arrowColor} opacity="0.95" />
-                                {/* 화살표 줄기 */}
-                                <line
-                                  x1={x} y1={isBuy ? arrowBaseY : arrowBaseY+arrowSize*2}
-                                  x2={x} y2={isBuy ? py(c.low)+28 : py(c.high)-28}
-                                  stroke={arrowColor} strokeWidth="1.5" opacity="0.6" />
+                                onClick={e => { e.stopPropagation(); setChartTooltip(isSelected ? null : { idx: i, x, candle: c, trade: t }); }}>
+                                {/* 원형 배경 */}
+                                <circle cx={x} cy={btnY} r={R} fill={btnColor} opacity="0.9" />
+                                {/* 선택됐을 때 테두리 */}
+                                {isSelected && <circle cx={x} cy={btnY} r={R+2} fill="none" stroke={btnColor} strokeWidth="1.5" opacity="0.6" />}
+                                {/* 화살표 아이콘 (위/아래) */}
+                                {isBuy
+                                  ? <polygon points={`${x},${btnY-3} ${x-3},${btnY+2} ${x+3},${btnY+2}`} fill="white" />
+                                  : <polygon points={`${x},${btnY+3} ${x-3},${btnY-2} ${x+3},${btnY-2}`} fill="white" />
+                                }
                               </g>
                             );
                           });
