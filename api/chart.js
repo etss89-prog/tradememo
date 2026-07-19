@@ -26,6 +26,7 @@ const TICKER_MAP = {
   "ACE 국고채10년": "365780",
 };
 
+
 // 네이버 자동완성으로 종목코드 검색
 async function findCodeByName(name) {
   if (TICKER_MAP[name]) return TICKER_MAP[name];
