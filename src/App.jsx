@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.1";
+const VERSION = "v1.0.2";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -257,6 +257,7 @@ export default function App() {
   const [chartModal, setChartModal] = useState(null); // { ticker, tickerCode, isOverseas }
   const [chartData, setChartData] = useState([]);
   const [chartLoading, setChartLoading] = useState(false);
+  const [showTrades, setShowTrades] = useState(false); // 매매기록 화살표 표시 여부
   const [chartTimeframe, setChartTimeframe] = useState('day');
   const [chartTooltip, setChartTooltip] = useState(null); // { x, y, candle }
   const [memos, setMemos] = useState({});
@@ -406,6 +407,7 @@ export default function App() {
   async function openChart(stock) {
     setChartModal(stock);
     setChartTimeframe('day');
+    setShowTrades(false);
     setMemoEditing(false);
     setMemoDraft(memos[stock.ticker] || '');
     await loadChartData(stock, 'day');
@@ -778,16 +780,42 @@ export default function App() {
               </div>
             )}
 
-            {/* 기간 탭 */}
-            <div style={{ display:"flex", gap:6, padding:"14px 20px 10px" }}>
-              {[{k:'day',l:'일봉'},{k:'week',l:'주봉'},{k:'month',l:'월봉'}].map(tf => (
-                <button key={tf.k} onClick={async () => { setChartTimeframe(tf.k); await loadChartData(chartModal, tf.k); }}
-                  style={{ flex:1, padding:"6px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
-                    background: chartTimeframe===tf.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
-                    borderColor: chartTimeframe===tf.k ? "#3b82f6" : T.border,
-                    color: chartTimeframe===tf.k ? "#3b82f6" : T.textMuted,
-                  }}>{tf.l}</button>
-              ))}
+            {/* 기간 탭 + 매매기록 버튼 */}
+            <div style={{ padding:"14px 20px 10px" }}>
+              <div style={{ display:"flex", gap:6, marginBottom: chartTimeframe==='day' ? 8 : 0 }}>
+                {[{k:'day',l:'일봉'},{k:'week',l:'주봉'},{k:'month',l:'월봉'}].map(tf => (
+                  <button key={tf.k} onClick={async () => {
+                    setChartTimeframe(tf.k);
+                    if (tf.k !== 'day') setShowTrades(false);
+                    await loadChartData(chartModal, tf.k);
+                  }}
+                    style={{ flex:1, padding:"6px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
+                      background: chartTimeframe===tf.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
+                      borderColor: chartTimeframe===tf.k ? "#3b82f6" : T.border,
+                      color: chartTimeframe===tf.k ? "#3b82f6" : T.textMuted,
+                    }}>{tf.l}</button>
+                ))}
+              </div>
+              {/* 매매기록 버튼 - 일봉에서만 표시 */}
+              {chartTimeframe === 'day' && (() => {
+                const ticker = chartModal?.ticker;
+                const hasTrades = allRecords.flatMap(r => r.result?.stocks||[])
+                  .some(s => s.ticker === ticker && s.trades?.length > 0);
+                if (!hasTrades) return null;
+                return (
+                  <button onClick={() => setShowTrades(v => !v)}
+                    style={{ width:"100%", padding:"6px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
+                      background: showTrades ? (darkMode?"#2d1515":"#fee2e2") : T.section,
+                      borderColor: showTrades ? "#ef4444" : T.border,
+                      color: showTrades ? "#ef4444" : T.textMuted,
+                    }}>
+                    {showTrades ? "📍 매매기록 숨기기" : "📍 매매기록 보기"}
+                    <span style={{ fontSize:10, marginLeft:6, opacity:0.7 }}>
+                      매수▲빨강 · 매도▼파랑
+                    </span>
+                  </button>
+                );
+              })()}
             </div>
 
             {/* 차트 영역 */}
@@ -904,26 +932,30 @@ export default function App() {
                           );
                         })}
 
-                        {/* 매수/매도 화살표 */}
-                        {chartData.map((c, i) => {
+                        {/* 매수/매도 화살표 - 일봉 + showTrades 일 때만 */}
+                        {showTrades && chartTimeframe === 'day' && chartData.map((c, i) => {
                           const trades = tradesByDate[c.date];
                           if (!trades || trades.length === 0) return null;
                           const x = PAD.l + i * spacing;
                           return trades.map((t, j) => {
                             const isBuy = t.type === '매수';
-                            const arrowY = isBuy ? py(c.low) + 14 : py(c.high) - 14;
+                            // 매수: 캔들 아래 빨간 위쪽 화살표 / 매도: 캔들 위 파란 아래쪽 화살표
+                            const arrowBaseY = isBuy ? py(c.low) + 16 : py(c.high) - 16;
                             const arrowColor = isBuy ? "#ef4444" : "#3b82f6";
-                            const label = `${t.type} ${t.price?.toLocaleString()}원${t.quantity ? ' ' + t.quantity + '주' : ''}`;
+                            const arrowSize = 5; // 작은 크기
+                            const points = isBuy
+                              ? `${x},${arrowBaseY-arrowSize*2} ${x-arrowSize},${arrowBaseY} ${x+arrowSize},${arrowBaseY}`
+                              : `${x},${arrowBaseY+arrowSize*2} ${x-arrowSize},${arrowBaseY} ${x+arrowSize},${arrowBaseY}`;
                             return (
-                              <g key={j} style={{ cursor:"pointer" }}
-                                onClick={() => setChartTooltip({ idx: i, x, candle: c, trade: t })}>
-                                {/* 화살표 삼각형 */}
-                                <polygon
-                                  points={isBuy
-                                    ? `${x},${arrowY-10} ${x-6},${arrowY} ${x+6},${arrowY}`
-                                    : `${x},${arrowY+10} ${x-6},${arrowY} ${x+6},${arrowY}`
-                                  }
-                                  fill={arrowColor} opacity="0.9" />
+                              <g key={`${i}-${j}`} style={{ cursor:"pointer" }}
+                                onClick={e => { e.stopPropagation(); setChartTooltip({ idx: i, x, candle: c, trade: t }); }}>
+                                {/* 화살표 */}
+                                <polygon points={points} fill={arrowColor} opacity="0.95" />
+                                {/* 화살표 줄기 */}
+                                <line
+                                  x1={x} y1={isBuy ? arrowBaseY : arrowBaseY+arrowSize*2}
+                                  x2={x} y2={isBuy ? py(c.low)+28 : py(c.high)-28}
+                                  stroke={arrowColor} strokeWidth="1.5" opacity="0.6" />
                               </g>
                             );
                           });
