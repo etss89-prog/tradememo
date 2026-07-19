@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.5";
+const VERSION = "v1.0.6";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -430,6 +430,7 @@ export default function App() {
           timeframe,
           range: range || chartRange,
           isOverseas: stock.isOverseas || false,
+          currentPrice: livePrices[stock.ticker] || stock.currentPrice || null,
         })
       });
       const data = await res.json();
