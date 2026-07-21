@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.0.8";
+const VERSION = "v1.0.9";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -368,6 +368,35 @@ export default function App() {
       if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
       if (d.memos) setMemos(d.memos);
     }).catch(() => {});
+    // 5분마다 Redis에서 최신 가격 자동 로드 (다른 사람이 갱신해도 반영)
+    const priceRefreshInterval = setInterval(() => {
+      const pin = sessionStorage.getItem("jb_pin") || "2026";
+      fetch("/api/load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin })
+      }).then(r => r.json()).then(d => {
+        if (d.error || !d.livePrices) return;
+        setLivePrices(d.livePrices);
+        if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
+        // 포트폴리오도 최신 가격으로 업데이트
+        setPortfolios(prev => {
+          if (!prev || Object.keys(prev).length === 0) return prev;
+          return Object.fromEntries(Object.entries(prev).map(([accId, p]) => [accId, {
+            ...p, stocks: (p.stocks || []).map(s => {
+              const lp = d.livePrices[s.ticker];
+              if (!lp || s.approximateData || s.isOverseas) return s;
+              return { ...s, currentPrice: lp, currentValue: lp * s.quantity };
+            })
+          }]));
+        });
+      }).catch(() => {});
+    }, 5 * 60 * 1000); // 5분
+
+    return () => clearInterval(priceRefreshInterval);
+  }, []);
+
+  useEffect(() => {
     fetch("/api/diary-load").then(r => r.json()).then(d => {
       if (d.posts) {
         setDiaryPosts(d.posts);
