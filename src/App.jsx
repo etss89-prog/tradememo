@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.1.1";
+const VERSION = "v1.1.2";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -124,6 +124,106 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, T 
           ))}
         </div>
       </div>
+      {/* 홈 - 시장 현황 (최하단) */}
+      {showHome && (
+        <div style={{ marginTop: 16 }}>
+          {marketLoading && !marketData && (
+            <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
+          )}
+          {marketData && (() => {
+            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart } = marketData;
+
+            // 시가총액 포맷 (억/조 단위)
+            const formatMktCap = (v) => {
+              if (!v) return '-';
+              if (v >= 1000000) return (v/1000000).toFixed(1) + '조';
+              if (v >= 10000) return Math.round(v/10000) + '조';
+              return v.toLocaleString() + '억';
+            };
+
+            // 영역 차트
+            const renderAreaChart = (data, indexInfo) => {
+              if (!data || data.length === 0) return (
+                <div style={{ height:70, display:"flex", alignItems:"center", justifyContent:"center", color:T.textMuted, fontSize:11 }}>데이터 없음</div>
+              );
+              const prevClose = data[0]?.prevClose || data[0]?.close;
+              const closes = data.map(d => d.close);
+              const times = data.map(d => d.time);
+              const minV = Math.min(...closes, prevClose) * 0.999;
+              const maxV = Math.max(...closes, prevClose) * 1.001;
+              const range = maxV - minV || 1;
+              const W = 300, H = 70, PAD = { l:0, r:0, t:4, b:16 };
+              const n = closes.length;
+              const px = i => PAD.l + (W-PAD.l-PAD.r) * i / (n-1);
+              const py = v => PAD.t + (H-PAD.t-PAD.b) * (1-(v-minV)/range);
+              const prevY = py(prevClose);
+              const isUp = indexInfo ? indexInfo.change >= 0 : closes[closes.length-1] >= prevClose;
+              const lineColor = isUp ? "#ef4444" : "#3b82f6";
+              const fillColor = isUp ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)";
+              const points = closes.map((c,i) => `${px(i)},${py(c)}`).join(' ');
+              const areaPath = `M${px(0)},${py(closes[0])} ` + closes.map((c,i) => `L${px(i)},${py(c)}`).join(' ') + ` L${px(n-1)},${H-PAD.b} L${px(0)},${H-PAD.b} Z`;
+              const xLabels = [0, Math.floor(n/2), n-1].map(i => ({ x: px(i), label: times[i]||'' }));
+              return (
+                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }}>
+                  <line x1={0} y1={prevY} x2={W} y2={prevY} stroke={darkMode?"#334155":"#d6cfc4"} strokeWidth="0.8" strokeDasharray="3,2" />
+                  <path d={areaPath} fill={fillColor} />
+                  <polyline points={points} fill="none" stroke={lineColor} strokeWidth="1.5" />
+                  {xLabels.map((xl,i) => <text key={i} x={xl.x} y={H} textAnchor={i===0?"start":i===2?"end":"middle"} fontSize="8" fill={T.textMuted}>{xl.label}</text>)}
+                </svg>
+              );
+            };
+
+            // 종목 리스트 - 현재가 + 시가총액 + 등락률
+            const renderStockList = (stocks) => {
+              if (!stocks || stocks.length === 0) return <div style={{ color:T.textMuted, fontSize:11, textAlign:"center", padding:"8px" }}>데이터 없음</div>;
+              return stocks.map((s, i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", padding:"4px 0", borderBottom: i < stocks.length-1 ? `1px solid ${T.cardBorder}` : "none", gap:4 }}>
+                  <span style={{ fontSize:10, color:T.textMuted, minWidth:14, flexShrink:0 }}>{s.rank}</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:T.text, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name}</span>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:T.text }}>{s.price?.toLocaleString()}</div>
+                    {s.marketCap && <div style={{ fontSize:9, color:T.textMuted }}>{formatMktCap(s.marketCap)}</div>}
+                    <div style={{ fontSize:10, fontWeight:600, color: s.isUp?"#ef4444":"#3b82f6" }}>{s.pct}%</div>
+                  </div>
+                </div>
+              ));
+            };
+
+            return (
+              <div style={{ display:"flex", gap:8 }}>
+                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
+                  <div style={{ marginBottom:4 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스피</div>
+                    {indices?.kospi && (
+                      <>
+                        <div style={{ fontSize:16, fontWeight:900, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>{indices.kospi.price?.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>{indices.kospi.change>=0?"+":""}{indices.kospi.change} ({indices.kospi.change>=0?"+":""}{indices.kospi.pct}%)</div>
+                      </>
+                    )}
+                  </div>
+                  {renderAreaChart(kospiChart, indices?.kospi)}
+                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
+                  {renderStockList(kospiTop)}
+                </div>
+                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
+                  <div style={{ marginBottom:4 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스닥</div>
+                    {indices?.kosdaq && (
+                      <>
+                        <div style={{ fontSize:16, fontWeight:900, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>{indices.kosdaq.price?.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>{indices.kosdaq.change>=0?"+":""}{indices.kosdaq.change} ({indices.kosdaq.change>=0?"+":""}{indices.kosdaq.pct}%)</div>
+                      </>
+                    )}
+                  </div>
+                  {renderAreaChart(kosdaqChart, indices?.kosdaq)}
+                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
+                  {renderStockList(kosdaqTop)}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
@@ -228,6 +328,106 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
           </div>
         ))}
       </div>
+      {/* 홈 - 시장 현황 (최하단) */}
+      {showHome && (
+        <div style={{ marginTop: 16 }}>
+          {marketLoading && !marketData && (
+            <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
+          )}
+          {marketData && (() => {
+            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart } = marketData;
+
+            // 시가총액 포맷 (억/조 단위)
+            const formatMktCap = (v) => {
+              if (!v) return '-';
+              if (v >= 1000000) return (v/1000000).toFixed(1) + '조';
+              if (v >= 10000) return Math.round(v/10000) + '조';
+              return v.toLocaleString() + '억';
+            };
+
+            // 영역 차트
+            const renderAreaChart = (data, indexInfo) => {
+              if (!data || data.length === 0) return (
+                <div style={{ height:70, display:"flex", alignItems:"center", justifyContent:"center", color:T.textMuted, fontSize:11 }}>데이터 없음</div>
+              );
+              const prevClose = data[0]?.prevClose || data[0]?.close;
+              const closes = data.map(d => d.close);
+              const times = data.map(d => d.time);
+              const minV = Math.min(...closes, prevClose) * 0.999;
+              const maxV = Math.max(...closes, prevClose) * 1.001;
+              const range = maxV - minV || 1;
+              const W = 300, H = 70, PAD = { l:0, r:0, t:4, b:16 };
+              const n = closes.length;
+              const px = i => PAD.l + (W-PAD.l-PAD.r) * i / (n-1);
+              const py = v => PAD.t + (H-PAD.t-PAD.b) * (1-(v-minV)/range);
+              const prevY = py(prevClose);
+              const isUp = indexInfo ? indexInfo.change >= 0 : closes[closes.length-1] >= prevClose;
+              const lineColor = isUp ? "#ef4444" : "#3b82f6";
+              const fillColor = isUp ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)";
+              const points = closes.map((c,i) => `${px(i)},${py(c)}`).join(' ');
+              const areaPath = `M${px(0)},${py(closes[0])} ` + closes.map((c,i) => `L${px(i)},${py(c)}`).join(' ') + ` L${px(n-1)},${H-PAD.b} L${px(0)},${H-PAD.b} Z`;
+              const xLabels = [0, Math.floor(n/2), n-1].map(i => ({ x: px(i), label: times[i]||'' }));
+              return (
+                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }}>
+                  <line x1={0} y1={prevY} x2={W} y2={prevY} stroke={darkMode?"#334155":"#d6cfc4"} strokeWidth="0.8" strokeDasharray="3,2" />
+                  <path d={areaPath} fill={fillColor} />
+                  <polyline points={points} fill="none" stroke={lineColor} strokeWidth="1.5" />
+                  {xLabels.map((xl,i) => <text key={i} x={xl.x} y={H} textAnchor={i===0?"start":i===2?"end":"middle"} fontSize="8" fill={T.textMuted}>{xl.label}</text>)}
+                </svg>
+              );
+            };
+
+            // 종목 리스트 - 현재가 + 시가총액 + 등락률
+            const renderStockList = (stocks) => {
+              if (!stocks || stocks.length === 0) return <div style={{ color:T.textMuted, fontSize:11, textAlign:"center", padding:"8px" }}>데이터 없음</div>;
+              return stocks.map((s, i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", padding:"4px 0", borderBottom: i < stocks.length-1 ? `1px solid ${T.cardBorder}` : "none", gap:4 }}>
+                  <span style={{ fontSize:10, color:T.textMuted, minWidth:14, flexShrink:0 }}>{s.rank}</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:T.text, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name}</span>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:T.text }}>{s.price?.toLocaleString()}</div>
+                    {s.marketCap && <div style={{ fontSize:9, color:T.textMuted }}>{formatMktCap(s.marketCap)}</div>}
+                    <div style={{ fontSize:10, fontWeight:600, color: s.isUp?"#ef4444":"#3b82f6" }}>{s.pct}%</div>
+                  </div>
+                </div>
+              ));
+            };
+
+            return (
+              <div style={{ display:"flex", gap:8 }}>
+                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
+                  <div style={{ marginBottom:4 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스피</div>
+                    {indices?.kospi && (
+                      <>
+                        <div style={{ fontSize:16, fontWeight:900, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>{indices.kospi.price?.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>{indices.kospi.change>=0?"+":""}{indices.kospi.change} ({indices.kospi.change>=0?"+":""}{indices.kospi.pct}%)</div>
+                      </>
+                    )}
+                  </div>
+                  {renderAreaChart(kospiChart, indices?.kospi)}
+                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
+                  {renderStockList(kospiTop)}
+                </div>
+                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
+                  <div style={{ marginBottom:4 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스닥</div>
+                    {indices?.kosdaq && (
+                      <>
+                        <div style={{ fontSize:16, fontWeight:900, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>{indices.kosdaq.price?.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>{indices.kosdaq.change>=0?"+":""}{indices.kosdaq.change} ({indices.kosdaq.change>=0?"+":""}{indices.kosdaq.pct}%)</div>
+                      </>
+                    )}
+                  </div>
+                  {renderAreaChart(kosdaqChart, indices?.kosdaq)}
+                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
+                  {renderStockList(kosdaqTop)}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
@@ -1767,124 +1967,6 @@ export default function App() {
       )}
 
       {/* 입장 화면 */}
-      {/* 홈 - 시장 현황 (항상 표시 가능) */}
-      {showHome && (
-        <div style={{ marginBottom: 16 }}>
-          {marketLoading && !marketData && (
-            <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
-          )}
-          {marketData && (() => {
-            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart } = marketData;
-
-            // 영역 차트 그리기 함수
-            const renderAreaChart = (data, label, indexInfo) => {
-              if (!data || data.length === 0) return (
-                <div style={{ height:80, display:"flex", alignItems:"center", justifyContent:"center", color:T.textMuted, fontSize:11 }}>데이터 없음</div>
-              );
-              const prevClose = data[0]?.prevClose || data[0]?.close;
-              const closes = data.map(d => d.close);
-              const times = data.map(d => d.time);
-              const minV = Math.min(...closes, prevClose) * 0.999;
-              const maxV = Math.max(...closes, prevClose) * 1.001;
-              const range = maxV - minV || 1;
-              const W = 300, H = 70, PAD = { l:0, r:0, t:4, b:16 };
-              const n = closes.length;
-              const px = i => PAD.l + (W - PAD.l - PAD.r) * i / (n - 1);
-              const py = v => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / range);
-              const prevY = py(prevClose);
-              const isUp = indexInfo ? indexInfo.change >= 0 : closes[closes.length-1] >= prevClose;
-              const lineColor = isUp ? "#ef4444" : "#3b82f6";
-              const fillColor = isUp ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)";
-
-              // path 생성
-              const points = closes.map((c, i) => `${px(i)},${py(c)}`).join(' ');
-              const areaPath = `M${px(0)},${py(closes[0])} ` +
-                closes.map((c, i) => `L${px(i)},${py(c)}`).join(' ') +
-                ` L${px(n-1)},${H-PAD.b} L${px(0)},${H-PAD.b} Z`;
-
-              // X축 레이블 (3개)
-              const xLabels = [0, Math.floor(n/2), n-1].map(i => ({ x: px(i), label: times[i] || '' }));
-
-              return (
-                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }}>
-                  {/* 기준선 (전일 종가) */}
-                  <line x1={0} y1={prevY} x2={W} y2={prevY} stroke={darkMode?"#334155":"#d6cfc4"} strokeWidth="0.8" strokeDasharray="3,2" />
-                  {/* 영역 */}
-                  <path d={areaPath} fill={fillColor} />
-                  {/* 선 */}
-                  <polyline points={points} fill="none" stroke={lineColor} strokeWidth="1.5" />
-                  {/* X축 시간 */}
-                  {xLabels.map((xl, i) => (
-                    <text key={i} x={xl.x} y={H} textAnchor={i===0?"start":i===2?"end":"middle"} fontSize="8" fill={T.textMuted}>{xl.label}</text>
-                  ))}
-                </svg>
-              );
-            };
-
-            // 종목 등락 리스트
-            const renderStockList = (stocks) => {
-              if (!stocks || stocks.length === 0) return <div style={{ color:T.textMuted, fontSize:11, textAlign:"center", padding:"8px" }}>데이터 없음</div>;
-              return stocks.map((s, i) => (
-                <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"4px 0", borderBottom: i < stocks.length-1 ? `1px solid ${T.cardBorder}` : "none" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
-                    <span style={{ fontSize:10, color:T.textMuted, minWidth:16 }}>{s.rank}</span>
-                    <span style={{ fontSize:12, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name}</span>
-                  </div>
-                  <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontSize:11, fontWeight:700, color:T.text }}>{s.price?.toLocaleString()}</div>
-                    <div style={{ fontSize:10, fontWeight:600, color: s.isUp ? "#ef4444" : "#3b82f6" }}>{s.pct}%</div>
-                  </div>
-                </div>
-              ));
-            };
-
-            return (
-              <div style={{ display:"flex", gap:8 }}>
-                {/* 코스피 */}
-                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                    <div>
-                      <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스피</div>
-                      {indices?.kospi && (
-                        <>
-                          <div style={{ fontSize:16, fontWeight:900, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>{indices.kospi.price?.toLocaleString()}</div>
-                          <div style={{ fontSize:10, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>
-                            {indices.kospi.change>=0?"+":""}{indices.kospi.change} ({indices.kospi.change>=0?"+":""}{indices.kospi.pct}%)
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {renderAreaChart(kospiChart, "코스피", indices?.kospi)}
-                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
-                  {renderStockList(kospiTop)}
-                </div>
-
-                {/* 코스닥 */}
-                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
-                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-                    <div>
-                      <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스닥</div>
-                      {indices?.kosdaq && (
-                        <>
-                          <div style={{ fontSize:16, fontWeight:900, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>{indices.kosdaq.price?.toLocaleString()}</div>
-                          <div style={{ fontSize:10, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>
-                            {indices.kosdaq.change>=0?"+":""}{indices.kosdaq.change} ({indices.kosdaq.change>=0?"+":""}{indices.kosdaq.pct}%)
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {renderAreaChart(kosdaqChart, "코스닥", indices?.kosdaq)}
-                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
-                  {renderStockList(kosdaqTop)}
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
       {!isViewer && (
         <div style={{ textAlign:"center", padding:"40px 20px" }}>
           {mainText.html
@@ -1905,6 +1987,106 @@ export default function App() {
             <button style={{ ...S.btnMain, width:"100%" }} onClick={checkViewerPin}>입장하기</button>
           </div>
           <div style={{ marginTop:40, fontSize:11, color:T.textMuted }}>관리자는 우측 상단 버튼을 이용하세요</div>
+        </div>
+      )}
+      {/* 홈 - 시장 현황 (최하단) */}
+      {showHome && (
+        <div style={{ marginTop: 16 }}>
+          {marketLoading && !marketData && (
+            <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
+          )}
+          {marketData && (() => {
+            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart } = marketData;
+
+            // 시가총액 포맷 (억/조 단위)
+            const formatMktCap = (v) => {
+              if (!v) return '-';
+              if (v >= 1000000) return (v/1000000).toFixed(1) + '조';
+              if (v >= 10000) return Math.round(v/10000) + '조';
+              return v.toLocaleString() + '억';
+            };
+
+            // 영역 차트
+            const renderAreaChart = (data, indexInfo) => {
+              if (!data || data.length === 0) return (
+                <div style={{ height:70, display:"flex", alignItems:"center", justifyContent:"center", color:T.textMuted, fontSize:11 }}>데이터 없음</div>
+              );
+              const prevClose = data[0]?.prevClose || data[0]?.close;
+              const closes = data.map(d => d.close);
+              const times = data.map(d => d.time);
+              const minV = Math.min(...closes, prevClose) * 0.999;
+              const maxV = Math.max(...closes, prevClose) * 1.001;
+              const range = maxV - minV || 1;
+              const W = 300, H = 70, PAD = { l:0, r:0, t:4, b:16 };
+              const n = closes.length;
+              const px = i => PAD.l + (W-PAD.l-PAD.r) * i / (n-1);
+              const py = v => PAD.t + (H-PAD.t-PAD.b) * (1-(v-minV)/range);
+              const prevY = py(prevClose);
+              const isUp = indexInfo ? indexInfo.change >= 0 : closes[closes.length-1] >= prevClose;
+              const lineColor = isUp ? "#ef4444" : "#3b82f6";
+              const fillColor = isUp ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)";
+              const points = closes.map((c,i) => `${px(i)},${py(c)}`).join(' ');
+              const areaPath = `M${px(0)},${py(closes[0])} ` + closes.map((c,i) => `L${px(i)},${py(c)}`).join(' ') + ` L${px(n-1)},${H-PAD.b} L${px(0)},${H-PAD.b} Z`;
+              const xLabels = [0, Math.floor(n/2), n-1].map(i => ({ x: px(i), label: times[i]||'' }));
+              return (
+                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }}>
+                  <line x1={0} y1={prevY} x2={W} y2={prevY} stroke={darkMode?"#334155":"#d6cfc4"} strokeWidth="0.8" strokeDasharray="3,2" />
+                  <path d={areaPath} fill={fillColor} />
+                  <polyline points={points} fill="none" stroke={lineColor} strokeWidth="1.5" />
+                  {xLabels.map((xl,i) => <text key={i} x={xl.x} y={H} textAnchor={i===0?"start":i===2?"end":"middle"} fontSize="8" fill={T.textMuted}>{xl.label}</text>)}
+                </svg>
+              );
+            };
+
+            // 종목 리스트 - 현재가 + 시가총액 + 등락률
+            const renderStockList = (stocks) => {
+              if (!stocks || stocks.length === 0) return <div style={{ color:T.textMuted, fontSize:11, textAlign:"center", padding:"8px" }}>데이터 없음</div>;
+              return stocks.map((s, i) => (
+                <div key={i} style={{ display:"flex", alignItems:"center", padding:"4px 0", borderBottom: i < stocks.length-1 ? `1px solid ${T.cardBorder}` : "none", gap:4 }}>
+                  <span style={{ fontSize:10, color:T.textMuted, minWidth:14, flexShrink:0 }}>{s.rank}</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:T.text, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name}</span>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:T.text }}>{s.price?.toLocaleString()}</div>
+                    {s.marketCap && <div style={{ fontSize:9, color:T.textMuted }}>{formatMktCap(s.marketCap)}</div>}
+                    <div style={{ fontSize:10, fontWeight:600, color: s.isUp?"#ef4444":"#3b82f6" }}>{s.pct}%</div>
+                  </div>
+                </div>
+              ));
+            };
+
+            return (
+              <div style={{ display:"flex", gap:8 }}>
+                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
+                  <div style={{ marginBottom:4 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스피</div>
+                    {indices?.kospi && (
+                      <>
+                        <div style={{ fontSize:16, fontWeight:900, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>{indices.kospi.price?.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color: indices.kospi.change>=0?"#ef4444":"#3b82f6" }}>{indices.kospi.change>=0?"+":""}{indices.kospi.change} ({indices.kospi.change>=0?"+":""}{indices.kospi.pct}%)</div>
+                      </>
+                    )}
+                  </div>
+                  {renderAreaChart(kospiChart, indices?.kospi)}
+                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
+                  {renderStockList(kospiTop)}
+                </div>
+                <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
+                  <div style={{ marginBottom:4 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.textMuted }}>코스닥</div>
+                    {indices?.kosdaq && (
+                      <>
+                        <div style={{ fontSize:16, fontWeight:900, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>{indices.kosdaq.price?.toLocaleString()}</div>
+                        <div style={{ fontSize:10, color: indices.kosdaq.change>=0?"#ef4444":"#3b82f6" }}>{indices.kosdaq.change>=0?"+":""}{indices.kosdaq.change} ({indices.kosdaq.change>=0?"+":""}{indices.kosdaq.pct}%)</div>
+                      </>
+                    )}
+                  </div>
+                  {renderAreaChart(kosdaqChart, indices?.kosdaq)}
+                  <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
+                  {renderStockList(kosdaqTop)}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
