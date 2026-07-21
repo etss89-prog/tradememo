@@ -472,8 +472,15 @@ async function fetchMarketCap(sosok) {
       const isUp = changeMatch?.[1] === 'up';
       const pctMatch = row.match(/class="rate_(up|down)"[^>]*>[\s\S]*?<span[^>]*>([\d.]+)<\/span>/);
       const pct = pctMatch ? (isUp ? '+' : '-') + pctMatch[2] : '0';
+      // 시가총액 (조 단위 셀에서 추출)
+      const mktCapMatch = row.match(/class="number"[^>]*>\s*([\d,]+)\s*<\/td>/g);
+      let marketCap = null;
+      if (mktCapMatch && mktCapMatch.length >= 6) {
+        const raw = mktCapMatch[5]?.replace(/<[^>]+>/g,'').replace(/,/g,'').trim();
+        marketCap = raw ? Number(raw) : null; // 억 단위
+      }
       if (name && price && Number(price) > 0) {
-        rows.push({ rank: rows.length + 1, name, price: Number(price), pct, isUp });
+        rows.push({ rank: rows.length + 1, name, price: Number(price), pct, isUp, marketCap });
       }
     }
     if (rows.length >= 5) return rows.slice(0, 10);
@@ -500,7 +507,8 @@ async function fetchMarketCapFallback(sosok) {
       const prev = meta.chartPreviousClose || cur;
       const change = cur - prev;
       const pct = prev ? (change / prev * 100) : 0;
-      return { rank: i+1, name: names[i], price: cur, pct: (change>=0?'+':'')+pct.toFixed(2), isUp: change>=0 };
+      const mktCap = result?.summaryDetail?.marketCap?.raw || result?.price?.marketCap?.raw || null;
+      return { rank: i+1, name: names[i], price: cur, pct: (change>=0?'+':'')+pct.toFixed(2), isUp: change>=0, marketCap: mktCap ? Math.round(mktCap/100000000) : null };
     });
   } catch { return []; }
 }
