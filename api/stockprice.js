@@ -333,9 +333,27 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   try {
-    // tickers: 종목명 배열
-    // stocks: { ticker, tickerCode, isOverseas } 배열 (portfolio.js에서 코드 포함)
-    const { tickers, stocks } = req.body;
+    const { type, tickers, stocks } = req.body;
+
+    // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트)
+    if (type === 'market') {
+      const results = await Promise.all([
+        fetchMarketIndex(),
+        fetchMarketCap(0),
+        fetchMarketCap(1),
+        fetchIntraday('%5EKS11'),
+        fetchIntraday('%5EKQ11'),
+      ]);
+      return res.status(200).json({
+        indices: results[0],
+        kospiTop: results[1],
+        kosdaqTop: results[2],
+        kospiChart: results[3],
+        kosdaqChart: results[4],
+      });
+    }
+
+    // 기존 주가 조회
     if (!tickers || !Array.isArray(tickers)) return res.status(400).json({ error: 'tickers 배열 필요' });
 
     // stocks 배열에서 tickerCode, isOverseas 맵 생성
@@ -404,4 +422,102 @@ export default async function handler(req, res) {
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
+}
+
+// ===== 시장 현황 헬퍼 함수들 =====
+
+async function fetchMarketIndex() {
+  try {
+    const [ks, kq] = await Promise.all([
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?interval=1d&range=2d', { headers: { 'User-Agent': 'Mozilla/5.0' } }),
+      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EKQ11?interval=1d&range=2d', { headers: { 'User-Agent': 'Mozilla/5.0' } }),
+    ]);
+    const [ksd, kqd] = await Promise.all([ks.json(), kq.json()]);
+    const parse = (d) => {
+      const meta = d?.chart?.result?.[0]?.meta;
+      if (!meta) return null;
+      const cur = meta.regularMarketPrice;
+      const prev = meta.chartPreviousClose || meta.previousClose;
+      const change = cur - prev;
+      const pct = (change / prev) * 100;
+      return { price: Math.round(cur * 100) / 100, change: Math.round(change * 100) / 100, pct: Math.round(pct * 100) / 100 };
+    };
+    return { kospi: parse(ksd), kosdaq: parse(kqd) };
+  } catch { return { kospi: null, kosdaq: null }; }
+}
+
+async function fetchMarketCap(sosok) {
+  try {
+    const url = `https://finance.naver.com/sise/sise_market_sum.nhn?sosok=${sosok}&page=1`;
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'ko-KR,ko;q=0.9',
+        'Referer': 'https://finance.naver.com',
+      }
+    });
+    const html = await r.text();
+    const rows = [];
+    const trPattern = /<tr[^>]*class="[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi;
+    let match;
+    while ((match = trPattern.exec(html)) !== null && rows.length < 10) {
+      const row = match[1];
+      const nameMatch = row.match(/title="([^"]+)"/);
+      if (!nameMatch) continue;
+      const name = nameMatch[1].trim();
+      const cells = row.match(/<td[^>]*class="number"[^>]*>([\s\S]*?)<\/td>/gi) || [];
+      const price = cells[0]?.replace(/<[^>]+>/g,'').replace(/,/g,'').trim();
+      const changeMatch = row.match(/class="(up|dn)"[^>]*>([\s\S]*?)<\/span>/);
+      const isUp = changeMatch?.[1] === 'up';
+      const pctMatch = row.match(/class="rate_(up|down)"[^>]*>[\s\S]*?<span[^>]*>([\d.]+)<\/span>/);
+      const pct = pctMatch ? (isUp ? '+' : '-') + pctMatch[2] : '0';
+      if (name && price && Number(price) > 0) {
+        rows.push({ rank: rows.length + 1, name, price: Number(price), pct, isUp });
+      }
+    }
+    if (rows.length >= 5) return rows.slice(0, 10);
+    return fetchMarketCapFallback(sosok);
+  } catch { return fetchMarketCapFallback(sosok); }
+}
+
+async function fetchMarketCapFallback(sosok) {
+  const kospiCodes = ['005930.KS','000660.KS','373220.KS','207940.KS','005380.KS','000270.KS','068270.KS','105560.KS','055550.KS','006400.KS'];
+  const kosdaqCodes = ['196170.KQ','247540.KQ','086520.KQ','028300.KQ','058470.KQ','068760.KQ','214150.KQ','240810.KQ','277810.KQ','003780.KQ'];
+  const kospiNames = ['삼성전자','SK하이닉스','LG에너지솔루션','삼성바이오로직스','현대차','기아','셀트리온','KB금융','신한지주','삼성SDI'];
+  const kosdaqNames = ['알테오젠','에코프로비엠','에코프로','HLB','리노공업','셀트리온헬스케어','클래시스','원익IPS','레인보우로보틱스','포스코DX'];
+  const codes = sosok === 0 ? kospiCodes : kosdaqCodes;
+  const names = sosok === 0 ? kospiNames : kosdaqNames;
+  try {
+    const results = await Promise.allSettled(codes.map(code =>
+      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${code}?interval=1d&range=2d`, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.json())
+    ));
+    return results.map((r, i) => {
+      if (r.status !== 'fulfilled') return { rank: i+1, name: names[i], price: 0, pct: '0', isUp: false };
+      const meta = r.value?.chart?.result?.[0]?.meta;
+      if (!meta) return { rank: i+1, name: names[i], price: 0, pct: '0', isUp: false };
+      const cur = Math.round(meta.regularMarketPrice);
+      const prev = meta.chartPreviousClose || cur;
+      const change = cur - prev;
+      const pct = prev ? (change / prev * 100) : 0;
+      return { rank: i+1, name: names[i], price: cur, pct: (change>=0?'+':'')+pct.toFixed(2), isUp: change>=0 };
+    });
+  } catch { return []; }
+}
+
+async function fetchIntraday(symbol) {
+  try {
+    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const data = await r.json();
+    const result = data?.chart?.result?.[0];
+    if (!result?.timestamp) return [];
+    const ts = result.timestamp;
+    const closes = result.indicators?.quote?.[0]?.close || [];
+    const prevClose = result.meta?.chartPreviousClose || result.meta?.previousClose;
+    return ts.map((t, i) => ({
+      time: new Date(t * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      close: closes[i] ? Math.round(closes[i] * 100) / 100 : null,
+      prevClose,
+    })).filter(c => c.close !== null);
+  } catch { return []; }
 }
