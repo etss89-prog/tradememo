@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.1.0";
+const VERSION = "v1.1.1";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -275,7 +275,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("portfolio");
   const [marketData, setMarketData] = useState(null);
   const [marketLoading, setMarketLoading] = useState(false);
-  const [showHome, setShowHome] = useState(false); // 홈(시장) 화면
+  const [showHome, setShowHome] = useState(true); // 홈(시장) 화면 - 기본 표시
   const [historySubTab, setHistorySubTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -445,7 +445,7 @@ export default function App() {
   async function loadMarketData() {
     setMarketLoading(true);
     try {
-      const r = await fetch('/api/market');
+      const r = await fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'market' }) });
       const d = await r.json();
       setMarketData(d);
     } catch {}
@@ -1364,6 +1364,10 @@ export default function App() {
           <span style={{ fontSize: 24 }}>🐜</span>
           <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
+          {/* 홈(시장현황) 버튼 */}
+          <button onClick={() => { setShowHome(v => !v); if (!marketData) loadMarketData(); }}
+            style={{ background: showHome ? (darkMode?"#1e3a5f":"#dbeafe") : T.section, border: `1px solid ${showHome?"#3b82f6":T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1, color: showHome?"#3b82f6":T.textMuted }}
+            title="시장 현황">🏠</button>
           {/* 다크/라이트 토글 */}
           <button onClick={toggleDarkMode} style={{ background: T.section, border: `1px solid ${T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1 }} title={darkMode ? "라이트 모드" : "다크 모드"}>
             {darkMode ? "☀️" : "🌙"}
