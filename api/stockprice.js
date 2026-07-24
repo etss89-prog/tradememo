@@ -448,7 +448,9 @@ async function fetchMarketIndex() {
 
 async function fetchMarketCap(sosok) {
   const market = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
+  const suffix = sosok === 0 ? '.KS' : '.KQ';
   try {
+    // 1단계: 네이버에서 시총순위 + 종목코드 가져오기
     const url = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
     const r = await fetch(url, {
       headers: {
@@ -462,16 +464,12 @@ async function fetchMarketCap(sosok) {
     const stocks = data?.stocks || data?.list || data?.result?.stocks || (Array.isArray(data) ? data : null);
     if (!stocks || stocks.length === 0) return fetchMarketCapFallback(sosok);
 
-    // 기본 정보 파싱
     const basicList = stocks.slice(0, 10).map((s, i) => {
       const price = Number(s.closePrice || s.currentPrice || s.price || 0);
       const prevClose = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
       const change = price - prevClose;
       const pct = prevClose > 0 ? (change / prevClose * 100) : 0;
       const isUp = change >= 0;
-      // 시가총액: 네이버 API에서 제공하는 모든 가능한 필드명 시도
-      const mktCapRaw = s.marketValue || s.marketCap || s.totalMarketValue ||
-                        s.accumulatedTradingValue || s.marketTotalAmt || 0;
       const code = s.itemCode || s.stockCode || s.code || '';
       return {
         rank: i + 1,
@@ -480,44 +478,32 @@ async function fetchMarketCap(sosok) {
         change: Math.round(change),
         pct: (isUp ? '+' : '') + pct.toFixed(2) + '%',
         isUp,
-        marketCap: mktCapRaw > 0 ? Math.round(Number(mktCapRaw) / 100000000) : null,
+        marketCap: null,
         code,
       };
     }).filter(s => s.name && s.price > 0);
 
-    // 시가총액이 없으면 개별 종목 API로 조회
-    const needsMktCap = basicList.some(s => !s.marketCap && s.code);
-    if (needsMktCap) {
-      await Promise.allSettled(basicList.map(async (s) => {
-        if (s.marketCap || !s.code) return;
-        try {
-          const r2 = await fetch(`https://m.stock.naver.com/api/stock/${s.code}/integration`, {
-            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/' }
-          });
-          if (!r2.ok) return;
-          const d = await r2.json();
-          // 시가총액 필드 탐색
-          const mkt = d?.totalInfos?.find?.(t => t.key === 'marketValue')?.value ||
-                      d?.marketValue || d?.totalMarketValue ||
-                      d?.stockInfo?.marketValue || null;
-          if (mkt) {
-            // "417조 6,501억" 형태 또는 숫자
-            if (typeof mkt === 'string') {
-              const 조 = mkt.match(/([\d,.]+)조/);
-              const 억 = mkt.match(/([\d,.]+)억/);
-              let val = 0;
-              if (조) val += parseFloat(조[1].replace(/,/g,'')) * 10000;
-              if (억) val += parseFloat(억[1].replace(/,/g,''));
-              s.marketCap = val > 0 ? Math.round(val) : null;
-            } else {
-              s.marketCap = Math.round(Number(mkt) / 100000000);
-            }
-          }
-        } catch {}
-      }));
-    }
+    // 2단계: Yahoo Finance로 시가총액 조회 (종목코드 있는 것만)
+    await Promise.allSettled(basicList.map(async (s) => {
+      if (!s.code) return;
+      try {
+        const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${s.code}${suffix}?interval=1d&range=1d`;
+        const yr = await fetch(yUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        });
+        const yd = await yr.json();
+        const meta = yd?.chart?.result?.[0]?.meta;
+        if (!meta) return;
+        // Yahoo Finance 시가총액 (원화 기준, 단위: 원)
+        const shares = meta.sharesOutstanding || null;
+        const price = meta.regularMarketPrice || s.price;
+        if (shares && price) {
+          s.marketCap = Math.round(shares * price / 100000000); // 억 단위
+        }
+      } catch {}
+    }));
 
-    return basicList.map(s => { delete s.code; return s; });
+    return basicList.map(s => { const { code, ...rest } = s; return rest; });
   } catch {
     return fetchMarketCapFallback(sosok);
   }
