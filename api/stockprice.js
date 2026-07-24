@@ -447,45 +447,8 @@ async function fetchMarketIndex() {
 }
 
 async function fetchMarketCap(sosok) {
-  try {
-    const url = `https://finance.naver.com/sise/sise_market_sum.nhn?sosok=${sosok}&page=1`;
-    const r = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'ko-KR,ko;q=0.9',
-        'Referer': 'https://finance.naver.com',
-      }
-    });
-    const html = await r.text();
-    const rows = [];
-    const trPattern = /<tr[^>]*class="[^"]*"[^>]*>([\s\S]*?)<\/tr>/gi;
-    let match;
-    while ((match = trPattern.exec(html)) !== null && rows.length < 10) {
-      const row = match[1];
-      const nameMatch = row.match(/title="([^"]+)"/);
-      if (!nameMatch) continue;
-      const name = nameMatch[1].trim();
-      const cells = row.match(/<td[^>]*class="number"[^>]*>([\s\S]*?)<\/td>/gi) || [];
-      const price = cells[0]?.replace(/<[^>]+>/g,'').replace(/,/g,'').trim();
-      const changeMatch = row.match(/class="(up|dn)"[^>]*>([\s\S]*?)<\/span>/);
-      const isUp = changeMatch?.[1] === 'up';
-      const pctMatch = row.match(/class="rate_(up|down)"[^>]*>[\s\S]*?<span[^>]*>([\d.]+)<\/span>/);
-      const pct = pctMatch ? (isUp ? '+' : '-') + pctMatch[2] : '0';
-      // 시가총액 (조 단위 셀에서 추출)
-      const mktCapMatch = row.match(/class="number"[^>]*>\s*([\d,]+)\s*<\/td>/g);
-      let marketCap = null;
-      if (mktCapMatch && mktCapMatch.length >= 6) {
-        const raw = mktCapMatch[5]?.replace(/<[^>]+>/g,'').replace(/,/g,'').trim();
-        marketCap = raw ? Number(raw) : null; // 억 단위
-      }
-      if (name && price && Number(price) > 0) {
-        rows.push({ rank: rows.length + 1, name, price: Number(price), pct, isUp, marketCap });
-      }
-    }
-    if (rows.length >= 5) return rows.slice(0, 10);
-    return fetchMarketCapFallback(sosok);
-  } catch { return fetchMarketCapFallback(sosok); }
+  // Yahoo Finance로 직접 시총순위 조회 (안정적)
+  return fetchMarketCapFallback(sosok);
 }
 
 async function fetchMarketCapFallback(sosok) {
@@ -497,18 +460,32 @@ async function fetchMarketCapFallback(sosok) {
   const names = sosok === 0 ? kospiNames : kosdaqNames;
   try {
     const results = await Promise.allSettled(codes.map(code =>
-      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${code}?interval=1d&range=2d`, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.json())
+      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${code}?interval=1d&range=5d`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      }).then(r => r.json())
     ));
     return results.map((r, i) => {
-      if (r.status !== 'fulfilled') return { rank: i+1, name: names[i], price: 0, pct: '0', isUp: false };
-      const meta = r.value?.chart?.result?.[0]?.meta;
-      if (!meta) return { rank: i+1, name: names[i], price: 0, pct: '0', isUp: false };
+      if (r.status !== 'fulfilled') return { rank: i+1, name: names[i], price: 0, pct: '0%', isUp: false, marketCap: null };
+      const result = r.value?.chart?.result?.[0];
+      const meta = result?.meta;
+      if (!meta) return { rank: i+1, name: names[i], price: 0, pct: '0%', isUp: false, marketCap: null };
       const cur = Math.round(meta.regularMarketPrice);
-      const prev = meta.chartPreviousClose || cur;
+      const prev = meta.chartPreviousClose || meta.previousClose || cur;
       const change = cur - prev;
       const pct = prev ? (change / prev * 100) : 0;
-      const mktCap = result?.summaryDetail?.marketCap?.raw || result?.price?.marketCap?.raw || null;
-      return { rank: i+1, name: names[i], price: cur, pct: (change>=0?'+':'')+pct.toFixed(2), isUp: change>=0, marketCap: mktCap ? Math.round(mktCap/100000000) : null };
+      const isUp = change >= 0;
+      // 시가총액: regularMarketVolume * regularMarketPrice 대신 직접 계산
+      const sharesOut = meta.sharesOutstanding || null;
+      const mktCap = sharesOut ? Math.round(sharesOut * cur / 100000000) : null; // 억원
+      return {
+        rank: i+1,
+        name: names[i],
+        price: cur,
+        change: Math.round(change),
+        pct: (isUp?'+':'') + pct.toFixed(2) + '%',
+        isUp,
+        marketCap: mktCap,
+      };
     });
   } catch { return []; }
 }
@@ -523,7 +500,7 @@ async function fetchIntraday(symbol) {
     const closes = result.indicators?.quote?.[0]?.close || [];
     const prevClose = result.meta?.chartPreviousClose || result.meta?.previousClose;
     return ts.map((t, i) => ({
-      time: new Date(t * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      time: new Date(t * 1000).toLocaleString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Seoul' }),
       close: closes[i] ? Math.round(closes[i] * 100) / 100 : null,
       prevClose,
     })).filter(c => c.close !== null);
