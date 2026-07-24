@@ -447,8 +447,47 @@ async function fetchMarketIndex() {
 }
 
 async function fetchMarketCap(sosok) {
-  // Yahoo Finance로 직접 시총순위 조회 (안정적)
-  return fetchMarketCapFallback(sosok);
+  // stock.naver.com JSON API로 실시간 시총순위 조회
+  const market = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
+  try {
+    const url = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://m.stock.naver.com/',
+      }
+    });
+    if (!r.ok) return fetchMarketCapFallback(sosok);
+    const data = await r.json();
+
+    // 응답 구조: { stocks: [...] } 또는 배열 직접
+    const stocks = data?.stocks || data?.list || data?.result?.stocks || (Array.isArray(data) ? data : null);
+    if (!stocks || stocks.length === 0) return fetchMarketCapFallback(sosok);
+
+    return stocks.slice(0, 10).map((s, i) => {
+      const price = Number(s.closePrice || s.currentPrice || s.price || 0);
+      const prevClose = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
+      const change = price - prevClose;
+      const pct = prevClose > 0 ? (change / prevClose * 100) : 0;
+      const isUp = change >= 0;
+      // 시가총액 (억 단위)
+      const mktCapRaw = s.marketValue || s.marketCap || s.totalMarketValue || 0;
+      const mktCap = mktCapRaw > 0 ? Math.round(Number(mktCapRaw) / 100000000) : null;
+
+      return {
+        rank: i + 1,
+        name: s.stockName || s.name || s.itemName || '',
+        price,
+        change: Math.round(change),
+        pct: (isUp ? '+' : '') + pct.toFixed(2) + '%',
+        isUp,
+        marketCap: mktCap,
+      };
+    }).filter(s => s.name && s.price > 0);
+  } catch {
+    return fetchMarketCapFallback(sosok);
+  }
 }
 
 async function fetchMarketCapFallback(sosok) {
