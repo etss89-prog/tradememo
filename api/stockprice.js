@@ -495,24 +495,23 @@ async function fetchMarketCap(sosok) {
       const price = Number(numberCells[0]) || 0;
       if (price === 0) continue;
 
-      // 등락률
-      const pctMatch = row.match(/class="(up|down)"[^>]*>[\s\S]*?<span[^>]*>([\d.]+)<\/span>/);
-      const isUp = pctMatch?.[1] === 'up';
-      const pct = pctMatch ? (isUp ? '+' : '-') + pctMatch[2] + '%' : '0%';
+      // 등락률 - numberCells[2]에서 추출
+      const pctRaw = numberCells[2] || '0';
+      const pctNum = parseFloat(pctRaw.replace('%','')) || 0;
+      const isUp = pctNum > 0;
+      const pct = (pctNum > 0 ? '+' : '') + pctNum.toFixed(2) + '%';
 
       // 네이버 시총순위 테이블 컬럼 순서:
       // 0:현재가 1:전일비 2:등락률 3:액면가 4:거래량 5:시가총액 6:PER 7:ROE
       // 단위: 시가총액은 억원
+      // 인덱스 3 = 시가총액 (억원 단위)
       let marketCap = null;
-      for (let idx of [5, 6, 4, 7]) {
-        if (numberCells.length > idx) {
-          const capRaw = Number(numberCells[idx]);
-          // 시가총액은 최소 수천억 이상이어야 함 (코스피 top10)
-          if (capRaw > 1000) { marketCap = capRaw; break; }
-        }
+      if (numberCells.length > 3) {
+        const capRaw = Number(numberCells[3]);
+        if (capRaw > 0) marketCap = capRaw;
       }
 
-      rows.push({ rank: rows.length + 1, name, price, pct, isUp, marketCap, code, _cells: numberCells });
+      rows.push({ rank: rows.length + 1, name, price, pct, isUp, marketCap, code });
     }
 
     if (rows.length >= 5) {
