@@ -500,15 +500,19 @@ async function fetchMarketCap(sosok) {
       const isUp = pctMatch?.[1] === 'up';
       const pct = pctMatch ? (isUp ? '+' : '-') + pctMatch[2] + '%' : '0%';
 
-      // 시가총액 (억 단위) - numberCells에서 6번째 (인덱스 5)
-      // 네이버 컬럼 순서: 현재가, 전일비, 등락률, 거래량, 거래대금, 시가총액, PER, ROE...
+      // 네이버 시총순위 테이블 컬럼 순서:
+      // 0:현재가 1:전일비 2:등락률 3:액면가 4:거래량 5:시가총액 6:PER 7:ROE
+      // 단위: 시가총액은 억원
       let marketCap = null;
-      if (numberCells.length >= 6) {
-        const capRaw = Number(numberCells[5]);
-        if (capRaw > 0) marketCap = capRaw; // 이미 억 단위
+      for (let idx of [5, 6, 4, 7]) {
+        if (numberCells.length > idx) {
+          const capRaw = Number(numberCells[idx]);
+          // 시가총액은 최소 수천억 이상이어야 함 (코스피 top10)
+          if (capRaw > 1000) { marketCap = capRaw; break; }
+        }
       }
 
-      rows.push({ rank: rows.length + 1, name, price, pct, isUp, marketCap, code });
+      rows.push({ rank: rows.length + 1, name, price, pct, isUp, marketCap, code, _cells: numberCells });
     }
 
     if (rows.length >= 5) {
