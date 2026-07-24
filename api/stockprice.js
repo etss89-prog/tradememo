@@ -504,10 +504,11 @@ async function fetchMarketCap(sosok) {
       // 네이버 시총순위 테이블 컬럼 순서:
       // 0:현재가 1:전일비 2:등락률 3:액면가 4:거래량 5:시가총액 6:PER 7:ROE
       // 단위: 시가총액은 억원
-      // 인덱스 3 = 시가총액 (억원 단위)
+      // 인덱스 4 = 시가총액 (억원 단위)
+      // 컬럼순서: 0:현재가 1:전일비 2:등락률 3:액면가 4:시가총액 5:상장주식수 ...
       let marketCap = null;
-      if (numberCells.length > 3) {
-        const capRaw = Number(numberCells[3]);
+      if (numberCells.length > 4) {
+        const capRaw = Number(numberCells[4]);
         if (capRaw > 0) marketCap = capRaw;
       }
 
