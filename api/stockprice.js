@@ -447,7 +447,6 @@ async function fetchMarketIndex() {
 }
 
 async function fetchMarketCap(sosok) {
-  // stock.naver.com JSON API로 실시간 시총순위 조회
   const market = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
   try {
     const url = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
@@ -460,21 +459,20 @@ async function fetchMarketCap(sosok) {
     });
     if (!r.ok) return fetchMarketCapFallback(sosok);
     const data = await r.json();
-
-    // 응답 구조: { stocks: [...] } 또는 배열 직접
     const stocks = data?.stocks || data?.list || data?.result?.stocks || (Array.isArray(data) ? data : null);
     if (!stocks || stocks.length === 0) return fetchMarketCapFallback(sosok);
 
-    return stocks.slice(0, 10).map((s, i) => {
+    // 기본 정보 파싱
+    const basicList = stocks.slice(0, 10).map((s, i) => {
       const price = Number(s.closePrice || s.currentPrice || s.price || 0);
       const prevClose = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
       const change = price - prevClose;
       const pct = prevClose > 0 ? (change / prevClose * 100) : 0;
       const isUp = change >= 0;
-      // 시가총액 (억 단위)
-      const mktCapRaw = s.marketValue || s.marketCap || s.totalMarketValue || 0;
-      const mktCap = mktCapRaw > 0 ? Math.round(Number(mktCapRaw) / 100000000) : null;
-
+      // 시가총액: 네이버 API에서 제공하는 모든 가능한 필드명 시도
+      const mktCapRaw = s.marketValue || s.marketCap || s.totalMarketValue ||
+                        s.accumulatedTradingValue || s.marketTotalAmt || 0;
+      const code = s.itemCode || s.stockCode || s.code || '';
       return {
         rank: i + 1,
         name: s.stockName || s.name || s.itemName || '',
@@ -482,9 +480,44 @@ async function fetchMarketCap(sosok) {
         change: Math.round(change),
         pct: (isUp ? '+' : '') + pct.toFixed(2) + '%',
         isUp,
-        marketCap: mktCap,
+        marketCap: mktCapRaw > 0 ? Math.round(Number(mktCapRaw) / 100000000) : null,
+        code,
       };
     }).filter(s => s.name && s.price > 0);
+
+    // 시가총액이 없으면 개별 종목 API로 조회
+    const needsMktCap = basicList.some(s => !s.marketCap && s.code);
+    if (needsMktCap) {
+      await Promise.allSettled(basicList.map(async (s) => {
+        if (s.marketCap || !s.code) return;
+        try {
+          const r2 = await fetch(`https://m.stock.naver.com/api/stock/${s.code}/integration`, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/' }
+          });
+          if (!r2.ok) return;
+          const d = await r2.json();
+          // 시가총액 필드 탐색
+          const mkt = d?.totalInfos?.find?.(t => t.key === 'marketValue')?.value ||
+                      d?.marketValue || d?.totalMarketValue ||
+                      d?.stockInfo?.marketValue || null;
+          if (mkt) {
+            // "417조 6,501억" 형태 또는 숫자
+            if (typeof mkt === 'string') {
+              const 조 = mkt.match(/([\d,.]+)조/);
+              const 억 = mkt.match(/([\d,.]+)억/);
+              let val = 0;
+              if (조) val += parseFloat(조[1].replace(/,/g,'')) * 10000;
+              if (억) val += parseFloat(억[1].replace(/,/g,''));
+              s.marketCap = val > 0 ? Math.round(val) : null;
+            } else {
+              s.marketCap = Math.round(Number(mkt) / 100000000);
+            }
+          }
+        } catch {}
+      }));
+    }
+
+    return basicList.map(s => { delete s.code; return s; });
   } catch {
     return fetchMarketCapFallback(sosok);
   }
