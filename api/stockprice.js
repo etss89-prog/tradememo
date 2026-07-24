@@ -448,91 +448,104 @@ async function fetchMarketIndex() {
 
 async function fetchMarketCap(sosok) {
   const market = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
-  const suffix = sosok === 0 ? '.KS' : '.KQ';
   try {
-    const url = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
+    // 네이버 시총순위 페이지 - EUC-KR 인코딩으로 가져오기
+    const url = `https://finance.naver.com/sise/sise_market_sum.nhn?sosok=${sosok}&page=1`;
     const r = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json',
-        'Referer': 'https://m.stock.naver.com/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+        'Accept-Charset': 'EUC-KR,utf-8;q=0.7,*;q=0.3',
+        'Referer': 'https://finance.naver.com/sise/',
+        'Cache-Control': 'no-cache',
       }
     });
     if (!r.ok) return fetchMarketCapFallback(sosok);
-    const data = await r.json();
-    const stocks = data?.stocks || data?.list || data?.result?.stocks || (Array.isArray(data) ? data : null);
-    if (!stocks || stocks.length === 0) return fetchMarketCapFallback(sosok);
 
-    const basicList = stocks.slice(0, 10).map((s, i) => {
-      const price = Number(s.closePrice || s.currentPrice || s.price || 0);
-      const prevClose = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
-      const change = price - prevClose;
-      const pct = prevClose > 0 ? (change / prevClose * 100) : 0;
-      const isUp = change >= 0;
-      const code = s.itemCode || s.stockCode || s.code || '';
-      return {
-        rank: i + 1,
-        name: s.stockName || s.name || s.itemName || '',
-        price, change: Math.round(change),
-        pct: (isUp ? '+' : '') + pct.toFixed(2) + '%',
-        isUp, marketCap: null, code,
-      };
-    }).filter(s => s.name && s.price > 0);
+    // EUC-KR 디코딩
+    const buf = await r.arrayBuffer();
+    const decoder = new TextDecoder('euc-kr');
+    const html = decoder.decode(buf);
 
-    // 시가총액: 네이버 integration API
-    const parseMktCap = (val) => {
-      if (!val) return null;
-      if (typeof val === 'number') return Math.round(val / 100000000);
-      if (typeof val === 'string') {
-        let result = 0;
-        const jo = val.match(/([\d,.]+)조/);
-        const uk = val.match(/([\d,.]+)억/);
-        if (jo) result += parseFloat(jo[1].replace(/,/g, '')) * 10000;
-        if (uk) result += parseFloat(uk[1].replace(/,/g, ''));
-        if (result > 0) return Math.round(result);
-        const num = parseFloat(val.replace(/,/g, ''));
-        if (!isNaN(num) && num > 100000000) return Math.round(num / 100000000);
+    const rows = [];
+    // 종목명, 현재가, 전일비, 등락률, 시가총액 파싱
+    // 테이블 행 패턴
+    const rowPattern = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
+    let m;
+    while ((m = rowPattern.exec(html)) !== null && rows.length < 10) {
+      const row = m[0];
+      // 종목명
+      const nameMatch = row.match(/href="[^"]*code=(\d{6})[^"]*"[^>]*>([^<]+)<\/a>/);
+      if (!nameMatch) continue;
+      const code = nameMatch[1];
+      const name = nameMatch[2].trim();
+      if (!name || !code) continue;
+
+      // td.number 셀들 추출 (현재가, 전일비, 등락률, 거래량, 거래대금, 시가총액 순)
+      const numberCells = [];
+      const cellPattern = /<td[^>]*class="[^"]*number[^"]*"[^>]*>([\s\S]*?)<\/td>/gi;
+      let cellM;
+      while ((cellM = cellPattern.exec(row)) !== null) {
+        const val = cellM[1].replace(/<[^>]+>/g, '').replace(/[\s,]/g, '').trim();
+        numberCells.push(val);
       }
-      return null;
-    };
 
-    const getMktCap = (d) => {
-      if (!d) return null;
-      if (Array.isArray(d.totalInfos)) {
-        const mv = d.totalInfos.find(t => t.key === 'marketValue' || (t.label && t.label.includes('시가총액')));
-        if (mv?.value) return parseMktCap(mv.value);
+      if (numberCells.length < 1) continue;
+      const price = Number(numberCells[0]) || 0;
+      if (price === 0) continue;
+
+      // 등락률
+      const pctMatch = row.match(/class="(up|down)"[^>]*>[\s\S]*?<span[^>]*>([\d.]+)<\/span>/);
+      const isUp = pctMatch?.[1] === 'up';
+      const pct = pctMatch ? (isUp ? '+' : '-') + pctMatch[2] + '%' : '0%';
+
+      // 시가총액 (억 단위) - numberCells에서 6번째 (인덱스 5)
+      // 네이버 컬럼 순서: 현재가, 전일비, 등락률, 거래량, 거래대금, 시가총액, PER, ROE...
+      let marketCap = null;
+      if (numberCells.length >= 6) {
+        const capRaw = Number(numberCells[5]);
+        if (capRaw > 0) marketCap = capRaw; // 이미 억 단위
       }
-      const v = d.marketValue || d.marketCap || d.totalMarketValue ||
-                d?.stockInfo?.marketValue || d?.stockInfo?.marketCap;
-      return parseMktCap(v);
-    };
 
-    await Promise.allSettled(basicList.map(async (s) => {
-      if (!s.code) return;
-      try {
-        const r2 = await fetch(
-          `https://m.stock.naver.com/api/stock/${s.code}/integration`,
-          { headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/' } }
-        );
-        if (!r2.ok) return;
-        const d2 = await r2.json();
-        const cap = getMktCap(d2);
-        if (cap && cap > 0) { s.marketCap = cap; return; }
-        // 폴백: Yahoo Finance sharesOutstanding
-        const yr = await fetch(
-          `https://query1.finance.yahoo.com/v8/finance/chart/${s.code}${suffix}?interval=1d&range=1d`,
-          { headers: { 'User-Agent': 'Mozilla/5.0' } }
-        );
-        const yd = await yr.json();
-        const meta = yd?.chart?.result?.[0]?.meta;
-        if (meta?.sharesOutstanding && meta?.regularMarketPrice) {
-          s.marketCap = Math.round(meta.sharesOutstanding * meta.regularMarketPrice / 100000000);
-        }
-      } catch {}
-    }));
+      rows.push({ rank: rows.length + 1, name, price, pct, isUp, marketCap, code });
+    }
 
-    return basicList.map(({ code, ...rest }) => rest);
-  } catch {
+    if (rows.length >= 5) {
+      return rows.slice(0, 10).map(({ code, ...rest }) => rest);
+    }
+
+    // 파싱 실패 시 네이버 JSON API 시도
+    const jsonUrl = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
+    const jr = await fetch(jsonUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Referer': 'https://m.stock.naver.com/' }
+    });
+    if (jr.ok) {
+      const jd = await jr.json();
+      const jStocks = jd?.stocks || jd?.list || (Array.isArray(jd) ? jd : null);
+      if (jStocks && jStocks.length >= 5) {
+        return jStocks.slice(0, 10).map((s, i) => {
+          const p = Number(s.closePrice || s.currentPrice || 0);
+          const prev = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
+          const chg = p - prev;
+          const pctVal = prev > 0 ? (chg / prev * 100) : 0;
+          const up = chg >= 0;
+          return {
+            rank: i + 1,
+            name: s.stockName || s.name || '',
+            price: p,
+            change: Math.round(chg),
+            pct: (up ? '+' : '') + pctVal.toFixed(2) + '%',
+            isUp: up,
+            marketCap: null,
+          };
+        }).filter(s => s.name && s.price > 0);
+      }
+    }
+
+    return fetchMarketCapFallback(sosok);
+  } catch(e) {
+    console.error('fetchMarketCap error:', e.message);
     return fetchMarketCapFallback(sosok);
   }
 }
