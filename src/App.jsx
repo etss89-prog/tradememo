@@ -1364,7 +1364,7 @@ export default function App() {
           <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 홈(시장현황) 버튼 */}
-          <button onClick={() => { if (activeTab !== "home") { setActiveTab("home"); if (!marketData) loadMarketData(); } else { setActiveTab("portfolio"); } }}
+          <button onClick={() => { setActiveTab(activeTab === "home" ? "portfolio" : "home"); if (!marketData) loadMarketData(); }}
             style={{ background: activeTab === "home" ? (darkMode?"#1e3a5f":"#dbeafe") : T.section, border: `1px solid ${activeTab==="home"?"#3b82f6":T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1, color: activeTab==="home"?"#3b82f6":T.textMuted }}
             title="시장 현황">🏠</button>
           {/* 다크/라이트 토글 */}
@@ -1821,17 +1821,23 @@ export default function App() {
             };
 
             // 종목 등락 리스트
+            // 시가총액 포맷 (억/조 단위)
+            const formatMktCap = (v) => {
+              if (!v || v <= 0) return null;
+              if (v >= 10000) return (v/10000).toFixed(0) + '조';
+              return v.toLocaleString() + '억';
+            };
+
             const renderStockList = (stocks) => {
               if (!stocks || stocks.length === 0) return <div style={{ color:T.textMuted, fontSize:11, textAlign:"center", padding:"8px" }}>데이터 없음</div>;
               return stocks.map((s, i) => (
-                <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"4px 0", borderBottom: i < stocks.length-1 ? `1px solid ${T.cardBorder}` : "none" }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
-                    <span style={{ fontSize:10, color:T.textMuted, minWidth:16 }}>{s.rank}</span>
-                    <span style={{ fontSize:12, fontWeight:600, color:T.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name}</span>
-                  </div>
+                <div key={i} style={{ display:"flex", alignItems:"center", padding:"5px 0", borderBottom: i < stocks.length-1 ? `1px solid ${T.cardBorder}` : "none", gap:4 }}>
+                  <span style={{ fontSize:10, color:T.textMuted, minWidth:16, flexShrink:0 }}>{s.rank}</span>
+                  <span style={{ fontSize:11, fontWeight:600, color:T.text, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.name}</span>
                   <div style={{ textAlign:"right", flexShrink:0 }}>
-                    <div style={{ fontSize:11, fontWeight:700, color:T.text }}>{s.price?.toLocaleString()}</div>
-                    <div style={{ fontSize:10, fontWeight:600, color: s.isUp ? "#ef4444" : "#3b82f6" }}>{s.pct}%</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:T.text }}>{s.price?.toLocaleString()}원</div>
+                    {formatMktCap(s.marketCap) && <div style={{ fontSize:9, color:T.textMuted }}>{formatMktCap(s.marketCap)}</div>}
+                    <div style={{ fontSize:10, fontWeight:700, color: s.isUp ? "#ef4444" : "#3b82f6" }}>{s.pct}</div>
                   </div>
                 </div>
               ));
