@@ -340,13 +340,12 @@ export default async function handler(req, res) {
       const { symbol, range, firstPerfDate } = req.body;
       if (!symbol) return res.status(400).json({ error: 'symbol 필요' });
       try {
-        // 기간 계산
+        // range: '1m'|'3m'|'6m'|'all' → Yahoo Finance range 변환
         let yRange = '1mo';
         if (range === '1m') yRange = '1mo';
         else if (range === '3m') yRange = '3mo';
         else if (range === '6m') yRange = '6mo';
         else if (range === 'all') {
-          // 첫 성과 기록 날짜부터 오늘까지
           if (firstPerfDate) {
             const daysDiff = Math.ceil((Date.now() - new Date(firstPerfDate)) / (1000*60*60*24));
             yRange = daysDiff > 365 ? '2y' : daysDiff > 180 ? '1y' : daysDiff > 90 ? '6mo' : daysDiff > 30 ? '3mo' : '1mo';
@@ -355,8 +354,8 @@ export default async function handler(req, res) {
           }
         }
 
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${yRange}`;
-        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${yRange}`;
+        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
         const d = await r.json();
         const result = d?.chart?.result?.[0];
         if (!result?.timestamp) return res.status(200).json({ data: [] });
