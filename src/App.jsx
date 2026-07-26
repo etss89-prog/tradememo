@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2.6";
+const VERSION = "v1.2.7";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -70,11 +70,20 @@ function compressImage(file, maxWidth = 800) {
 }
 
 const COLORS = [
-  "#06b6d4","#0891b2","#0e7490","#3b82f6","#1d4ed8","#60a5fa",
-  "#a78bfa","#7c3aed","#c4b5fd","#22c55e","#15803d","#86efac",
-  "#f59e0b","#b45309","#fcd34d","#ef4444","#b91c1c","#fca5a5",
-  "#ec4899","#be185d","#f9a8d4","#84cc16","#4d7c0f","#bef264",
-  "#f97316","#c2410c","#fdba74","#8b5cf6","#6d28d9","#c084fc",
+  "#3b82f6", // 1위 - 파랑
+  "#ef4444", // 2위 - 빨강
+  "#22c55e", // 3위 - 초록
+  "#f59e0b", // 4위 - 주황
+  "#a78bfa", // 5위 - 보라
+  "#ec4899", // 6위 - 핑크
+  "#06b6d4", // 7위 - 시안
+  "#84cc16", // 8위 - 연두
+  "#f97316", // 9위 - 오렌지
+  "#8b5cf6", // 10위 - 진보라
+  "#0e7490","#b91c1c","#15803d","#b45309","#6d28d9",
+  "#be185d","#0891b2","#4d7c0f","#c2410c","#1d4ed8",
+  "#fcd34d","#86efac","#fca5a5","#c4b5fd","#fdba74",
+  "#f9a8d4","#bef264","#c084fc","#60a5fa","#a3e635",
 ];
 
 function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, T }) {
