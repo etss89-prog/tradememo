@@ -340,8 +340,17 @@ export default async function handler(req, res) {
       const { symbol, range } = req.body;
       if (!symbol) return res.status(400).json({ error: 'symbol 필요' });
       try {
-        const rangeMap = { '1mo': '1mo', '3mo': '3mo', '6mo': '6mo', '1y': '1y' };
-        const yRange = rangeMap[range] || '1mo';
+        const { firstPerfDate } = req.body;
+      const rangeMap = { '1mo': '1mo', '3mo': '3mo', '6mo': '6mo' };
+      let yRange = rangeMap[range] || '1mo';
+      if (range === 'all' || !rangeMap[range]) {
+        if (firstPerfDate) {
+          const daysDiff = Math.ceil((Date.now() - new Date(firstPerfDate)) / (1000*60*60*24));
+          yRange = daysDiff > 365 ? '2y' : daysDiff > 180 ? '1y' : daysDiff > 90 ? '6mo' : daysDiff > 30 ? '3mo' : '1mo';
+        } else {
+          yRange = '1y';
+        }
+      }
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${yRange}`;
         const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
         const d = await r.json();
