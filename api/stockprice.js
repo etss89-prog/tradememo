@@ -335,6 +335,30 @@ export default async function handler(req, res) {
   try {
     const { type, tickers, stocks } = req.body;
 
+    // ✅ 지수 기간 차트 조회 (투자성과 대시보드용)
+    if (type === 'indexChart') {
+      const { symbol, range } = req.body;
+      if (!symbol) return res.status(400).json({ error: 'symbol 필요' });
+      try {
+        const rangeMap = { '1mo': '1mo', '3mo': '3mo', '6mo': '6mo', '1y': '1y' };
+        const yRange = rangeMap[range] || '1mo';
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=${yRange}`;
+        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const d = await r.json();
+        const result = d?.chart?.result?.[0];
+        if (!result?.timestamp) return res.status(200).json({ data: [] });
+        const ts = result.timestamp;
+        const closes = result.indicators?.quote?.[0]?.close || [];
+        const data = ts.map((t, i) => ({
+          date: new Date(t * 1000).toISOString().split('T')[0],
+          close: closes[i] ? Math.round(closes[i] * 100) / 100 : null,
+        })).filter(d => d.close !== null);
+        return res.status(200).json({ data });
+      } catch(e) {
+        return res.status(200).json({ data: [], error: e.message });
+      }
+    }
+
     // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트)
     if (type === 'market') {
       const results = await Promise.all([
