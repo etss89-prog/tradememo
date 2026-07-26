@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.3.7";
+const VERSION = "v1.3.8";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -585,13 +585,9 @@ export default function App() {
       const rangeMap = { '1m': '1mo', '3m': '3mo', '6m': '6mo', 'all': '1y' };
       let yRange = rangeMap[range] || '1mo';
 
-      // 전체 기간: 첫 성과 기록 날짜 기준으로 동적 계산
+      // 전체 기간: 항상 1년으로 고정 (성과 기록과 무관하게 코스피/코스닥 전체 흐름 보기)
       if (range === 'all') {
-        const firstDate = Object.keys(performance).sort()[0];
-        if (firstDate) {
-          const days = Math.ceil((Date.now() - new Date(firstDate)) / 86400000);
-          yRange = days > 365 ? '2y' : days > 180 ? '1y' : days > 90 ? '6mo' : days > 30 ? '3mo' : '1mo';
-        }
+        yRange = '1y';
       }
 
       // chart.js API 재사용 (Yahoo Finance 프록시)
