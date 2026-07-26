@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2.7";
+const VERSION = "v1.2.8";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -386,8 +386,13 @@ export default function App() {
           portfoliosToSet = Object.fromEntries(Object.entries(d.portfolios).map(([accId, p]) => [accId, {
             ...p, stocks: (p.stocks || []).map(s => {
               const lp = d.livePrices[s.ticker];
-              if (!lp || s.approximateData || s.isOverseas) return s;
-              return { ...s, currentPrice: lp, currentValue: lp * s.quantity };
+              if (!lp || s.approximateData) return s;
+              if (s.isOverseas) {
+                const krwPrice = typeof lp === 'object' ? lp.krw : lp;
+                if (!krwPrice) return s;
+                return { ...s, currentValue: Math.round(krwPrice * s.quantity) };
+              }
+              return { ...s, currentPrice: lp, currentValue: Math.round(lp * s.quantity) };
             })
           }]));
         }
@@ -417,8 +422,13 @@ export default function App() {
           return Object.fromEntries(Object.entries(prev).map(([accId, p]) => [accId, {
             ...p, stocks: (p.stocks || []).map(s => {
               const lp = d.livePrices[s.ticker];
-              if (!lp || s.approximateData || s.isOverseas) return s;
-              return { ...s, currentPrice: lp, currentValue: lp * s.quantity };
+              if (!lp || s.approximateData) return s;
+              if (s.isOverseas) {
+                const krwPrice = typeof lp === 'object' ? lp.krw : lp;
+                if (!krwPrice) return s;
+                return { ...s, currentValue: Math.round(krwPrice * s.quantity) };
+              }
+              return { ...s, currentPrice: lp, currentValue: Math.round(lp * s.quantity) };
             })
           }]));
         });
@@ -685,7 +695,7 @@ export default function App() {
     const qty = parseInt(editStockQty), avg = parseInt(editStockAvg.replace(/,/g, ""));
     if (isNaN(qty) || isNaN(avg)) return alert("수량과 평단가를 올바르게 입력해주세요.");
     const existing = portfolios[accountId]; if (!existing) return;
-    const updatedStocks = existing.stocks.map(s => s.ticker === stock.ticker ? { ...s, quantity: qty, avgBuyPrice: avg, currentValue: (livePrices[s.ticker] || s.currentPrice) * qty } : s);
+    const updatedStocks = existing.stocks.map(s => s.ticker === stock.ticker ? { ...s, quantity: qty, avgBuyPrice: avg, currentValue: Math.round((livePrices[s.ticker] || s.currentPrice) * qty) } : s);
     const totalValue = updatedStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0);
     const newPortfolios = { ...portfolios, [accountId]: { ...existing, stocks: updatedStocks, totalValue } };
     setPortfolios(newPortfolios); setEditStockModal(null); setEditStockQty(""); setEditStockAvg("");
@@ -745,8 +755,12 @@ export default function App() {
         const newTickers = new Set(data.stocks.map(s => s.ticker));
         allStocks = [...existing.stocks.filter(s => !newTickers.has(s.ticker)), ...data.stocks];
       }
-      allStocks = allStocks.map(s => s.approximateData ? { ...s, currentValue: s.currentPrice } : { ...s, currentValue: s.currentPrice * s.quantity });
-      const totalValue = allStocks.reduce((sum, s) => sum + s.currentValue, 0);
+      allStocks = allStocks.map(s => {
+        if (s.approximateData) return { ...s, currentValue: s.currentPrice };
+        if (s.isOverseas) return { ...s, currentValue: Math.round(s.currentValue || 0) }; // 해외주식: 원화 평가금액 그대로 사용, 소수점 제거
+        return { ...s, currentValue: Math.round(s.currentPrice * s.quantity) }; // 국내: 소수점 제거
+      });
+      const totalValue = Math.round(allStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0));
       const isApproximate = data.stocks?.some(s => s.approximateData === true);
       const merged = { stocks: allStocks, totalValue, approximateData: isApproximate };
       const newPortfolios = { ...portfolios, [accountId]: merged };
@@ -866,7 +880,7 @@ export default function App() {
       const allNormalStocks = allPortfolios.flatMap(p => (p.stocks||[]).filter(s => !s.approximateData));
       const merged = Object.values(allNormalStocks.reduce((acc, s) => {
         if (s.isOverseas) {
-          const krwValue = livePrices[s.ticker] ? livePrices[s.ticker] * s.quantity : s.currentValue;
+          const krwValue = livePrices[s.ticker] ? Math.round(livePrices[s.ticker] * s.quantity) : Math.round(s.currentValue || 0);
           if (!acc[s.ticker]) acc[s.ticker] = { ...s, currentValue: krwValue };
           else { acc[s.ticker].quantity += s.quantity; acc[s.ticker].currentValue += krwValue; }
           return acc;
@@ -886,7 +900,15 @@ export default function App() {
     }
     const p = portfolios[activeAccount]; if (!p) return null;
     if (p.approximateData) return p;
-    const stocks = (p.stocks||[]).map(s => { const cur = livePrices[s.ticker] || s.currentPrice; return { ...s, currentValue: cur * s.quantity }; });
+    const stocks = (p.stocks||[]).map(s => {
+      if (s.approximateData || s.isCash) return s;
+      if (s.isOverseas) {
+        const krwPrice = livePrices[s.ticker]; // 이미 krw 원화값
+        return { ...s, currentValue: krwPrice ? Math.round(krwPrice * s.quantity) : Math.round(s.currentValue || 0) };
+      }
+      const cur = livePrices[s.ticker] || s.currentPrice;
+      return { ...s, currentValue: Math.round(cur * s.quantity) };
+    });
     return { ...p, stocks, totalValue: stocks.reduce((sum, s) => sum + s.currentValue, 0) };
   })();
 
@@ -1711,7 +1733,7 @@ export default function App() {
                     } : null}
                     data={displayPortfolio.stocks?.map(s => {
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
-                      const value = s.isOverseas ? (livePrices[s.ticker] ? livePrices[s.ticker] * s.quantity : s.currentValue) : currentPrice * s.quantity;
+                      const value = s.isOverseas ? Math.round(livePrices[s.ticker] ? livePrices[s.ticker] * s.quantity : (s.currentValue || 0)) : Math.round(currentPrice * s.quantity);
                       return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate, approximateData: s.approximateData, isCash: s.isCash || false };
                     })} />
                 </>
