@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2.8";
+const VERSION = "v1.2.9";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -125,7 +125,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, T 
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 3, flex: 2, minWidth: 0 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                <span style={{ color: T.text, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.ticker}</span>
+                <span style={{ color: T.text, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.ticker}{s.tickerCode && s.isOverseas ? <span style={{ fontSize: 9, color: T.textMuted, fontWeight: 400, marginLeft: 2 }}>{s.tickerCode}</span> : null}</span>
               </div>
               <span style={{ flex: 1, color: s.color, fontWeight: 700, textAlign: "center", fontSize: 11, whiteSpace: "nowrap" }}>{Number(s.pct).toFixed(1)}%</span>
               <span style={{ flex: 1, color: T.textSub, textAlign: "right", fontSize: 11, whiteSpace: "nowrap" }}>{s.avgPrice?.toLocaleString()}원</span>
@@ -187,7 +187,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
             const ColItem = ({ s }) => (
               <div style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 4 }}>
                 <div style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-                <span style={{ fontSize: 10, color: s.isEtc ? T.textMuted : T.text, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.ticker}</span>
+                <span style={{ fontSize: 10, color: s.isEtc ? T.textMuted : T.text, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{s.ticker}{s.tickerCode && s.isOverseas ? <span style={{ fontSize: 9, color: T.textMuted, fontWeight: 400, marginLeft: 2 }}>{s.tickerCode}</span> : null}</span>
                 <span style={{ fontSize: 10, color: s.isEtc ? T.textMuted : T.textSub, fontWeight: 700, flexShrink: 0, marginLeft: 2 }}>{Number(s.pct).toFixed(1)}%</span>
               </div>
             );
@@ -214,7 +214,7 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
               <span onClick={() => !s.isCash && onChart && onChart(s)}
                 style={{ color: s.isCash ? "#f59e0b" : T.text, fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: (!s.isCash && onChart) ? "pointer" : "default", textDecoration: (!s.isCash && onChart) ? "underline dotted" : "none" }}>
-                {s.ticker}
+                {s.ticker}{s.tickerCode && s.isOverseas ? <span style={{ fontSize: 10, color: T.textMuted, fontWeight: 400, marginLeft: 3 }}>{s.tickerCode}</span> : null}
               </span>
               {isAdmin && onEdit && !s.isCash && (
                 <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}>✏️</button>
