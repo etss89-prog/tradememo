@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     const token = process.env.KV_REST_API_TOKEN;
     if (!url || !token) return res.status(500).json({ error: 'DB not configured' });
 
-    const [recRes, portRes, accRes, mainRes, priceRes, memoRes] = await Promise.all([
+    const [recRes, portRes, accRes, mainRes, priceRes, memoRes, perfRes] = await Promise.all([
       fetch(`${url}/get/tradememo_records`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_portfolios`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_accounts`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -35,10 +35,9 @@ export default async function handler(req, res) {
       accounts: accounts || [],
       mainText: mainText || null,
       livePrices: priceData?.livePrices || {},
+      priceUpdatedAt: priceData?.priceUpdatedAt || null,
       memos: memos || {},
       performance: perfData || {},
-      performance: perfData || {},
-      priceUpdatedAt: priceData?.priceUpdatedAt || null,
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
