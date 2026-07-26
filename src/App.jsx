@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2.5";
+const VERSION = "v1.2.6";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -651,7 +651,7 @@ export default function App() {
   async function saveMainText(htmlContent) {
     const final = { ...editDraft, html: htmlContent || null };
     setMainText(final); setEditingMain(false);
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios, accounts, mainText: final }) });
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios, accounts, mainText: final }) });
   }
 
   async function addAccount() {
@@ -659,7 +659,7 @@ export default function App() {
     const id = "acc_" + Date.now();
     const newAccounts = [...accounts, { id, name }];
     setAccounts(newAccounts); setNewAccName(""); setAddAccModal(false);
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios, accounts: newAccounts, mainText }) });
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios, accounts: newAccounts, mainText }) });
   }
   async function deleteAccount(accountId) {
     const acc = accounts.find(a => a.id === accountId);
@@ -680,7 +680,7 @@ export default function App() {
     const totalValue = updatedStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0);
     const newPortfolios = { ...portfolios, [accountId]: { ...existing, stocks: updatedStocks, totalValue } };
     setPortfolios(newPortfolios); setEditStockModal(null); setEditStockQty(""); setEditStockAvg("");
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
     alert(`✅ ${stock.ticker} 수정 완료!`);
   }
   async function deleteStock(accountId, ticker) {
@@ -690,7 +690,7 @@ export default function App() {
     const totalValue = updatedStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0);
     const newPortfolios = { ...portfolios, [accountId]: { ...existing, stocks: updatedStocks, totalValue } };
     setPortfolios(newPortfolios);
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
   }
   async function saveManualStock() {
     const pin = sessionStorage.getItem('jb_pin') || '';
@@ -720,7 +720,7 @@ export default function App() {
     const totalValue = stocks.reduce((s, st) => s + st.currentValue, 0);
     const newPortfolios = { ...portfolios, [accountId]: { stocks, totalValue } };
     setPortfolios(newPortfolios);
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
     setManualTicker(""); setManualTickerCode(""); setManualQty(""); setManualAvg(""); setManualPrice(""); setManualModal(null);
     alert(`✅ ${ticker} 저장 완료!`);
   }
@@ -742,7 +742,7 @@ export default function App() {
       const merged = { stocks: allStocks, totalValue, approximateData: isApproximate };
       const newPortfolios = { ...portfolios, [accountId]: merged };
       setPortfolios(newPortfolios);
-      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
+      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
       alert(existing?.stocks ? `✅ 추가 완료! 총 ${merged.stocks.length}종목` : `✅ 저장 완료! ${merged.stocks.length}종목`);
     } catch(e) { alert("오류: " + e.message); }
     setPortfolioLoading(null);
