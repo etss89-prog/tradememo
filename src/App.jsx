@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2.0";
+const VERSION = "v1.2.1";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -276,7 +276,8 @@ export default function App() {
   const [marketData, setMarketData] = useState(null);
   const [marketLoading, setMarketLoading] = useState(false);
   const [performance, setPerformance] = useState({}); // 날짜별 성과 데이터
-  const [perfSaving, setPerfSaving] = useState(false); // 저장 중 상태
+  const [perfSaving, setPerfSaving] = useState(false);
+  const [perfRange, setPerfRange] = useState('all'); // 투자성과 기간 필터
   const [historySubTab, setHistorySubTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -398,13 +399,11 @@ export default function App() {
       }).catch(() => {});
     }, 5 * 60 * 1000); // 5분
 
-    return () => { clearInterval(priceRefreshInterval); clearInterval(marketInterval); };
+    return () => clearInterval(priceRefreshInterval);
   }, []);
 
   useEffect(() => {
-    // 시장 데이터 로드
     loadMarketData();
-    // 5분마다 시장 데이터 갱신
     const marketInterval = setInterval(loadMarketData, 5 * 60 * 1000);
 
     fetch("/api/diary-load").then(r => r.json()).then(d => {
@@ -413,6 +412,7 @@ export default function App() {
         d.posts.forEach(p => { if (p.linkUrl) fetchLinkPreview(p.linkUrl, p.id); });
       }
     }).catch(() => {});
+    return () => clearInterval(marketInterval);
   }, []);
 
   useEffect(() => {
@@ -1881,7 +1881,6 @@ export default function App() {
             const lastPerf = lastDate ? performance[lastDate] : null;
 
             // 기간 필터링
-            const [perfRange, setPerfRange] = React.useState('all');
             const filteredDates = (() => {
               if (perfRange === 'all') return perfDates;
               const days = perfRange === '1m' ? 30 : perfRange === '3m' ? 90 : 180;
