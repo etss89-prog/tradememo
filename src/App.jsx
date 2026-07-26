@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.3.8";
+const VERSION = "v1.3.9";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2265,7 +2265,25 @@ export default function App() {
                       {indexChartLoading ? (
                         <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:11 }}>📈 차트 불러오는 중...</div>
                       ) : (
-                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }} onClick={() => setPerfTooltip(null)}>
+                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", cursor:"crosshair" }}
+                          onClick={e => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const mx = (e.clientX - rect.left) / rect.width * W;
+                            // 클릭 X좌표에 해당하는 kospiNorm 인덱스 찾기
+                            if (kospiNorm.length === 0) { setPerfTooltip(null); return; }
+                            const idx = Math.round((mx - PAD.l) / (W - PAD.l - PAD.r) * (totalN - 1));
+                            const clampedIdx = Math.max(0, Math.min(totalN - 1, idx));
+                            const kd = kospiNorm[clampedIdx];
+                            const qd = kosdaqNorm[clampedIdx];
+                            if (!kd) { setPerfTooltip(null); return; }
+                            setPerfTooltip({
+                              date: kd.date,
+                              kospiVal: kd.val,
+                              kosdaqVal: qd?.val || null,
+                              kospiClose: kospiLine[clampedIdx]?.close,
+                              kosdaqClose: kosdaqLine[clampedIdx]?.close,
+                            });
+                          }}>
                           {yLabels.map((yl, i) => (
                             <g key={i}>
                               <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth={i%2===0?"0.6":"0.3"} strokeDasharray="3,3" />
@@ -2286,7 +2304,20 @@ export default function App() {
                                 onClick={e => {
                                   e.stopPropagation();
                                   if (isSelected) { setPerfTooltip(null); return; }
-                                  setPerfTooltip({ date: dot.date, myVal: dot.val, kospi: perfDay?.kospi, kosdaq: perfDay?.kosdaq, kospiIndex: perfDay?.kospiIndex, kosdaqIndex: perfDay?.kosdaqIndex });
+                                  // 타점 클릭: 내 포트 + 그날 코스피/코스닥
+                                  const dotIdx = kospiDateMap[dot.date] ?? (() => {
+                                    let mi = 0, minD = Infinity;
+                                    kospiNorm.forEach((d,i) => { const diff = Math.abs(new Date(d.date)-new Date(dot.date)); if(diff<minD){minD=diff;mi=i;} });
+                                    return mi;
+                                  })();
+                                  setPerfTooltip({
+                                    date: dot.date,
+                                    myVal: dot.val,
+                                    kospiVal: kospiNorm[dotIdx]?.val,
+                                    kosdaqVal: kosdaqNorm[dotIdx]?.val,
+                                    kospiClose: kospiLine[dotIdx]?.close,
+                                    kosdaqClose: kosdaqLine[dotIdx]?.close,
+                                  });
                                 }}>
                                 {/* 클릭 영역 확대 */}
                                 <circle cx={dot.x} cy={dot.y} r="12" fill="transparent" />
@@ -2311,26 +2342,39 @@ export default function App() {
                       {/* 툴팁 */}
                       {perfTooltip && (
                         <div style={{ margin:"6px 0 4px", padding:"10px 14px", background:T.section, border:`1px solid ${T.border}`, borderRadius:10, fontSize:12 }}>
-                          <div style={{ fontWeight:700, color:T.text, marginBottom:6, fontSize:13 }}>{perfTooltip.date}</div>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                            <div style={{ fontWeight:700, color:T.text, fontSize:13 }}>{perfTooltip.date}</div>
+                            <button onClick={() => setPerfTooltip(null)} style={{ background:"none", border:"none", color:T.textMuted, fontSize:14, cursor:"pointer", lineHeight:1 }}>✕</button>
+                          </div>
                           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
-                            <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
-                              <div style={{ fontSize:9, color:T.textMuted }}>내 포트</div>
-                              <div style={{ fontSize:13, fontWeight:800, color: perfTooltip.myVal >= 100 ? "#ef4444" : "#3b82f6" }}>
-                                {perfTooltip.myVal >= 100 ? '+' : ''}{(perfTooltip.myVal - 100).toFixed(2)}%
-                              </div>
+                            {/* 내 포트 - 타점 클릭 시만 표시 */}
+                            <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px", opacity: perfTooltip.myVal !== undefined ? 1 : 0.4 }}>
+                              <div style={{ fontSize:9, color:"#3b82f6", fontWeight:700 }}>● 내 포트</div>
+                              {perfTooltip.myVal !== undefined
+                                ? <div style={{ fontSize:13, fontWeight:800, color: perfTooltip.myVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                    {perfTooltip.myVal >= 100 ? '+' : ''}{(perfTooltip.myVal - 100).toFixed(2)}%
+                                  </div>
+                                : <div style={{ fontSize:11, color:T.textMuted }}>타점 없음</div>
+                              }
                             </div>
+                            {/* 코스피 */}
                             <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
-                              <div style={{ fontSize:9, color:T.textMuted }}>코스피</div>
-                              {perfTooltip.kospi
-                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{perfTooltip.kospi?.toLocaleString()}</div>
-                                    {perfTooltip.kospiIndex && <div style={{ fontSize:10, color: perfTooltip.kospiIndex >= 100 ? "#ef4444" : "#3b82f6" }}>{perfTooltip.kospiIndex >= 100 ? '+' : ''}{(perfTooltip.kospiIndex - 100).toFixed(2)}%</div>}</>
+                              <div style={{ fontSize:9, color:"#f59e0b", fontWeight:700 }}>— 코스피</div>
+                              {perfTooltip.kospiClose
+                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{perfTooltip.kospiClose?.toLocaleString()}</div>
+                                    <div style={{ fontSize:10, color: perfTooltip.kospiVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                      {perfTooltip.kospiVal >= 100 ? '+' : ''}{(perfTooltip.kospiVal - 100).toFixed(2)}%
+                                    </div></>
                                 : <div style={{ fontSize:11, color:T.textMuted }}>-</div>}
                             </div>
+                            {/* 코스닥 */}
                             <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
-                              <div style={{ fontSize:9, color:T.textMuted }}>코스닥</div>
-                              {perfTooltip.kosdaq
-                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{perfTooltip.kosdaq?.toLocaleString()}</div>
-                                    {perfTooltip.kosdaqIndex && <div style={{ fontSize:10, color: perfTooltip.kosdaqIndex >= 100 ? "#ef4444" : "#3b82f6" }}>{perfTooltip.kosdaqIndex >= 100 ? '+' : ''}{(perfTooltip.kosdaqIndex - 100).toFixed(2)}%</div>}</>
+                              <div style={{ fontSize:9, color:"#22c55e", fontWeight:700 }}>— 코스닥</div>
+                              {perfTooltip.kosdaqClose
+                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{perfTooltip.kosdaqClose?.toLocaleString()}</div>
+                                    <div style={{ fontSize:10, color: perfTooltip.kosdaqVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                      {perfTooltip.kosdaqVal >= 100 ? '+' : ''}{(perfTooltip.kosdaqVal - 100).toFixed(2)}%
+                                    </div></>
                                 : <div style={{ fontSize:11, color:T.textMuted }}>-</div>}
                             </div>
                           </div>
