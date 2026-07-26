@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2.1";
+const VERSION = "v1.2.4";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -646,11 +646,12 @@ export default function App() {
   }
   async function deleteAccount(accountId) {
     const acc = accounts.find(a => a.id === accountId);
-    if (!window.confirm(`"${acc?.name}" 계좌를 삭제할까요?`)) return;
+    if (!window.confirm(`⚠️ "${acc?.name}" 계좌를 완전히 삭제할까요?\n\n계좌와 포트폴리오 내역이 모두 삭제됩니다.`)) return;
     const newAccounts = accounts.filter(a => a.id !== accountId);
     const newPortfolios = { ...portfolios }; delete newPortfolios[accountId];
     setAccounts(newAccounts); setPortfolios(newPortfolios);
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts: newAccounts, mainText }) });
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, records: allRecords, portfolios: newPortfolios, accounts: newAccounts, mainText }) });
   }
 
   async function saveEditStock() {
@@ -768,9 +769,10 @@ export default function App() {
   }
   async function clearPortfolio(accountId) {
     const accountName = accounts.find(a => a.id === accountId)?.name || "포트폴리오";
-    if (!window.confirm(`${accountName}를 삭제할까요?`)) return;
+    if (!window.confirm(`🗑️ "${accountName}" 포트폴리오 내역을 초기화할까요?\n\n계좌는 유지되고 종목 내역만 삭제됩니다.`)) return;
     const newPortfolios = { ...portfolios }; delete newPortfolios[accountId];
-    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
     setPortfolios(newPortfolios);
   }
   async function clearAll() {
@@ -1473,16 +1475,16 @@ export default function App() {
             : isViewer ? <button style={S.adminTag} onClick={() => setIsViewer(false)}>조회중 ✕</button>
             : <button style={S.loginTag} onClick={() => setShowPin(true)}>관리자</button>}
         </div>
-        <p style={S.sub}>{isAdmin ? "📤 이미지 올려서 분석 후 저장" : isViewer ? "📊 존버 매매기록 조회 중" : ""}</p>
-        {isAdmin && (
+        <p style={S.sub}>{isAdmin && activeTab !== "home" ? "📤 이미지 올려서 분석 후 저장" : isViewer && activeTab !== "home" ? "📊 존버 매매기록 조회 중" : ""}</p>
+        {isAdmin && activeTab !== "home" && (
           <button style={{ ...S.btnSub, fontSize: 11, padding: "4px 14px", marginTop: 8 }} onClick={() => { setEditDraft({ ...mainText }); setEditingMain(true); }}>
             ✏️ 입장화면 편집
           </button>
         )}
       </div>
 
-      {/* 관리자 업로드 영역 */}
-      {isAdmin && (
+      {/* 관리자 업로드 영역 - 홈 탭일 때 숨김 */}
+      {isAdmin && activeTab !== "home" && (
         <>
           <div style={{ ...S.drop, ...(dragOver ? S.dropOn : {}) }}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)}
@@ -1539,8 +1541,8 @@ export default function App() {
                   </button>
                   <button style={{ background: darkMode ? "#1a2a1a" : "#dcfce7", border: "1px solid #166534", borderRadius: 8, color: "#4ade80", padding: "5px 10px", fontSize: 12, cursor: "pointer", flexShrink: 0 }}
                     onClick={() => { setManualModal({ accountId: acc.id }); setManualTicker(""); setManualTickerCode(""); setManualQty(""); setManualAvg(""); setManualPrice(""); }}>✏️</button>
-                  {portfolios[acc.id] && <button style={{ background: T.btnDangerBg, border: `1px solid ${T.btnDangerBorder}`, borderRadius: 8, color: T.btnDangerText, padding: "5px 10px", fontSize: 12, cursor: "pointer", flexShrink: 0 }} onClick={() => clearPortfolio(acc.id)}>🗑️</button>}
-                  <button style={{ background: T.btnDangerBg, border: `1px solid ${T.btnDangerBorder}`, borderRadius: 8, color: T.textMuted, padding: "5px 8px", fontSize: 11, cursor: "pointer", flexShrink: 0 }} onClick={() => deleteAccount(acc.id)}>✕</button>
+                  {portfolios[acc.id] && <button title="포트폴리오 내역 초기화 (계좌 유지)" style={{ background: T.btnDangerBg, border: `1px solid ${T.btnDangerBorder}`, borderRadius: 8, color: T.btnDangerText, padding: "5px 10px", fontSize: 12, cursor: "pointer", flexShrink: 0 }} onClick={() => clearPortfolio(acc.id)}>🗑️</button>}
+                  <button title="계좌 완전 삭제" style={{ background: T.btnDangerBg, border: `1px solid ${T.btnDangerBorder}`, borderRadius: 8, color: T.textMuted, padding: "5px 8px", fontSize: 11, cursor: "pointer", flexShrink: 0 }} onClick={() => deleteAccount(acc.id)}>✕</button>
                 </div>
               ))}
             </div>
