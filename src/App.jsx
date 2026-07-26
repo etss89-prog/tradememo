@@ -593,9 +593,9 @@ export default function App() {
       // chart.js API 재사용 (Yahoo Finance 프록시)
       const [ksRes, kqRes] = await Promise.all([
         fetch('/api/chart', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker: 'KOSPI', tickerCode: '^KS11', timeframe: 'day', range: yRange, isOverseas: true }) }),
+          body: JSON.stringify({ ticker: 'KOSPI', tickerCode: '^KS11', timeframe: 'day', range: yRange, isOverseas: false }) }),
         fetch('/api/chart', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ticker: 'KOSDAQ', tickerCode: '^KQ11', timeframe: 'day', range: yRange, isOverseas: true }) }),
+          body: JSON.stringify({ ticker: 'KOSDAQ', tickerCode: '^KQ11', timeframe: 'day', range: yRange, isOverseas: false }) }),
       ]);
       const [ksData, kqData] = await Promise.all([ksRes.json(), kqRes.json()]);
 
@@ -2361,7 +2361,7 @@ export default function App() {
                             <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
                               <div style={{ fontSize:9, color:"#f59e0b", fontWeight:700 }}>— 코스피</div>
                               {perfTooltip.kospiClose
-                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{(perfTooltip.kospiClose/10).toLocaleString()}</div>
+                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{perfTooltip.kospiClose?.toLocaleString()}</div>
                                     <div style={{ fontSize:10, color: perfTooltip.kospiVal >= 100 ? "#ef4444" : "#3b82f6" }}>
                                       {perfTooltip.kospiVal >= 100 ? '+' : ''}{(perfTooltip.kospiVal - 100).toFixed(2)}%
                                     </div></>
@@ -2371,7 +2371,7 @@ export default function App() {
                             <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
                               <div style={{ fontSize:9, color:"#22c55e", fontWeight:700 }}>— 코스닥</div>
                               {perfTooltip.kosdaqClose
-                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{(perfTooltip.kosdaqClose/10).toLocaleString()}</div>
+                                ? <><div style={{ fontSize:12, fontWeight:700, color:T.text }}>{perfTooltip.kosdaqClose?.toLocaleString()}</div>
                                     <div style={{ fontSize:10, color: perfTooltip.kosdaqVal >= 100 ? "#ef4444" : "#3b82f6" }}>
                                       {perfTooltip.kosdaqVal >= 100 ? '+' : ''}{(perfTooltip.kosdaqVal - 100).toFixed(2)}%
                                     </div></>
