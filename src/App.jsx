@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.3.6";
+const VERSION = "v1.3.7";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -581,16 +581,31 @@ export default function App() {
   async function loadIndexChart(range) {
     setIndexChartLoading(true);
     try {
-      // 캐시 없이 항상 새로 로드 (기간별 다른 데이터 보장)
-      const firstPerfDate = range === 'all' ? (Object.keys(performance).sort()[0] || null) : null;
+      // 기간 → Yahoo Finance range 변환
+      const rangeMap = { '1m': '1mo', '3m': '3mo', '6m': '6mo', 'all': '1y' };
+      let yRange = rangeMap[range] || '1mo';
+
+      // 전체 기간: 첫 성과 기록 날짜 기준으로 동적 계산
+      if (range === 'all') {
+        const firstDate = Object.keys(performance).sort()[0];
+        if (firstDate) {
+          const days = Math.ceil((Date.now() - new Date(firstDate)) / 86400000);
+          yRange = days > 365 ? '2y' : days > 180 ? '1y' : days > 90 ? '6mo' : days > 30 ? '3mo' : '1mo';
+        }
+      }
+
+      // chart.js API 재사용 (Yahoo Finance 프록시)
       const [ksRes, kqRes] = await Promise.all([
-        fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKS11', range, firstPerfDate }) }),
-        fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKQ11', range, firstPerfDate }) }),
+        fetch('/api/chart', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker: 'KOSPI', tickerCode: '^KS11', timeframe: 'day', range: yRange, isOverseas: true }) }),
+        fetch('/api/chart', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticker: 'KOSDAQ', tickerCode: '^KQ11', timeframe: 'day', range: yRange, isOverseas: true }) }),
       ]);
       const [ksData, kqData] = await Promise.all([ksRes.json(), kqRes.json()]);
-      setIndexChartData(prev => ({ ...prev, [range]: { kospi: ksData.data || [], kosdaq: kqData.data || [] } }));
+
+      // chart.js 반환 형식: { candles: [{date, close},...] }
+      const toData = (candles) => (candles || []).map(c => ({ date: c.date, close: c.close }));
+      setIndexChartData(prev => ({ ...prev, [range]: { kospi: toData(ksData.candles), kosdaq: toData(kqData.candles) } }));
     } catch(e) { console.error('indexChart 로드 실패:', e); }
     setIndexChartLoading(false);
   }
