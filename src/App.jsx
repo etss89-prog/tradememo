@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.3";
+const VERSION = "v1.4.4";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -583,7 +583,8 @@ export default function App() {
     try {
       // stockprice.js의 indexChart 타입 사용
       // ^KS11, ^KQ11은 원화 지수 - 환율 변환 없이 원본값 반환
-      const firstPerfDate = range === 'all' ? (Object.keys(performance).sort()[0] || null) : null;
+      // 전체: 항상 1년치 조회 (성과 기록 날짜와 무관하게 코스피/코스닥 흐름 확인)
+      const firstPerfDate = null;
       const [ksRes, kqRes] = await Promise.all([
         fetch('/api/stockprice', {
           method: 'POST',
