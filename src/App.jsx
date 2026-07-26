@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.2.4";
+const VERSION = "v1.2.5";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -203,26 +203,41 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
           <div key={i} style={{ display: "grid", gridTemplateColumns: showWealth ? "1.4fr 0.6fr 0.6fr 1fr 1.1fr" : "1.8fr 0.7fr 0.7fr 1.4fr", padding: "9px 12px", gap: 4, alignItems: "center", borderTop: `1px solid ${T.cardBorder}`, background: i % 2 === 0 ? T.tableRowEven : T.tableRowOdd }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
               <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.color, flexShrink: 0 }} />
-              <span onClick={() => onChart && onChart(s)}
-                style={{ color: T.text, fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: onChart ? "pointer" : "default", textDecoration: onChart ? "underline dotted" : "none" }}>
+              <span onClick={() => !s.isCash && onChart && onChart(s)}
+                style={{ color: s.isCash ? "#f59e0b" : T.text, fontWeight: 600, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: (!s.isCash && onChart) ? "pointer" : "default", textDecoration: (!s.isCash && onChart) ? "underline dotted" : "none" }}>
                 {s.ticker}
               </span>
-              {isAdmin && onEdit && (
+              {isAdmin && onEdit && !s.isCash && (
                 <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}>✏️</button>
               )}
             </div>
             <span style={{ color: T.text, fontWeight: 700, fontSize: 12, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
-            <span style={{ fontSize: 12, textAlign: "center", fontWeight: 700, color: s.ret === null ? T.textMuted : s.ret >= 0 ? "#ef4444" : "#3b82f6" }}>
-              {s.ret !== null ? (s.ret >= 0 ? "+" : "") + s.ret.toFixed(1) + "%" : "-"}
+            <span style={{ fontSize: 12, textAlign: "center", fontWeight: 700, color: s.isCash ? T.textMuted : s.ret === null ? T.textMuted : s.ret >= 0 ? "#ef4444" : "#3b82f6" }}>
+              {s.isCash ? "-" : s.ret !== null ? (s.ret >= 0 ? "+" : "") + s.ret.toFixed(1) + "%" : "-"}
             </span>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 11, color: T.textMuted }}>{s.avgBuy?.toLocaleString()}원</div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{s.current?.toLocaleString()}원</div>
+              {s.isCash ? (
+                isAdmin
+                  ? <div style={{ fontSize: 12, fontWeight: 600, color: "#f59e0b" }}>{s.current?.toLocaleString()}원</div>
+                  : <div style={{ fontSize: 11, color: T.textMuted }}>비공개</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 11, color: T.textMuted }}>{s.avgBuy?.toLocaleString()}원</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{s.current?.toLocaleString()}원</div>
+                </>
+              )}
             </div>
             {showWealth && (
               <div style={{ textAlign: "right" }}>
-                {s.approximateData ? <div style={{ fontSize: 10, color: "#f59e0b" }}>금액기준</div> : <div style={{ fontSize: 11, color: "#22c55e" }}>{s.qty?.toLocaleString()}주</div>}
-                <div style={{ fontSize: 12, fontWeight: 700, color: s.approximateData ? "#f59e0b" : "#22c55e" }}>{s.value?.toLocaleString()}원</div>
+                {s.isCash ? (
+                  isAdmin
+                    ? <div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>{s.value?.toLocaleString()}원</div>
+                    : <div style={{ fontSize: 11, color: T.textMuted }}>예수금 {Number(s.pct).toFixed(1)}%</div>
+                ) : s.approximateData ? (
+                  <><div style={{ fontSize: 10, color: "#f59e0b" }}>금액기준</div><div style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>{s.value?.toLocaleString()}원</div></>
+                ) : (
+                  <><div style={{ fontSize: 11, color: "#22c55e" }}>{s.qty?.toLocaleString()}주</div><div style={{ fontSize: 12, fontWeight: 700, color: "#22c55e" }}>{s.value?.toLocaleString()}원</div></>
+                )}
               </div>
             )}
           </div>
@@ -302,6 +317,8 @@ export default function App() {
   const [newAccName, setNewAccName] = useState("");
   const [manualModal, setManualModal] = useState(null);
   const [manualTicker, setManualTicker] = useState("");
+  const [manualMode, setManualMode] = useState("stock"); // "stock" | "cash"
+  const [manualCashAmount, setManualCashAmount] = useState("");
   const [manualTickerCode, setManualTickerCode] = useState("");
   const [manualQty, setManualQty] = useState("");
   const [manualAvg, setManualAvg] = useState("");
@@ -676,6 +693,22 @@ export default function App() {
     await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
   }
   async function saveManualStock() {
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    // 예수금 모드
+    if (manualMode === "cash") {
+      const amount = parseInt(manualCashAmount.replace(/,/g, ""));
+      if (!amount || amount <= 0) return alert("예수금 금액을 입력해주세요.");
+      const existing = portfolios[manualModal.accountId] || { stocks: [], totalValue: 0 };
+      const filtered = (existing.stocks || []).filter(s => !s.isCash);
+      const cashStock = { ticker: "예수금", isCash: true, quantity: 1, avgBuyPrice: amount, currentPrice: amount, currentValue: amount };
+      const newStocks = [...filtered, cashStock];
+      const totalValue = newStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0);
+      const newPortfolios = { ...portfolios, [manualModal.accountId]: { ...existing, stocks: newStocks, totalValue } };
+      setPortfolios(newPortfolios);
+      setManualModal(null); setManualCashAmount(""); setManualMode("stock");
+      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
+      return;
+    }
     const ticker = manualTicker.trim(), qty = parseInt(manualQty), avg = parseInt(manualAvg.replace(/,/g,"")), price = parseInt(manualPrice.replace(/,/g,"")) || avg;
     if (!ticker || !qty || !avg) return alert("종목명, 수량, 평단가를 모두 입력해주세요.");
     const accountId = manualModal.accountId;
@@ -1369,24 +1402,46 @@ export default function App() {
       {manualModal && (
         <div style={S.overlay}>
           <div style={{ ...S.modal, width: 300 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: T.text }}>✏️ 수기 종목 입력</div>
-            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 16 }}>{accounts.find(a => a.id === manualModal.accountId)?.name}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
-              {[
-                { label: "종목명", placeholder: "예: SK하이닉스", value: manualTicker, onChange: e => setManualTicker(e.target.value) },
-                { label: "종목코드 (선택 — 입력하면 현재가 자동 갱신)", placeholder: "예: 000660", value: manualTickerCode, onChange: e => setManualTickerCode(e.target.value) },
-                { label: "보유 수량 (주)", placeholder: "예: 10", value: manualQty, onChange: e => setManualQty(e.target.value), type: "number" },
-                { label: "매수 평단가 (원)", placeholder: "예: 185000", value: manualAvg, onChange: e => setManualAvg(e.target.value), type: "number" },
-                { label: "현재가 (원, 선택)", placeholder: "비워두면 평단가로 설정", value: manualPrice, onChange: e => setManualPrice(e.target.value), type: "number" },
-              ].map(f => (
-                <div key={f.label}>
-                  <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>{f.label}</div>
-                  <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }} type={f.type||"text"} placeholder={f.placeholder} value={f.value} onChange={f.onChange} />
-                </div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: T.text }}>✏️ 수기 입력</div>
+            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 12 }}>{accounts.find(a => a.id === manualModal.accountId)?.name}</div>
+            {/* 탭 */}
+            <div style={{ display:"flex", gap:6, marginBottom:16 }}>
+              {[{k:"stock",l:"📈 종목"},{k:"cash",l:"💵 예수금"}].map(tab => (
+                <button key={tab.k} onClick={() => setManualMode(tab.k)}
+                  style={{ flex:1, padding:"6px 0", fontSize:12, fontWeight:700, borderRadius:8, cursor:"pointer", border:"1px solid",
+                    background: manualMode===tab.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
+                    borderColor: manualMode===tab.k ? "#3b82f6" : T.border,
+                    color: manualMode===tab.k ? "#3b82f6" : T.textMuted }}>
+                  {tab.l}
+                </button>
               ))}
             </div>
+            {manualMode === "stock" ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
+                {[
+                  { label: "종목명", placeholder: "예: SK하이닉스", value: manualTicker, onChange: e => setManualTicker(e.target.value) },
+                  { label: "종목코드 (선택 — 입력하면 현재가 자동 갱신)", placeholder: "예: 000660", value: manualTickerCode, onChange: e => setManualTickerCode(e.target.value) },
+                  { label: "보유 수량 (주)", placeholder: "예: 10", value: manualQty, onChange: e => setManualQty(e.target.value), type: "number" },
+                  { label: "매수 평단가 (원)", placeholder: "예: 185000", value: manualAvg, onChange: e => setManualAvg(e.target.value), type: "number" },
+                  { label: "현재가 (원, 선택)", placeholder: "비워두면 평단가로 설정", value: manualPrice, onChange: e => setManualPrice(e.target.value), type: "number" },
+                ].map(f => (
+                  <div key={f.label}>
+                    <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>{f.label}</div>
+                    <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }} type={f.type||"text"} placeholder={f.placeholder} value={f.value} onChange={f.onChange} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: "left" }}>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>예수금 금액 (원)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  type="number" placeholder="예: 1500000" value={manualCashAmount}
+                  onChange={e => setManualCashAmount(e.target.value)} />
+                <div style={{ fontSize: 11, color: T.textMuted, marginTop: 8 }}>💡 계좌당 예수금은 1개만 저장돼요. 다시 입력하면 덮어씌워집니다.</div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setManualModal(null); setManualTicker(""); setManualTickerCode(""); setManualQty(""); setManualAvg(""); setManualPrice(""); }}>취소</button>
+              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setManualModal(null); setManualTicker(""); setManualTickerCode(""); setManualQty(""); setManualAvg(""); setManualPrice(""); setManualMode("stock"); setManualCashAmount(""); }}>취소</button>
               <button style={{ ...S.btnMain, flex: 1 }} onClick={saveManualStock}>저장</button>
             </div>
           </div>
@@ -1648,7 +1703,7 @@ export default function App() {
                     data={displayPortfolio.stocks?.map(s => {
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
                       const value = s.isOverseas ? (livePrices[s.ticker] ? livePrices[s.ticker] * s.quantity : s.currentValue) : currentPrice * s.quantity;
-                      return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate, approximateData: s.approximateData };
+                      return { ticker: s.ticker, value, avgBuy: s.isOverseas ? null : s.avgBuyPrice, current: s.isOverseas ? livePrices[s.ticker] || null : currentPrice, qty: s.quantity, isOverseas: s.isOverseas, returnRate: s.returnRate, approximateData: s.approximateData, isCash: s.isCash || false };
                     })} />
                 </>
               ) : (
