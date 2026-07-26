@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.1.3";
+const VERSION = "v1.2.0";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -275,6 +275,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("portfolio");
   const [marketData, setMarketData] = useState(null);
   const [marketLoading, setMarketLoading] = useState(false);
+  const [performance, setPerformance] = useState({}); // 날짜별 성과 데이터
+  const [perfSaving, setPerfSaving] = useState(false); // 저장 중 상태
   const [historySubTab, setHistorySubTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -369,6 +371,7 @@ export default function App() {
       if (d.livePrices) setLivePrices(d.livePrices);
       if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
       if (d.memos) setMemos(d.memos);
+      if (d.performance) setPerformance(d.performance);
     }).catch(() => {});
     // 5분마다 Redis에서 최신 가격 자동 로드 (다른 사람이 갱신해도 반영)
     const priceRefreshInterval = setInterval(() => {
@@ -439,6 +442,100 @@ export default function App() {
       if (postId) setLinkPreviews(prev => ({ ...prev, [postId]: data }));
       else setPreviewDraft(data);
     } catch {}
+  }
+
+  async function savePerformance() {
+    if (perfSaving) return;
+    setPerfSaving(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+
+      // 전체 포트폴리오 총평가액 계산
+      let totalValue = 0;
+      const accountValues = {};
+      Object.entries(portfolios).forEach(([accId, p]) => {
+        const accValue = (p.stocks || []).reduce((sum, s) => {
+          const price = livePrices[s.ticker] || s.currentPrice || s.avgBuyPrice || 0;
+          return sum + price * (s.quantity || 0);
+        }, 0);
+        accountValues[accId] = accValue;
+        totalValue += accValue;
+      });
+
+      // 어제 데이터
+      const sortedDates = Object.keys(performance).sort();
+      const lastDate = sortedDates[sortedDates.length - 1];
+      const lastData = lastDate ? performance[lastDate] : null;
+
+      // 일간 수익률 계산
+      const prevTotalValue = lastData?.totalValue || totalValue;
+      const dailyReturn = prevTotalValue > 0
+        ? (totalValue - prevTotalValue) / prevTotalValue * 100
+        : 0;
+
+      // 누적 지수 계산 (TWR 방식)
+      const prevIndex = lastData?.cumulativeIndex || 100;
+      const cumulativeIndex = parseFloat((prevIndex * (1 + dailyReturn / 100)).toFixed(4));
+
+      // 코스피/코스닥 현재값
+      const kospi = marketData?.indices?.kospi?.price || null;
+      const kosdaq = marketData?.indices?.kosdaq?.price || null;
+
+      // 코스피/코스닥 누적 지수
+      const prevKospiIndex = lastData?.kospiIndex || 100;
+      const prevKosdaqIndex = lastData?.kosdaqIndex || 100;
+      const prevKospi = lastData?.kospi || kospi;
+      const prevKosdaq = lastData?.kosdaq || kosdaq;
+
+      const kospiDailyReturn = (prevKospi && kospi)
+        ? (kospi - prevKospi) / prevKospi * 100 : 0;
+      const kosdaqDailyReturn = (prevKosdaq && kosdaq)
+        ? (kosdaq - prevKosdaq) / prevKosdaq * 100 : 0;
+
+      const kospiIndex = parseFloat((prevKospiIndex * (1 + kospiDailyReturn / 100)).toFixed(4));
+      const kosdaqIndex = parseFloat((prevKosdaqIndex * (1 + kosdaqDailyReturn / 100)).toFixed(4));
+
+      // 계좌별 누적 지수
+      const accountsPerf = {};
+      Object.entries(accountValues).forEach(([accId, value]) => {
+        const prevAccData = lastData?.accounts?.[accId];
+        const prevAccValue = prevAccData?.value || value;
+        const accDaily = prevAccValue > 0 ? (value - prevAccValue) / prevAccValue * 100 : 0;
+        const prevAccIndex = prevAccData?.cumulativeIndex || 100;
+        accountsPerf[accId] = {
+          value,
+          cumulativeIndex: parseFloat((prevAccIndex * (1 + accDaily / 100)).toFixed(4)),
+        };
+      });
+
+      const todayData = {
+        totalValue: Math.round(totalValue),
+        dailyReturn: parseFloat(dailyReturn.toFixed(4)),
+        cumulativeIndex,
+        kospi, kosdaq,
+        kospiIndex,
+        kosdaqIndex,
+        accounts: accountsPerf,
+        savedAt: new Date().toISOString(),
+      };
+
+      const newPerformance = { ...performance, [today]: todayData };
+      setPerformance(newPerformance);
+
+      // Redis 저장
+      const pin = sessionStorage.getItem('jb_pin') || '';
+      await fetch('/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, records: allRecords, portfolios, accounts, mainText, memos, performance: newPerformance }),
+      });
+      alert(`📊 ${today} 성과 기록 완료!
+누적수익률: ${(cumulativeIndex - 100).toFixed(2)}%
+코스피 대비: ${(cumulativeIndex - kospiIndex).toFixed(2)}%p`);
+    } catch (e) {
+      alert('성과 기록 실패: ' + e.message);
+    }
+    setPerfSaving(false);
   }
 
   async function loadMarketData() {
@@ -1508,6 +1605,12 @@ export default function App() {
                             {portfolioEditMode ? "✏️ 편집 종료" : "✏️ 종목 편집"}
                           </button>
                         )}
+                        {isAdmin && (
+                          <button onClick={savePerformance} disabled={perfSaving}
+                            style={{ background: perfSaving ? T.section : (darkMode?"#1a2a1a":"#dcfce7"), border: `1px solid ${perfSaving?"#aaa":"#22c55e"}`, borderRadius: 8, color: perfSaving ? T.textMuted : "#16a34a", padding: "4px 12px", fontSize: 12, cursor: perfSaving ? "default" : "pointer" }}>
+                            {perfSaving ? "⏳ 저장 중..." : "📊 성과 기록"}
+                          </button>
+                        )}
                         <button onClick={() => { const all = Object.values(portfolios).flatMap(p => p.stocks||[]).filter(s => !s.approximateData); const unique = [...new Map(all.map(s=>[s.ticker,s])).values()]; fetchLivePrices(unique); }}
                           disabled={priceLoading}
                           style={{ background: T.section, border: `1px solid ${T.border}`, borderRadius: 8, color: priceLoading ? "#60a5fa" : T.textSub, padding: "4px 12px", fontSize: 12, cursor: priceLoading ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
@@ -1769,6 +1872,156 @@ export default function App() {
       {/* 🏠 홈 - 시장 현황 */}
       {activeTab === "home" && (
         <div style={{ marginBottom: 16 }}>
+          {/* 투자성과 대시보드 */}
+          {(() => {
+            const perfDates = Object.keys(performance).sort();
+            const hasPerfData = perfDates.length >= 2;
+            const firstDate = perfDates[0];
+            const lastDate = perfDates[perfDates.length - 1];
+            const lastPerf = lastDate ? performance[lastDate] : null;
+
+            // 기간 필터링
+            const [perfRange, setPerfRange] = React.useState('all');
+            const filteredDates = (() => {
+              if (perfRange === 'all') return perfDates;
+              const days = perfRange === '1m' ? 30 : perfRange === '3m' ? 90 : 180;
+              const cutoff = new Date();
+              cutoff.setDate(cutoff.getDate() - days);
+              return perfDates.filter(d => new Date(d) >= cutoff);
+            })();
+
+            return (
+              <div style={{ background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"14px 16px", marginBottom:12 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                  <div style={{ fontSize:13, fontWeight:800, color:T.text }}>📊 투자성과</div>
+                  {hasPerfData && (
+                    <div style={{ fontSize:10, color:T.textMuted }}>{firstDate} ~ {lastDate} ({perfDates.length}일)</div>
+                  )}
+                </div>
+
+                {perfDates.length === 0 && (
+                  <div style={{ textAlign:"center", padding:"16px 0", color:T.textMuted, fontSize:12 }}>
+                    <div style={{ fontSize:20, marginBottom:6 }}>📈</div>
+                    <div>아직 기록된 성과가 없어요</div>
+                    <div style={{ fontSize:11, marginTop:4 }}>포트폴리오 탭에서 📊 성과 기록을 눌러주세요</div>
+                  </div>
+                )}
+
+                {perfDates.length === 1 && (
+                  <div style={{ textAlign:"center", padding:"12px 0", color:T.textMuted, fontSize:12 }}>
+                    <div>⚠️ 데이터가 1일치뿐이에요. 최소 2일 이상 기록해야 차트가 표시돼요.</div>
+                  </div>
+                )}
+
+                {hasPerfData && lastPerf && (() => {
+                  const myReturn = (lastPerf.cumulativeIndex - 100).toFixed(2);
+                  const kospiReturn = (lastPerf.kospiIndex - 100).toFixed(2);
+                  const kosdaqReturn = (lastPerf.kosdaqIndex - 100).toFixed(2);
+                  const vsKospi = (lastPerf.cumulativeIndex - lastPerf.kospiIndex).toFixed(2);
+                  const vsKosdaq = (lastPerf.cumulativeIndex - lastPerf.kosdaqIndex).toFixed(2);
+                  const myColor = myReturn >= 0 ? "#ef4444" : "#3b82f6";
+                  const vsKospiColor = vsKospi >= 0 ? "#ef4444" : "#3b82f6";
+                  const vsKosdaqColor = vsKosdaq >= 0 ? "#ef4444" : "#3b82f6";
+
+                  // 차트 데이터
+                  const chartDates = filteredDates;
+                  const n = chartDates.length;
+                  if (n < 2) return null;
+
+                  const W = 340, H = 100, PAD = { l:36, r:8, t:8, b:20 };
+                  const myVals = chartDates.map(d => performance[d]?.cumulativeIndex || 100);
+                  const kospiVals = chartDates.map(d => performance[d]?.kospiIndex || 100);
+                  const kosdaqVals = chartDates.map(d => performance[d]?.kosdaqIndex || 100);
+                  const allVals = [...myVals, ...kospiVals, ...kosdaqVals];
+                  const minV = Math.min(...allVals) * 0.999;
+                  const maxV = Math.max(...allVals) * 1.001;
+                  const range = maxV - minV || 1;
+                  const px = i => PAD.l + (W - PAD.l - PAD.r) * i / (n - 1);
+                  const py = v => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / range);
+
+                  const makePath = (vals) => vals.map((v, i) => `${i===0?'M':'L'}${px(i)},${py(v)}`).join(' ');
+
+                  // Y축 레이블
+                  const yLabels = [minV, (minV+maxV)/2, maxV].map(v => ({
+                    y: py(v),
+                    label: (v - 100).toFixed(1) + '%'
+                  }));
+
+                  // X축 레이블
+                  const xLabels = [0, Math.floor(n/2), n-1].map(i => ({
+                    x: px(i), label: chartDates[i]?.slice(5)
+                  }));
+
+                  return (
+                    <div>
+                      {/* 수익률 요약 */}
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
+                        <div style={{ background:T.section, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:2 }}>내 포트폴리오</div>
+                          <div style={{ fontSize:16, fontWeight:900, color:myColor }}>{myReturn >= 0 ? '+' : ''}{myReturn}%</div>
+                        </div>
+                        <div style={{ background:T.section, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:2 }}>코스피 대비</div>
+                          <div style={{ fontSize:16, fontWeight:900, color:vsKospiColor }}>{vsKospi >= 0 ? '+' : ''}{vsKospi}%p</div>
+                        </div>
+                        <div style={{ background:T.section, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
+                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:2 }}>코스닥 대비</div>
+                          <div style={{ fontSize:16, fontWeight:900, color:vsKosdaqColor }}>{vsKosdaq >= 0 ? '+' : ''}{vsKosdaq}%p</div>
+                        </div>
+                      </div>
+
+                      {/* 기간 버튼 */}
+                      <div style={{ display:"flex", gap:4, marginBottom:8 }}>
+                        {[{k:'1m',l:'1개월'},{k:'3m',l:'3개월'},{k:'6m',l:'6개월'},{k:'all',l:'전체'}].map(r => (
+                          <button key={r.k} onClick={() => setPerfRange(r.k)}
+                            style={{ flex:1, padding:"4px 0", fontSize:10, fontWeight:600, borderRadius:6, cursor:"pointer", border:"1px solid",
+                              background: perfRange===r.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
+                              borderColor: perfRange===r.k ? "#3b82f6" : T.border,
+                              color: perfRange===r.k ? "#3b82f6" : T.textMuted }}>
+                            {r.l}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* 누적수익률 라인차트 */}
+                      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }}>
+                        {/* Y축 그리드 */}
+                        {yLabels.map((yl, i) => (
+                          <g key={i}>
+                            <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth="0.5" strokeDasharray="3,3" />
+                            <text x={PAD.l-3} y={yl.y+3} textAnchor="end" fontSize="8" fill={T.textMuted}>{yl.label}</text>
+                          </g>
+                        ))}
+                        {/* 기준선 100 */}
+                        <line x1={PAD.l} y1={py(100)} x2={W-PAD.r} y2={py(100)} stroke={T.textMuted} strokeWidth="0.5" strokeDasharray="2,2" />
+                        {/* 코스닥 */}
+                        <path d={makePath(kosdaqVals)} fill="none" stroke="#22c55e" strokeWidth="1.2" opacity="0.7" />
+                        {/* 코스피 */}
+                        <path d={makePath(kospiVals)} fill="none" stroke="#f59e0b" strokeWidth="1.2" opacity="0.7" />
+                        {/* 내 포트 */}
+                        <path d={makePath(myVals)} fill="none" stroke="#3b82f6" strokeWidth="2" />
+                        {/* X축 날짜 */}
+                        {xLabels.map((xl, i) => (
+                          <text key={i} x={xl.x} y={H} textAnchor={i===0?"start":i===2?"end":"middle"} fontSize="8" fill={T.textMuted}>{xl.label}</text>
+                        ))}
+                      </svg>
+
+                      {/* 범례 */}
+                      <div style={{ display:"flex", gap:12, justifyContent:"center", marginTop:4 }}>
+                        {[{color:"#3b82f6",label:`내 포트 ${myReturn >= 0 ? '+' : ''}${myReturn}%`},{color:"#f59e0b",label:`코스피 ${kospiReturn >= 0 ? '+' : ''}${kospiReturn}%`},{color:"#22c55e",label:`코스닥 ${kosdaqReturn >= 0 ? '+' : ''}${kosdaqReturn}%`}].map((l,i) => (
+                          <div key={i} style={{ display:"flex", alignItems:"center", gap:4, fontSize:9, color:T.textMuted }}>
+                            <div style={{ width:16, height:2, background:l.color, borderRadius:1 }} />
+                            {l.label}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })()}
+
           {marketLoading && !marketData && (
             <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
           )}
