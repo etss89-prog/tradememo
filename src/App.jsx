@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.0";
+const VERSION = "v1.4.1";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2360,19 +2360,25 @@ export default function App() {
                             {/* 코스피 */}
                             <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
                               <div style={{ fontSize:9, color:"#f59e0b", fontWeight:700 }}>— 코스피</div>
-                              {perfTooltip.kospiVal !== undefined && perfTooltip.kospiVal !== null
-                                ? <div style={{ fontSize:14, fontWeight:800, color: perfTooltip.kospiVal >= 100 ? "#ef4444" : "#3b82f6" }}>
-                                    {perfTooltip.kospiVal >= 100 ? '+' : ''}{(perfTooltip.kospiVal - 100).toFixed(2)}%
-                                  </div>
+                              {perfTooltip.kospiVal !== undefined
+                                ? <>
+                                    {perfTooltip.kospiClose && <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{Math.round(perfTooltip.kospiClose).toLocaleString()}pt</div>}
+                                    <div style={{ fontSize:11, color: perfTooltip.kospiVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                      {perfTooltip.kospiVal >= 100 ? '+' : ''}{(perfTooltip.kospiVal - 100).toFixed(2)}%
+                                    </div>
+                                  </>
                                 : <div style={{ fontSize:11, color:T.textMuted }}>-</div>}
                             </div>
                             {/* 코스닥 */}
                             <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
                               <div style={{ fontSize:9, color:"#22c55e", fontWeight:700 }}>— 코스닥</div>
-                              {perfTooltip.kosdaqVal !== undefined && perfTooltip.kosdaqVal !== null
-                                ? <div style={{ fontSize:14, fontWeight:800, color: perfTooltip.kosdaqVal >= 100 ? "#ef4444" : "#3b82f6" }}>
-                                    {perfTooltip.kosdaqVal >= 100 ? '+' : ''}{(perfTooltip.kosdaqVal - 100).toFixed(2)}%
-                                  </div>
+                              {perfTooltip.kosdaqVal !== undefined
+                                ? <>
+                                    {perfTooltip.kosdaqClose && <div style={{ fontSize:12, fontWeight:700, color:T.text }}>{Math.round(perfTooltip.kosdaqClose).toLocaleString()}pt</div>}
+                                    <div style={{ fontSize:11, color: perfTooltip.kosdaqVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                      {perfTooltip.kosdaqVal >= 100 ? '+' : ''}{(perfTooltip.kosdaqVal - 100).toFixed(2)}%
+                                    </div>
+                                  </>
                                 : <div style={{ fontSize:11, color:T.textMuted }}>-</div>}
                             </div>
                           </div>
