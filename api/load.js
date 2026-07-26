@@ -16,6 +16,7 @@ export default async function handler(req, res) {
       fetch(`${url}/get/tradememo_main`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_prices`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_memos`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${url}/get/tradememo_performance`, { headers: { Authorization: `Bearer ${token}` } }),
     ]);
 
     const parse = async (r) => {
@@ -24,8 +25,8 @@ export default async function handler(req, res) {
       try { return typeof d.result === 'object' ? d.result : JSON.parse(d.result); } catch { return null; }
     };
 
-    const [records, portfolios, accounts, mainText, priceData, memos] = await Promise.all(
-      [recRes, portRes, accRes, mainRes, priceRes, memoRes].map(parse)
+    const [records, portfolios, accounts, mainText, priceData, memos, perfData] = await Promise.all(
+      [recRes, portRes, accRes, mainRes, priceRes, memoRes, perfRes].map(parse)
     );
 
     return res.status(200).json({
@@ -35,6 +36,8 @@ export default async function handler(req, res) {
       mainText: mainText || null,
       livePrices: priceData?.livePrices || {},
       memos: memos || {},
+      performance: perfData || {},
+      performance: perfData || {},
       priceUpdatedAt: priceData?.priceUpdatedAt || null,
     });
   } catch (error) {
