@@ -50,7 +50,7 @@ Table with columns: 상품명 | 매입원금/평가금액 | 수익률
 - "현금성자산", "예수금" 등은 포함하지 말 것
 - "approximateData": true 필드 추가
 
-## LAYOUT TYPE 4: OVERSEAS STOCK FORMAT (e.g. 삼성증권 해외주식)
+## LAYOUT TYPE 4: OVERSEAS STOCK FORMAT (e.g. 삼성증권 해외주식 전용 탭)
 Table with TWO rows per stock:
   Row 1: [한글 종목명]  [보유수량]  [매수단가 in USD]
   Row 2: [영문 티커]    [평가금액 in KRW]  [현재가 in USD]
@@ -67,6 +67,32 @@ For OVERSEAS FORMAT:
 
 Example: "글로벌파운드리 / GFS / 76주 / 매수단가 40.1551 / 평가금액 9,543,650 / 현재가 81.3200"
 → { ticker: "글로벌파운드리", tickerCode: "GFS", quantity: 76, avgBuyPrice: 40.1551, currentPrice: 81.3200, currentValue: 9543650, isOverseas: true }
+
+## LAYOUT TYPE 5: MIXED PORTFOLIO FORMAT (국내+해외 통합 화면)
+Each row has: [종목명] [비중%] [수익률%] [평단가/현재가 or 원/원] [수량] [보유금액]
+
+For stocks where 평단/현재가 shows "원 / 원" (blank) = OVERSEAS stocks:
+- ticker = 종목명 (e.g. "프로토 랩스", "글로벌파운드리")
+- tickerCode = null (not visible in this view)
+- quantity = 수량 (우측 상단 숫자, e.g. 197, 76)
+- currentValue = 보유금액 (우측 하단 KRW 숫자, e.g. 15413 → but this may be wrong, use the larger number)
+- returnRate = 수익률% (e.g. +46.1, +33.3, -28.3)
+- avgBuyPrice = currentValue / quantity / (1 + returnRate/100) 으로 역산 (KRW 기준)
+- currentPrice = avgBuyPrice * (1 + returnRate/100) 으로 역산 (KRW 기준)
+- isOverseas = true
+- approximateData = false
+
+CRITICAL for TYPE 5 overseas: 보유금액이 너무 작으면(1만원 미만) 잘못 인식된 것.
+실제 보유금액은 수천만원 수준이므로 우측에 보이는 더 큰 숫자를 currentValue로 사용.
+
+For stocks where 평단/현재가 shows actual numbers = DOMESTIC stocks:
+- Handle as TYPE 1 or TYPE 2 normally
+- isOverseas = false
+
+Example TYPE 5 overseas:
+"프로토 랩스 / 0.0% / +46.1% / 원/원 / 197주 / 15,413,000원"
+→ { ticker: "프로토 랩스", tickerCode: null, quantity: 197, currentValue: 15413000,
+    returnRate: 46.1, isOverseas: true, approximateData: false }
 
 ## CRITICAL RULES:
 - Extract EVERY stock/ETF visible in the image (현금성자산 제외)
@@ -107,7 +133,7 @@ Return ONLY valid JSON:
         system: SYSTEM,
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: image } },
-          { type: 'text', text: '이 증권앱 보유종목 화면에서 모든 종목을 추출해줘. 카드형 레이아웃이면 평균단가와 손익률로 현재가를 역산해줘. 모든 숫자는 쉼표 없는 순수 숫자로 반환해줘.' }
+          { type: 'text', text: '이 증권앱 보유종목 화면에서 모든 종목을 추출해줘. 국내+해외 통합화면이면 평단/현재가 칸이 비어있는 종목은 해외주식(isOverseas:true)으로 처리하고 보유금액을 currentValue로 사용해줘. 카드형이면 평균단가와 손익률로 현재가를 역산해줘. 모든 숫자는 쉼표 없는 순수 숫자로 반환해줘.' }
         ]}]
       }),
     });
