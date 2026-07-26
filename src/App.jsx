@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.3.5";
+const VERSION = "v1.3.6";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -581,19 +581,17 @@ export default function App() {
   async function loadIndexChart(range) {
     setIndexChartLoading(true);
     try {
-      // 이미 캐시된 데이터가 있으면 재사용
-      if (indexChartData[range]) { setIndexChartLoading(false); return; }
-      const rangeMap = { '1m': '1mo', '3m': '3mo', '6m': '6mo', 'all': '1y' };
-      const yRange = rangeMap[range] || '1mo';
+      // 캐시 없이 항상 새로 로드 (기간별 다른 데이터 보장)
+      const firstPerfDate = range === 'all' ? (Object.keys(performance).sort()[0] || null) : null;
       const [ksRes, kqRes] = await Promise.all([
-        fetch(`/api/stockprice`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKS11', range: yRange, firstPerfDate: range === 'all' ? Object.keys(performance).sort()[0] : null }) }),
-        fetch(`/api/stockprice`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKQ11', range: yRange, firstPerfDate: range === 'all' ? Object.keys(performance).sort()[0] : null }) }),
+        fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKS11', range, firstPerfDate }) }),
+        fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKQ11', range, firstPerfDate }) }),
       ]);
       const [ksData, kqData] = await Promise.all([ksRes.json(), kqRes.json()]);
       setIndexChartData(prev => ({ ...prev, [range]: { kospi: ksData.data || [], kosdaq: kqData.data || [] } }));
-    } catch {}
+    } catch(e) { console.error('indexChart 로드 실패:', e); }
     setIndexChartLoading(false);
   }
 
