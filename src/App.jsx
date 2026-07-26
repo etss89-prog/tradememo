@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.3.4";
+const VERSION = "v1.3.5";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2173,16 +2173,19 @@ export default function App() {
                   const kospiDateMap = {};
                   kospiNorm.forEach(d => { kospiDateMap[d.date] = d.i; });
                   const myDots = myNorm.map(p => {
-                    const idx = kospiDateMap[p.date];
-                    if (idx === undefined) {
-                      // 날짜 매칭 안되면 가장 가까운 인덱스 추정
-                      const ratio = totalN > 1 && perfDates.length > 0
-                        ? (new Date(p.date) - new Date(kospiLine[0]?.date || p.date)) /
-                          (new Date(kospiLine[kospiLine.length-1]?.date || p.date) - new Date(kospiLine[0]?.date || p.date))
-                        : 0;
-                      return { x: pxByIdx(Math.round(ratio * (totalN-1))), y: pyVal(p.val), val: p.val, date: p.date };
+                    // 정확한 날짜 매칭 우선
+                    let idx = kospiDateMap[p.date];
+                    if (idx === undefined && kospiLine.length > 0) {
+                      // 가장 가까운 날짜 찾기
+                      const pTime = new Date(p.date).getTime();
+                      let minDiff = Infinity;
+                      kospiNorm.forEach(d => {
+                        const diff = Math.abs(new Date(d.date).getTime() - pTime);
+                        if (diff < minDiff) { minDiff = diff; idx = d.i; }
+                      });
                     }
-                    return { x: pxByIdx(idx), y: pyVal(p.val), val: p.val, date: p.date };
+                    const x = idx !== undefined ? pxByIdx(idx) : pxByIdx(totalN - 1);
+                    return { x, y: pyVal(p.val), val: p.val, date: p.date };
                   });
 
                   // Y축 - 10칸
