@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.4";
+const VERSION = "v1.4.5";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -466,12 +466,14 @@ export default function App() {
     if (viewerPinInput === VIEWER_PIN) {
       sessionStorage.setItem("jb_pin", viewerPinInput);
       setIsViewer(true); setViewerPinInput(""); setViewerPinError("");
+      setActiveTab("home"); if (!marketData) loadMarketData(); loadIndexChart(perfRange);
     } else { setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); }
   }
   function checkPin() {
     if (pinInput === ADMIN_PIN) {
       sessionStorage.setItem("jb_pin", pinInput);
       setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError("");
+      setActiveTab("home"); if (!marketData) loadMarketData(); loadIndexChart(perfRange);
     } else { setPinError("PIN이 틀렸습니다."); setPinInput(""); }
   }
 
@@ -495,12 +497,23 @@ export default function App() {
       const accountValues = {};
       Object.entries(portfolios).forEach(([accId, p]) => {
         const accValue = (p.stocks || []).reduce((sum, s) => {
+          if (s.isCash) {
+            // 예수금: currentPrice가 곧 금액
+            return sum + (s.currentPrice || 0);
+          }
+          if (s.isOverseas) {
+            // 해외주식: livePrices는 원화환산가 * quantity, 없으면 currentValue
+            const krwPrice = livePrices[s.ticker];
+            return sum + (krwPrice ? Math.round(krwPrice * (s.quantity || 0)) : (s.currentValue || 0));
+          }
+          // 국내주식: 현재가 * 수량
           const price = livePrices[s.ticker] || s.currentPrice || s.avgBuyPrice || 0;
           return sum + price * (s.quantity || 0);
         }, 0);
-        accountValues[accId] = accValue;
+        accountValues[accId] = Math.round(accValue);
         totalValue += accValue;
       });
+      totalValue = Math.round(totalValue);
 
       // 어제 데이터
       const sortedDates = Object.keys(performance).sort();
