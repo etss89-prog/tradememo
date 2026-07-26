@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.3.0";
+const VERSION = "v1.3.1";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -302,7 +302,9 @@ export default function App() {
   const [performance, setPerformance] = useState({}); // 날짜별 성과 데이터
   const [perfSaving, setPerfSaving] = useState(false);
   const [perfRange, setPerfRange] = useState('all');
-  const [perfDetailModal, setPerfDetailModal] = useState(false); // 성과 상세보기 모달
+  const [perfDetailModal, setPerfDetailModal] = useState(false);
+  const [indexChartData, setIndexChartData] = useState({}); // { range: { kospi: [...], kosdaq: [...] } }
+  const [indexChartLoading, setIndexChartLoading] = useState(false);
   const [historySubTab, setHistorySubTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -573,6 +575,25 @@ export default function App() {
       alert('성과 기록 실패: ' + e.message);
     }
     setPerfSaving(false);
+  }
+
+  async function loadIndexChart(range) {
+    setIndexChartLoading(true);
+    try {
+      // 이미 캐시된 데이터가 있으면 재사용
+      if (indexChartData[range]) { setIndexChartLoading(false); return; }
+      const rangeMap = { '1m': '1mo', '3m': '3mo', '6m': '6mo', 'all': '1y' };
+      const yRange = rangeMap[range] || '1mo';
+      const [ksRes, kqRes] = await Promise.all([
+        fetch(`/api/stockprice`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKS11', range: yRange }) }),
+        fetch(`/api/stockprice`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'indexChart', symbol: '%5EKQ11', range: yRange }) }),
+      ]);
+      const [ksData, kqData] = await Promise.all([ksRes.json(), kqRes.json()]);
+      setIndexChartData(prev => ({ ...prev, [range]: { kospi: ksData.data || [], kosdaq: kqData.data || [] } }));
+    } catch {}
+    setIndexChartLoading(false);
   }
 
   async function loadMarketData() {
@@ -970,7 +991,7 @@ export default function App() {
                       {/* 날짜 + 총평가액 */}
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                         <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{date}</div>
-                        <div style={{ fontSize:12, color:T.textMuted }}>{p.totalValue?.toLocaleString()}원</div>
+                        {isAdmin && <div style={{ fontSize:12, color:T.textMuted }}>{p.totalValue?.toLocaleString()}원</div>}
                       </div>
                       {/* 수익률 3개 */}
                       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom: p.accounts ? 8 : 0 }}>
@@ -1007,7 +1028,7 @@ export default function App() {
                                   <span style={{ fontWeight:700, color: accRet >= 0 ? "#ef4444" : "#3b82f6" }}>
                                     {accRet >= 0 ? '+' : ''}{accRet}%
                                   </span>
-                                  <span style={{ color:T.textMuted, fontSize:9, marginLeft:4 }}>{acc.value?.toLocaleString()}원</span>
+                                  {isAdmin && <span style={{ color:T.textMuted, fontSize:9, marginLeft:4 }}>{acc.value?.toLocaleString()}원</span>}
                                 </div>
                               );
                             })}
@@ -1629,7 +1650,7 @@ export default function App() {
           <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 홈(시장현황) 버튼 */}
-          <button onClick={() => { setActiveTab(activeTab === "home" ? "portfolio" : "home"); if (!marketData) loadMarketData(); }}
+          <button onClick={() => { const next = activeTab !== "home"; setActiveTab(next ? "home" : "portfolio"); if (next) { if (!marketData) loadMarketData(); loadIndexChart(perfRange); } }}
             style={{ background: activeTab === "home" ? (darkMode?"#1e3a5f":"#dbeafe") : T.section, border: `1px solid ${activeTab==="home"?"#3b82f6":T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1, color: activeTab==="home"?"#3b82f6":T.textMuted }}
             title="시장 현황">🏠</button>
           {/* 다크/라이트 토글 */}
@@ -2082,73 +2103,128 @@ export default function App() {
                   </div>
                 )}
 
-                {hasPerfData && lastPerf && (() => {
-                  const myReturn = (lastPerf.cumulativeIndex - 100).toFixed(2);
-                  const kospiReturn = (lastPerf.kospiIndex - 100).toFixed(2);
-                  const kosdaqReturn = (lastPerf.kosdaqIndex - 100).toFixed(2);
-                  const vsKospi = (lastPerf.cumulativeIndex - lastPerf.kospiIndex).toFixed(2);
-                  const vsKosdaq = (lastPerf.cumulativeIndex - lastPerf.kosdaqIndex).toFixed(2);
-                  const myColor = myReturn >= 0 ? "#ef4444" : "#3b82f6";
-                  const vsKospiColor = vsKospi >= 0 ? "#ef4444" : "#3b82f6";
-                  const vsKosdaqColor = vsKosdaq >= 0 ? "#ef4444" : "#3b82f6";
+                {hasPerfData && (() => {
+                  const lastPerf = performance[perfDates[perfDates.length - 1]];
+                  if (!lastPerf) return null;
 
-                  // 차트 데이터
-                  const chartDates = filteredDates;
-                  const n = chartDates.length;
-                  if (n < 1) return null;
+                  // 기간 버튼 (코스피/코스닥 기준)
+                  const rangeButtons = [{k:'1m',l:'1개월'},{k:'3m',l:'3개월'},{k:'6m',l:'6개월'},{k:'all',l:'전체'}];
 
-                  const W = 340, H = 100, PAD = { l:36, r:8, t:8, b:20 };
-                  const myVals = chartDates.map(d => performance[d]?.cumulativeIndex || 100);
-                  const kospiVals = chartDates.map(d => performance[d]?.kospiIndex || 100);
-                  const kosdaqVals = chartDates.map(d => performance[d]?.kosdaqIndex || 100);
-                  const allVals = [...myVals, ...kospiVals, ...kosdaqVals];
-                  const minV = Math.min(...allVals) * 0.999;
-                  const maxV = Math.max(...allVals) * 1.001;
-                  const range = maxV - minV || 1;
-                  const px = i => PAD.l + (W - PAD.l - PAD.r) * i / (n - 1);
-                  const py = v => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / range);
+                  // 인덱스 차트 데이터 (코스피/코스닥 연속)
+                  const idxData = indexChartData[perfRange];
+                  const kospiLine = idxData?.kospi || [];
+                  const kosdaqLine = idxData?.kosdaq || [];
 
-                  const makePath = (vals) => {
-                    if (vals.length === 1) return `M${px(0)},${py(vals[0])}`; // 1개면 점으로
-                    return vals.map((v, i) => `${i===0?'M':'L'}${px(i)},${py(v)}`).join(' ');
+                  // 내 포트 타점 (기간 필터)
+                  const myPoints = filteredDates.map(d => ({
+                    date: d,
+                    val: performance[d]?.cumulativeIndex || 100,
+                  }));
+
+                  // 코스피/코스닥 수익률 (기간 기준)
+                  const kospiRangePct = kospiLine.length >= 2
+                    ? ((kospiLine[kospiLine.length-1].close - kospiLine[0].close) / kospiLine[0].close * 100).toFixed(2)
+                    : lastPerf.kospiIndex ? (lastPerf.kospiIndex - 100).toFixed(2) : null;
+                  const kosdaqRangePct = kosdaqLine.length >= 2
+                    ? ((kosdaqLine[kosdaqLine.length-1].close - kosdaqLine[0].close) / kosdaqLine[0].close * 100).toFixed(2)
+                    : lastPerf.kosdaqIndex ? (lastPerf.kosdaqIndex - 100).toFixed(2) : null;
+                  const myRangePct = myPoints.length >= 1 ? (myPoints[myPoints.length-1].val - 100).toFixed(2) : null;
+                  const vsKospi = (myRangePct && kospiRangePct) ? (parseFloat(myRangePct) - parseFloat(kospiRangePct)).toFixed(2) : null;
+                  const vsKosdaq = (myRangePct && kosdaqRangePct) ? (parseFloat(myRangePct) - parseFloat(kosdaqRangePct)).toFixed(2) : null;
+
+                  // 차트 그리기
+                  const W = 340, H = 110, PAD = { l:38, r:8, t:8, b:20 };
+
+                  // 코스피/코스닥을 100 기준 정규화
+                  const normalizeArr = (arr) => {
+                    if (!arr || arr.length === 0) return [];
+                    const base = arr[0].close;
+                    return arr.map((d, i) => ({ i, val: d.close / base * 100, date: d.date }));
                   };
-                  const makeCircle = (vals, color) => vals.length === 1
-                    ? <circle cx={px(0)} cy={py(vals[0])} r="4" fill={color} />
-                    : null;
+                  const kospiNorm = normalizeArr(kospiLine);
+                  const kosdaqNorm = normalizeArr(kosdaqLine);
+
+                  // 내 포트 타점도 같은 시작점으로 정규화
+                  const myNorm = myPoints.map(p => ({ date: p.date, val: p.val }));
+
+                  // 전체 데이터로 Y축 범위 계산
+                  const allVals = [
+                    ...kospiNorm.map(d => d.val),
+                    ...kosdaqNorm.map(d => d.val),
+                    ...myNorm.map(d => d.val),
+                    100,
+                  ];
+                  const minV = Math.min(...allVals) * 0.998;
+                  const maxV = Math.max(...allVals) * 1.002;
+                  const vRange = maxV - minV || 1;
+
+                  // X축: 코스피 데이터 기준
+                  const totalN = Math.max(kospiNorm.length, 1);
+                  const pxByIdx = (i) => PAD.l + (W - PAD.l - PAD.r) * i / Math.max(totalN - 1, 1);
+                  const pyVal = (v) => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / vRange);
+
+                  // 코스피/코스닥 path
+                  const linePath = (arr) => arr.length < 2
+                    ? null
+                    : arr.map((d, i) => `${i===0?'M':'L'}${pxByIdx(d.i)},${pyVal(d.val)}`).join(' ');
+
+                  // 내 포트 타점 X좌표: 날짜로 코스피 인덱스 찾기
+                  const kospiDateMap = {};
+                  kospiNorm.forEach(d => { kospiDateMap[d.date] = d.i; });
+                  const myDots = myNorm.map(p => {
+                    const idx = kospiDateMap[p.date];
+                    if (idx === undefined) {
+                      // 날짜 매칭 안되면 가장 가까운 인덱스 추정
+                      const ratio = totalN > 1 && perfDates.length > 0
+                        ? (new Date(p.date) - new Date(kospiLine[0]?.date || p.date)) /
+                          (new Date(kospiLine[kospiLine.length-1]?.date || p.date) - new Date(kospiLine[0]?.date || p.date))
+                        : 0;
+                      return { x: pxByIdx(Math.round(ratio * (totalN-1))), y: pyVal(p.val), val: p.val, date: p.date };
+                    }
+                    return { x: pxByIdx(idx), y: pyVal(p.val), val: p.val, date: p.date };
+                  });
 
                   // Y축 레이블
                   const yLabels = [minV, (minV+maxV)/2, maxV].map(v => ({
-                    y: py(v),
-                    label: (v - 100).toFixed(1) + '%'
+                    y: pyVal(v), label: (v-100).toFixed(1)+'%'
                   }));
-
                   // X축 레이블
-                  const xLabels = [0, Math.floor(n/2), n-1].map(i => ({
-                    x: px(i), label: chartDates[i]?.slice(5)
+                  const xIdxs = totalN <= 1 ? [0] : [0, Math.floor(totalN/2), totalN-1];
+                  const xLabels = xIdxs.map(i => ({
+                    x: pxByIdx(i),
+                    label: kospiNorm[i]?.date?.slice(5) || ''
                   }));
 
                   return (
                     <div>
-                      {/* 수익률 요약 */}
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:12 }}>
-                        <div style={{ background:T.section, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
-                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:2 }}>내 포트폴리오</div>
-                          <div style={{ fontSize:16, fontWeight:900, color:myColor }}>{myReturn >= 0 ? '+' : ''}{myReturn}%</div>
+                      {/* 수익률 요약 카드 */}
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:10 }}>
+                        <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color:T.textMuted, marginBottom:2 }}>내 포트</div>
+                          <div style={{ fontSize:14, fontWeight:900, color: myRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {myRangePct !== null ? `${myRangePct >= 0 ? '+' : ''}${myRangePct}%` : '-'}
+                          </div>
                         </div>
-                        <div style={{ background:T.section, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
-                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:2 }}>코스피 대비</div>
-                          <div style={{ fontSize:16, fontWeight:900, color:vsKospiColor }}>{vsKospi >= 0 ? '+' : ''}{vsKospi}%p</div>
+                        <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color:T.textMuted, marginBottom:2 }}>코스피</div>
+                          <div style={{ fontSize:14, fontWeight:900, color: kospiRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {kospiRangePct !== null ? `${kospiRangePct >= 0 ? '+' : ''}${kospiRangePct}%` : '-'}
+                          </div>
+                          {vsKospi !== null && <div style={{ fontSize:9, color: vsKospi >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKospi >= 0 ? '+' : ''}{vsKospi}%p</div>}
                         </div>
-                        <div style={{ background:T.section, borderRadius:8, padding:"8px 10px", textAlign:"center" }}>
-                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:2 }}>코스닥 대비</div>
-                          <div style={{ fontSize:16, fontWeight:900, color:vsKosdaqColor }}>{vsKosdaq >= 0 ? '+' : ''}{vsKosdaq}%p</div>
+                        <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color:T.textMuted, marginBottom:2 }}>코스닥</div>
+                          <div style={{ fontSize:14, fontWeight:900, color: kosdaqRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {kosdaqRangePct !== null ? `${kosdaqRangePct >= 0 ? '+' : ''}${kosdaqRangePct}%` : '-'}
+                          </div>
+                          {vsKosdaq !== null && <div style={{ fontSize:9, color: vsKosdaq >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKosdaq >= 0 ? '+' : ''}{vsKosdaq}%p</div>}
                         </div>
                       </div>
 
                       {/* 기간 버튼 */}
                       <div style={{ display:"flex", gap:4, marginBottom:8 }}>
-                        {[{k:'1m',l:'1개월'},{k:'3m',l:'3개월'},{k:'6m',l:'6개월'},{k:'all',l:'전체'}].map(r => (
-                          <button key={r.k} onClick={() => setPerfRange(r.k)}
+                        {rangeButtons.map(r => (
+                          <button key={r.k} onClick={() => { setPerfRange(r.k); loadIndexChart(r.k); }}
                             style={{ flex:1, padding:"4px 0", fontSize:10, fontWeight:600, borderRadius:6, cursor:"pointer", border:"1px solid",
                               background: perfRange===r.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
                               borderColor: perfRange===r.k ? "#3b82f6" : T.border,
@@ -2158,37 +2234,47 @@ export default function App() {
                         ))}
                       </div>
 
-                      {/* 누적수익률 라인차트 */}
-                      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }}>
-                        {/* Y축 그리드 */}
-                        {yLabels.map((yl, i) => (
-                          <g key={i}>
-                            <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth="0.5" strokeDasharray="3,3" />
-                            <text x={PAD.l-3} y={yl.y+3} textAnchor="end" fontSize="8" fill={T.textMuted}>{yl.label}</text>
-                          </g>
-                        ))}
-                        {/* 기준선 100 */}
-                        <line x1={PAD.l} y1={py(100)} x2={W-PAD.r} y2={py(100)} stroke={T.textMuted} strokeWidth="0.5" strokeDasharray="2,2" />
-                        {/* 코스닥 */}
-                        <path d={makePath(kosdaqVals)} fill="none" stroke="#22c55e" strokeWidth="1.2" opacity="0.7" />
-                        {makeCircle(kosdaqVals, "#22c55e")}
-                        {/* 코스피 */}
-                        <path d={makePath(kospiVals)} fill="none" stroke="#f59e0b" strokeWidth="1.2" opacity="0.7" />
-                        {makeCircle(kospiVals, "#f59e0b")}
-                        {/* 내 포트 */}
-                        <path d={makePath(myVals)} fill="none" stroke="#3b82f6" strokeWidth="2" />
-                        {makeCircle(myVals, "#3b82f6")}
-                        {/* X축 날짜 */}
-                        {xLabels.map((xl, i) => (
-                          <text key={i} x={xl.x} y={H} textAnchor={i===0?"start":i===2?"end":"middle"} fontSize="8" fill={T.textMuted}>{xl.label}</text>
-                        ))}
-                      </svg>
+                      {/* 차트 */}
+                      {indexChartLoading ? (
+                        <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:11 }}>📈 차트 불러오는 중...</div>
+                      ) : (
+                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block" }}>
+                          {yLabels.map((yl, i) => (
+                            <g key={i}>
+                              <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth="0.5" strokeDasharray="3,3" />
+                              <text x={PAD.l-3} y={yl.y+3} textAnchor="end" fontSize="8" fill={T.textMuted}>{yl.label}</text>
+                            </g>
+                          ))}
+                          <line x1={PAD.l} y1={pyVal(100)} x2={W-PAD.r} y2={pyVal(100)} stroke={T.textMuted} strokeWidth="0.5" strokeDasharray="2,2" />
+                          {/* 코스닥 연속 라인 */}
+                          {linePath(kosdaqNorm) && <path d={linePath(kosdaqNorm)} fill="none" stroke="#22c55e" strokeWidth="1.2" opacity="0.7" />}
+                          {/* 코스피 연속 라인 */}
+                          {linePath(kospiNorm) && <path d={linePath(kospiNorm)} fill="none" stroke="#f59e0b" strokeWidth="1.5" opacity="0.8" />}
+                          {/* 내 포트 타점 (점으로만) */}
+                          {myDots.map((dot, i) => (
+                            <g key={i}>
+                              <circle cx={dot.x} cy={dot.y} r="5" fill="#3b82f6" stroke="white" strokeWidth="1.5" />
+                              {i === myDots.length - 1 && (
+                                <text x={dot.x} y={dot.y - 8} textAnchor="middle" fontSize="8" fill="#3b82f6" fontWeight="700">
+                                  {dot.val >= 100 ? '+' : ''}{(dot.val - 100).toFixed(1)}%
+                                </text>
+                              )}
+                            </g>
+                          ))}
+                          {xLabels.map((xl, i) => (
+                            <text key={i} x={xl.x} y={H} textAnchor={i===0?"start":i===xLabels.length-1?"end":"middle"} fontSize="8" fill={T.textMuted}>{xl.label}</text>
+                          ))}
+                        </svg>
+                      )}
 
                       {/* 범례 */}
-                      <div style={{ display:"flex", gap:12, justifyContent:"center", marginTop:4 }}>
-                        {[{color:"#3b82f6",label:`내 포트 ${myReturn >= 0 ? '+' : ''}${myReturn}%`},{color:"#f59e0b",label:`코스피 ${kospiReturn >= 0 ? '+' : ''}${kospiReturn}%`},{color:"#22c55e",label:`코스닥 ${kosdaqReturn >= 0 ? '+' : ''}${kosdaqReturn}%`}].map((l,i) => (
+                      <div style={{ display:"flex", gap:10, justifyContent:"center", marginTop:4 }}>
+                        {[{color:"#3b82f6",label:"내 포트",dot:true},{color:"#f59e0b",label:"코스피"},{color:"#22c55e",label:"코스닥"}].map((l,i) => (
                           <div key={i} style={{ display:"flex", alignItems:"center", gap:4, fontSize:9, color:T.textMuted }}>
-                            <div style={{ width:16, height:2, background:l.color, borderRadius:1 }} />
+                            {l.dot
+                              ? <div style={{ width:8, height:8, borderRadius:"50%", background:l.color, border:"1.5px solid white", outline:`1px solid ${l.color}` }} />
+                              : <div style={{ width:16, height:2, background:l.color, borderRadius:1 }} />
+                            }
                             {l.label}
                           </div>
                         ))}
