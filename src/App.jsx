@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.7";
+const VERSION = "v1.4.8";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -584,10 +584,8 @@ export default function App() {
         body: JSON.stringify({ pin, records: allRecords, portfolios, accounts, mainText, memos, performance: newPerformance }),
       });
       alert(`📊 ${today} 성과 기록 완료!
-오늘 총액: ${totalValue.toLocaleString()}원
-어제 총액: ${prevTotalValue.toLocaleString()}원
-일간수익률: ${dailyReturn.toFixed(4)}%
-누적수익률: ${(cumulativeIndex - 100).toFixed(2)}%`);
+누적수익률: ${(cumulativeIndex - 100).toFixed(2)}%
+코스피 대비: ${(cumulativeIndex - kospiIndex).toFixed(2)}%p`);
     } catch (e) {
       alert('성과 기록 실패: ' + e.message);
     }
@@ -1021,9 +1019,22 @@ export default function App() {
               ) : (
                 Object.keys(performance).sort().reverse().map(date => {
                   const p = performance[date];
-                  const myRet = (p.cumulativeIndex - 100).toFixed(2);
-                  const kospiRet = p.kospiIndex ? (p.kospiIndex - 100).toFixed(2) : null;
-                  const kosdaqRet = p.kosdaqIndex ? (p.kosdaqIndex - 100).toFixed(2) : null;
+                  // 일일 수익률 표시 (누적 아님)
+                  const myRet = p.dailyReturn !== undefined ? parseFloat(p.dailyReturn).toFixed(2) : (p.cumulativeIndex - 100).toFixed(2);
+                  const kospiDailyRet = (p.kospi && p.kospiIndex && performance) ? (() => {
+                    const dates = Object.keys(performance).sort();
+                    const idx = dates.indexOf(date);
+                    const prevDate = idx > 0 ? dates[idx-1] : null;
+                    const prevKospi = prevDate ? performance[prevDate].kospi : p.kospi;
+                    return prevKospi ? ((p.kospi - prevKospi) / prevKospi * 100).toFixed(2) : null;
+                  })() : null;
+                  const kosdaqDailyRet = (p.kosdaq && p.kosdaqIndex && performance) ? (() => {
+                    const dates = Object.keys(performance).sort();
+                    const idx = dates.indexOf(date);
+                    const prevDate = idx > 0 ? dates[idx-1] : null;
+                    const prevKosdaq = prevDate ? performance[prevDate].kosdaq : p.kosdaq;
+                    return prevKosdaq ? ((p.kosdaq - prevKosdaq) / prevKosdaq * 100).toFixed(2) : null;
+                  })() : null;
                   const myColor = myRet >= 0 ? "#ef4444" : "#3b82f6";
                   return (
                     <div key={date} style={{ background:T.section, borderRadius:10, padding:"12px 14px", marginBottom:8 }}>
@@ -1043,20 +1054,20 @@ export default function App() {
                       {/* 수익률 3개 */}
                       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom: p.accounts ? 8 : 0 }}>
                         <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
-                          <div style={{ fontSize:9, color:T.textMuted }}>내 포트</div>
+                          <div style={{ fontSize:9, color:T.textMuted }}>내 포트 (일간)</div>
                           <div style={{ fontSize:13, fontWeight:800, color:myColor }}>{myRet >= 0 ? '+' : ''}{myRet}%</div>
                         </div>
                         <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
-                          <div style={{ fontSize:9, color:T.textMuted }}>코스피</div>
-                          <div style={{ fontSize:13, fontWeight:700, color: kospiRet >= 0 ? "#ef4444" : "#3b82f6" }}>
-                            {kospiRet !== null ? `${kospiRet >= 0 ? '+' : ''}${kospiRet}%` : '-'}
+                          <div style={{ fontSize:9, color:T.textMuted }}>코스피 (일간)</div>
+                          <div style={{ fontSize:13, fontWeight:700, color: kospiDailyRet >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {kospiDailyRet !== null ? `${kospiDailyRet >= 0 ? '+' : ''}${kospiDailyRet}%` : '-'}
                           </div>
                           {p.kospi && <div style={{ fontSize:9, color:T.textMuted }}>{p.kospi?.toLocaleString()}</div>}
                         </div>
                         <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 4px" }}>
-                          <div style={{ fontSize:9, color:T.textMuted }}>코스닥</div>
-                          <div style={{ fontSize:13, fontWeight:700, color: kosdaqRet >= 0 ? "#ef4444" : "#3b82f6" }}>
-                            {kosdaqRet !== null ? `${kosdaqRet >= 0 ? '+' : ''}${kosdaqRet}%` : '-'}
+                          <div style={{ fontSize:9, color:T.textMuted }}>코스닥 (일간)</div>
+                          <div style={{ fontSize:13, fontWeight:700, color: kosdaqDailyRet >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {kosdaqDailyRet !== null ? `${kosdaqDailyRet >= 0 ? '+' : ''}${kosdaqDailyRet}%` : '-'}
                           </div>
                           {p.kosdaq && <div style={{ fontSize:9, color:T.textMuted }}>{p.kosdaq?.toLocaleString()}</div>}
                         </div>
@@ -2261,34 +2272,34 @@ export default function App() {
 
                   return (
                     <div>
-                      {/* 수익률 요약 카드 */}
+                      {/* 기간 수익률 요약 카드 - 항상 표시 */}
                       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:10 }}>
                         <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
-                          <div style={{ fontSize:9, color:T.textMuted, marginBottom:2 }}>내 포트</div>
+                          <div style={{ fontSize:9, color:"#3b82f6", fontWeight:700, marginBottom:2 }}>● 내 포트 ({perfRange==='1m'?'1개월':perfRange==='3m'?'3개월':perfRange==='6m'?'6개월':'전체'})</div>
                           <div style={{ fontSize:14, fontWeight:900, color: myRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
-                            {myRangePct !== null ? `${myRangePct >= 0 ? '+' : ''}${myRangePct}%` : '-'}
+                            {myRangePct !== null ? `${myRangePct >= 0 ? '+' : ''}${myRangePct}%` : <span style={{fontSize:11,color:T.textMuted}}>타점 없음</span>}
                           </div>
                         </div>
                         <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
-                          <div style={{ fontSize:9, color:T.textMuted, marginBottom:2 }}>코스피</div>
+                          <div style={{ fontSize:9, color:"#f59e0b", fontWeight:700, marginBottom:2 }}>— 코스피</div>
                           <div style={{ fontSize:14, fontWeight:900, color: kospiRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
-                            {kospiRangePct !== null ? `${kospiRangePct >= 0 ? '+' : ''}${kospiRangePct}%` : '-'}
+                            {kospiRangePct !== null ? `${kospiRangePct >= 0 ? '+' : ''}${kospiRangePct}%` : indexChartLoading ? '로딩중...' : '-'}
                           </div>
-                          {vsKospi !== null && <div style={{ fontSize:9, color: vsKospi >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKospi >= 0 ? '+' : ''}{vsKospi}%p</div>}
+                          {vsKospi !== null && myRangePct !== null && <div style={{ fontSize:9, color: vsKospi >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKospi >= 0 ? '+' : ''}{vsKospi}%p</div>}
                         </div>
                         <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
-                          <div style={{ fontSize:9, color:T.textMuted, marginBottom:2 }}>코스닥</div>
+                          <div style={{ fontSize:9, color:"#22c55e", fontWeight:700, marginBottom:2 }}>— 코스닥</div>
                           <div style={{ fontSize:14, fontWeight:900, color: kosdaqRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
-                            {kosdaqRangePct !== null ? `${kosdaqRangePct >= 0 ? '+' : ''}${kosdaqRangePct}%` : '-'}
+                            {kosdaqRangePct !== null ? `${kosdaqRangePct >= 0 ? '+' : ''}${kosdaqRangePct}%` : indexChartLoading ? '로딩중...' : '-'}
                           </div>
-                          {vsKosdaq !== null && <div style={{ fontSize:9, color: vsKosdaq >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKosdaq >= 0 ? '+' : ''}{vsKosdaq}%p</div>}
+                          {vsKosdaq !== null && myRangePct !== null && <div style={{ fontSize:9, color: vsKosdaq >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKosdaq >= 0 ? '+' : ''}{vsKosdaq}%p</div>}
                         </div>
                       </div>
 
                       {/* 기간 버튼 */}
                       <div style={{ display:"flex", gap:4, marginBottom:8 }}>
                         {rangeButtons.map(r => (
-                          <button key={r.k} onClick={() => { setPerfRange(r.k); loadIndexChart(r.k); }}
+                          <button key={r.k} onClick={() => { setPerfRange(r.k); loadIndexChart(r.k); setPerfTooltip(null); }}
                             style={{ flex:1, padding:"4px 0", fontSize:10, fontWeight:600, borderRadius:6, cursor:"pointer", border:"1px solid",
                               background: perfRange===r.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
                               borderColor: perfRange===r.k ? "#3b82f6" : T.border,
