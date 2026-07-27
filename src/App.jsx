@@ -592,6 +592,19 @@ export default function App() {
     setPerfSaving(false);
   }
 
+  async function deletePerformance(date) {
+    if (!window.confirm(`${date} 성과 기록을 삭제할까요?`)) return;
+    const newPerf = { ...performance };
+    delete newPerf[date];
+    setPerformance(newPerf);
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    await fetch('/api/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin, records: allRecords, portfolios, accounts, mainText, memos, performance: newPerf }),
+    });
+  }
+
   async function loadIndexChart(range) {
     setIndexChartLoading(true);
     try {
@@ -1012,10 +1025,18 @@ export default function App() {
                   const myColor = myRet >= 0 ? "#ef4444" : "#3b82f6";
                   return (
                     <div key={date} style={{ background:T.section, borderRadius:10, padding:"12px 14px", marginBottom:8 }}>
-                      {/* 날짜 + 총평가액 */}
+                      {/* 날짜 + 총평가액 + 삭제 버튼 */}
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                         <div style={{ fontSize:13, fontWeight:700, color:T.text }}>{date}</div>
-                        {isAdmin && <div style={{ fontSize:12, color:T.textMuted }}>{p.totalValue?.toLocaleString()}원</div>}
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          {isAdmin && <div style={{ fontSize:12, color:T.textMuted }}>{p.totalValue?.toLocaleString()}원</div>}
+                          {isAdmin && (
+                            <button onClick={() => deletePerformance(date)}
+                              style={{ background:"none", border:`1px solid ${T.border}`, borderRadius:6, color:T.textMuted, fontSize:11, padding:"2px 7px", cursor:"pointer" }}>
+                              🗑️
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {/* 수익률 3개 */}
                       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom: p.accounts ? 8 : 0 }}>
