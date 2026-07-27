@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.8";
+const VERSION = "v1.4.9";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2285,14 +2285,14 @@ export default function App() {
                           <div style={{ fontSize:14, fontWeight:900, color: kospiRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
                             {kospiRangePct !== null ? `${kospiRangePct >= 0 ? '+' : ''}${kospiRangePct}%` : indexChartLoading ? '로딩중...' : '-'}
                           </div>
-                          {vsKospi !== null && myRangePct !== null && <div style={{ fontSize:9, color: vsKospi >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKospi >= 0 ? '+' : ''}{vsKospi}%p</div>}
+                
                         </div>
                         <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
                           <div style={{ fontSize:9, color:"#22c55e", fontWeight:700, marginBottom:2 }}>— 코스닥</div>
                           <div style={{ fontSize:14, fontWeight:900, color: kosdaqRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
                             {kosdaqRangePct !== null ? `${kosdaqRangePct >= 0 ? '+' : ''}${kosdaqRangePct}%` : indexChartLoading ? '로딩중...' : '-'}
                           </div>
-                          {vsKosdaq !== null && myRangePct !== null && <div style={{ fontSize:9, color: vsKosdaq >= 0 ? "#ef4444" : "#3b82f6" }}>대비 {vsKosdaq >= 0 ? '+' : ''}{vsKosdaq}%p</div>}
+                
                         </div>
                       </div>
 
