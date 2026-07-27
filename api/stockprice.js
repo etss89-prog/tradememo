@@ -362,9 +362,17 @@ export default async function handler(req, res) {
 
         const ts = result.timestamp;
         const closes = result.indicators?.quote?.[0]?.close || [];
+
+        // 코스피/코스닥 지수는 Yahoo Finance에서 10배로 옴 → /10 보정
+        // regularMarketPrice로 실제 값 확인 후 비율 계산
+        const metaPrice = result.meta?.regularMarketPrice || 0;
+        const rawCloses = closes.filter(c => c !== null);
+        const lastRaw = rawCloses[rawCloses.length - 1] || 0;
+        const needsDivide = metaPrice > 0 && lastRaw > 0 && (lastRaw / metaPrice) > 5;
+
         const data = ts.map((t, i) => ({
           date: new Date(t * 1000).toISOString().split('T')[0],
-          close: closes[i] ? Math.round(closes[i] * 100) / 100 : null,
+          close: closes[i] ? Math.round((needsDivide ? closes[i] / 10 : closes[i]) * 100) / 100 : null,
         })).filter(c => c.close !== null);
 
         return res.status(200).json({ data });
@@ -466,20 +474,26 @@ export default async function handler(req, res) {
 
 async function fetchMarketIndex() {
   try {
-    const [ks, kq] = await Promise.all([
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?interval=1d&range=2d', { headers: { 'User-Agent': 'Mozilla/5.0' } }),
-      fetch('https://query1.finance.yahoo.com/v8/finance/chart/%5EKQ11?interval=1d&range=2d', { headers: { 'User-Agent': 'Mozilla/5.0' } }),
+    const [ksRes, kqRes] = await Promise.all([
+      fetch('https://m.stock.naver.com/api/index/KOSPI/basic', {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/' }
+      }),
+      fetch('https://m.stock.naver.com/api/index/KOSDAQ/basic', {
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://m.stock.naver.com/' }
+      }),
     ]);
-    const [ksd, kqd] = await Promise.all([ks.json(), kq.json()]);
+    const [ksd, kqd] = await Promise.all([ksRes.json(), kqRes.json()]);
+
     const parse = (d) => {
-      const meta = d?.chart?.result?.[0]?.meta;
-      if (!meta) return null;
-      const cur = meta.regularMarketPrice;
-      const prev = meta.chartPreviousClose || meta.previousClose;
-      const change = cur - prev;
-      const pct = (change / prev) * 100;
-      return { price: Math.round(cur * 100) / 100, change: Math.round(change * 100) / 100, pct: Math.round(pct * 100) / 100 };
+      if (!d) return null;
+      // 네이버 API 응답 구조: indexNm, closePrice, compareToPreviousClosePrice, fluctuationsRatio
+      const price = parseFloat(String(d.closePrice || d.currentPrice || 0).replace(/,/g, ''));
+      const change = parseFloat(String(d.compareToPreviousClosePrice || d.changePrice || 0).replace(/,/g, ''));
+      const pct = parseFloat(String(d.fluctuationsRatio || d.changeRate || 0).replace(/,/g, ''));
+      if (!price) return null;
+      return { price, change, pct };
     };
+
     return { kospi: parse(ksd), kosdaq: parse(kqd) };
   } catch { return { kospi: null, kosdaq: null }; }
 }
