@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.6";
+const VERSION = "v1.4.7";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -584,8 +584,10 @@ export default function App() {
         body: JSON.stringify({ pin, records: allRecords, portfolios, accounts, mainText, memos, performance: newPerformance }),
       });
       alert(`📊 ${today} 성과 기록 완료!
-누적수익률: ${(cumulativeIndex - 100).toFixed(2)}%
-코스피 대비: ${(cumulativeIndex - kospiIndex).toFixed(2)}%p`);
+오늘 총액: ${totalValue.toLocaleString()}원
+어제 총액: ${prevTotalValue.toLocaleString()}원
+일간수익률: ${dailyReturn.toFixed(4)}%
+누적수익률: ${(cumulativeIndex - 100).toFixed(2)}%`);
     } catch (e) {
       alert('성과 기록 실패: ' + e.message);
     }
