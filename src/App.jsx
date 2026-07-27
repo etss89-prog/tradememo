@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.5";
+const VERSION = "v1.4.6";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -515,9 +515,10 @@ export default function App() {
       });
       totalValue = Math.round(totalValue);
 
-      // 어제 데이터
+      // 오늘 날짜 제외한 가장 최근 이전 날짜 데이터
       const sortedDates = Object.keys(performance).sort();
-      const lastDate = sortedDates[sortedDates.length - 1];
+      const prevDates = sortedDates.filter(d => d < today);
+      const lastDate = prevDates[prevDates.length - 1] || null;
       const lastData = lastDate ? performance[lastDate] : null;
 
       // 일간 수익률 계산
