@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.1";
+const VERSION = "v1.5.2";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -606,6 +606,9 @@ export default function App() {
   }
 
   async function loadIndexChart(range) {
+    // '내 기록(mine)'은 별도 API 레인지가 아니라, '전체' 데이터를 받아서 화면에서
+    // 첫 성과기록일 기준으로 잘라 쓰는 방식이므로 실제 조회/캐시 키는 항상 'all'로 통일
+    const apiRange = range === 'mine' ? 'all' : range;
     setIndexChartLoading(true);
     try {
       // stockprice.js의 indexChart 타입 사용
@@ -616,18 +619,18 @@ export default function App() {
         fetch('/api/stockprice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'indexChart', symbol: '^KS11', range, firstPerfDate })
+          body: JSON.stringify({ type: 'indexChart', symbol: '^KS11', range: apiRange, firstPerfDate })
         }),
         fetch('/api/stockprice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'indexChart', symbol: '^KQ11', range, firstPerfDate })
+          body: JSON.stringify({ type: 'indexChart', symbol: '^KQ11', range: apiRange, firstPerfDate })
         }),
       ]);
       const [ksData, kqData] = await Promise.all([ksRes.json(), kqRes.json()]);
       setIndexChartData(prev => ({
         ...prev,
-        [range]: { kospi: ksData.data || [], kosdaq: kqData.data || [] }
+        [apiRange]: { kospi: ksData.data || [], kosdaq: kqData.data || [] }
       }));
     } catch(e) { console.error('indexChart 로드 실패:', e); }
     setIndexChartLoading(false);
@@ -2131,7 +2134,7 @@ export default function App() {
 
             // 기간 필터링
             const filteredDates = (() => {
-              if (perfRange === 'all') return perfDates;
+              if (perfRange === 'all' || perfRange === 'mine') return perfDates;
               const days = perfRange === '1m' ? 30 : perfRange === '3m' ? 90 : 180;
               const cutoff = new Date();
               cutoff.setDate(cutoff.getDate() - days);
@@ -2168,12 +2171,16 @@ export default function App() {
                   if (!lastPerf) return null;
 
                   // 기간 버튼 (코스피/코스닥 기준)
-                  const rangeButtons = [{k:'1m',l:'1개월'},{k:'3m',l:'3개월'},{k:'6m',l:'6개월'},{k:'all',l:'전체'}];
+                  const rangeButtons = [{k:'1m',l:'1개월'},{k:'3m',l:'3개월'},{k:'6m',l:'6개월'},{k:'all',l:'전체'},{k:'mine',l:'내 기록'}];
 
                   // 인덱스 차트 데이터 (코스피/코스닥 연속)
-                  const idxData = indexChartData[perfRange];
-                  const kospiLine = idxData?.kospi || [];
-                  const kosdaqLine = idxData?.kosdaq || [];
+                  // '내 기록'은 별도 API 없이 '전체' 인덱스 데이터를 첫 성과기록일(firstDate) 기준으로 잘라서 사용
+                  // → 내가 실제로 기록한 기간과 정확히 같은 구간으로 코스피/코스닥을 비교할 수 있음
+                  const idxData = indexChartData[perfRange === 'mine' ? 'all' : perfRange];
+                  const rawKospiLine = idxData?.kospi || [];
+                  const rawKosdaqLine = idxData?.kosdaq || [];
+                  const kospiLine = (perfRange === 'mine' && firstDate) ? rawKospiLine.filter(d => d.date >= firstDate) : rawKospiLine;
+                  const kosdaqLine = (perfRange === 'mine' && firstDate) ? rawKosdaqLine.filter(d => d.date >= firstDate) : rawKosdaqLine;
 
                   // 내 포트 타점 (기간 필터)
                   const myPoints = filteredDates.map(d => ({
