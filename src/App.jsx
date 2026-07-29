@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.0";
+const VERSION = "v1.5.1";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2188,7 +2188,10 @@ export default function App() {
                   const kosdaqRangePct = kosdaqLine.length >= 2
                     ? ((kosdaqLine[kosdaqLine.length-1].close - kosdaqLine[0].close) / kosdaqLine[0].close * 100).toFixed(2)
                     : lastPerf.kosdaqIndex ? (lastPerf.kosdaqIndex - 100).toFixed(2) : null;
-                  const myRangePct = myPoints.length >= 1 ? (myPoints[myPoints.length-1].val - 100).toFixed(2) : null;
+                  // mine 모드: 첫 타점 기준 수익률
+                  const myRangePct = myPoints.length >= 1
+                    ? ((myPoints[myPoints.length-1].val / (perfRange === 'mine' ? myPoints[0].val : 100) - 1) * 100).toFixed(2)
+                    : null;
                   const vsKospi = (myRangePct && kospiRangePct) ? (parseFloat(myRangePct) - parseFloat(kospiRangePct)).toFixed(2) : null;
                   const vsKosdaq = (myRangePct && kosdaqRangePct) ? (parseFloat(myRangePct) - parseFloat(kosdaqRangePct)).toFixed(2) : null;
 
@@ -2277,7 +2280,7 @@ export default function App() {
                       {/* 기간 수익률 요약 카드 - 항상 표시 */}
                       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:10 }}>
                         <div style={{ background:T.section, borderRadius:8, padding:"7px 8px", textAlign:"center" }}>
-                          <div style={{ fontSize:9, color:"#3b82f6", fontWeight:700, marginBottom:2 }}>● 내 포트 ({perfRange==='1m'?'1개월':perfRange==='3m'?'3개월':perfRange==='6m'?'6개월':'전체'})</div>
+                          <div style={{ fontSize:9, color:"#3b82f6", fontWeight:700, marginBottom:2 }}>● 내 포트 ({perfRange==='1m'?'1개월':perfRange==='3m'?'3개월':perfRange==='6m'?'6개월':perfRange==='mine'?'내 기록':'전체'})</div>
                           <div style={{ fontSize:14, fontWeight:900, color: myRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
                             {myRangePct !== null ? `${myRangePct >= 0 ? '+' : ''}${myRangePct}%` : <span style={{fontSize:11,color:T.textMuted}}>타점 없음</span>}
                           </div>
