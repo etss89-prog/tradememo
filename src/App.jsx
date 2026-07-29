@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.4.9";
+const VERSION = "v1.5.0";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -1884,7 +1884,9 @@ export default function App() {
                       // 원본 stock에서 tickerCode, isOverseas 찾기
                       const allS = Object.values(portfolios).flatMap(p => p.stocks || []);
                       const orig = allS.find(st => st.ticker === s.ticker) || s;
-                      openChart({ ticker: s.ticker, tickerCode: orig.tickerCode, isOverseas: orig.isOverseas || false, avgBuy: orig.avgBuyPrice || s.avgBuy || null });
+                      // avgBuy: 전체합산뷰의 가중평균 평단(s.avgBuy) 우선, 없으면 개별계좌 평단
+                      const avgBuy = s.avgBuy || orig.avgBuyPrice || null;
+                      openChart({ ticker: s.ticker, tickerCode: orig.tickerCode, isOverseas: orig.isOverseas || false, avgBuy });
                     }}
                     onEdit={(activeAccount !== "all" && portfolioEditMode) ? (s) => {
                       const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
