@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.4";
+const VERSION = "v1.5.5";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2370,7 +2370,12 @@ export default function App() {
                           {linePath(kosdaqNorm) && <path d={linePath(kosdaqNorm)} fill="none" stroke="#22c55e" strokeWidth="1.2" opacity="0.7" />}
                           {/* 코스피 연속 라인 */}
                           {linePath(kospiNorm) && <path d={linePath(kospiNorm)} fill="none" stroke="#f59e0b" strokeWidth="1.5" opacity="0.8" />}
-                          {/* 내 포트 타점 (점으로만) */}
+                          {/* 내 포트 연결선 (타점 2개 이상일 때만) */}
+                          {myDots.length >= 2 && (
+                            <path d={myDots.map((d, i) => `${i === 0 ? 'M' : 'L'}${d.x},${d.y}`).join(' ')}
+                              fill="none" stroke="#3b82f6" strokeWidth="1.8" opacity="0.9" />
+                          )}
+                          {/* 내 포트 타점 */}
                           {myDots.map((dot, i) => {
                             const isSelected = perfTooltip?.date === dot.date;
                             const perfDay = performance[dot.date];
