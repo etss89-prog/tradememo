@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.3";
+const VERSION = "v1.5.4";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2179,8 +2179,21 @@ export default function App() {
                   const idxData = indexChartData[perfRange === 'mine' ? 'all' : perfRange];
                   const rawKospiLine = idxData?.kospi || [];
                   const rawKosdaqLine = idxData?.kosdaq || [];
-                  const kospiLine = (perfRange === 'mine' && firstDate) ? rawKospiLine.filter(d => d.date >= firstDate) : rawKospiLine;
-                  const kosdaqLine = (perfRange === 'mine' && firstDate) ? rawKosdaqLine.filter(d => d.date >= firstDate) : rawKosdaqLine;
+                  // firstDate가 비영업일(주말/공휴일)일 수 있으므로, 그대로 자르면 그 이전 영업일 데이터가
+                  // 통째로 사라져서 첫 타점이 매칭될 곳이 없어짐(→ 다음 영업일로 밀려 다시 겹쳐 보임).
+                  // firstDate '이하'의 마지막 영업일(anchor)까지는 남기고 그 지점부터 자른다.
+                  const findAnchorDate = (arr, targetDate) => {
+                    if (!arr || arr.length === 0 || !targetDate) return null;
+                    let anchor = null;
+                    for (let k = 0; k < arr.length; k++) {
+                      if (arr[k].date <= targetDate) anchor = arr[k].date;
+                      else break;
+                    }
+                    return anchor || arr[0].date;
+                  };
+                  const mineAnchor = perfRange === 'mine' ? findAnchorDate(rawKospiLine, firstDate) : null;
+                  const kospiLine = (perfRange === 'mine' && mineAnchor) ? rawKospiLine.filter(d => d.date >= mineAnchor) : rawKospiLine;
+                  const kosdaqLine = (perfRange === 'mine' && mineAnchor) ? rawKosdaqLine.filter(d => d.date >= mineAnchor) : rawKosdaqLine;
 
                   // 내 포트 타점 (기간 필터)
                   const myPoints = filteredDates.map(d => ({
