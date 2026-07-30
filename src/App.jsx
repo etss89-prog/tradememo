@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.2";
+const VERSION = "v1.5.3";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2244,17 +2244,19 @@ export default function App() {
                   const myDots = myNorm.map(p => {
                     // 정확한 날짜 매칭 우선
                     let idx = kospiDateMap[p.date];
-                    if (idx === undefined && kospiLine.length > 0) {
-                      // 가장 가까운 날짜 찾기
+                    if (idx === undefined && kospiNorm.length > 0) {
+                      // 비영업일(주말/공휴일) 기록: 다음 영업일이 아니라 "직전" 영업일 종가에 매칭
+                      // (예: 일요일 기록이 절대적 시간차만으로 매칭되면 월요일과 더 가까워 겹쳐 보이는 문제 방지)
                       const pTime = new Date(p.date).getTime();
-                      let minDiff = Infinity;
-                      kospiNorm.forEach(d => {
-                        const diff = Math.abs(new Date(d.date).getTime() - pTime);
-                        if (diff < minDiff) { minDiff = diff; idx = d.i; }
-                      });
+                      for (let k = 0; k < kospiNorm.length; k++) {
+                        const dTime = new Date(kospiNorm[k].date).getTime();
+                        if (dTime <= pTime) idx = kospiNorm[k].i;
+                        else break; // kospiNorm은 날짜 오름차순 정렬 가정
+                      }
+                      if (idx === undefined) idx = kospiNorm[0].i; // 그 이전 영업일 데이터가 아예 없으면 첫 영업일로
                     }
                     const x = idx !== undefined ? pxByIdx(idx) : pxByIdx(totalN - 1);
-                    return { x, y: pyVal(p.val), val: p.val, date: p.date };
+                    return { x, y: pyVal(p.val), val: p.val, date: p.date, idx };
                   });
 
                   // Y축 - 10칸
@@ -2365,11 +2367,8 @@ export default function App() {
                                   e.stopPropagation();
                                   if (isSelected) { setPerfTooltip(null); return; }
                                   // 타점 클릭: 내 포트 + 그날 코스피/코스닥
-                                  const dotIdx = kospiDateMap[dot.date] ?? (() => {
-                                    let mi = 0, minD = Infinity;
-                                    kospiNorm.forEach((d,i) => { const diff = Math.abs(new Date(d.date)-new Date(dot.date)); if(diff<minD){minD=diff;mi=i;} });
-                                    return mi;
-                                  })();
+                                  // (myDots 계산 시 이미 확정된 idx를 그대로 사용 — 점 위치와 툴팁 수치가 항상 일치하도록)
+                                  const dotIdx = dot.idx ?? 0;
                                   setPerfTooltip({
                                     date: dot.date,
                                     myVal: dot.val,
