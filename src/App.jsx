@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.6";
+const VERSION = "v1.5.7";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -1086,8 +1086,18 @@ export default function App() {
                             {Object.entries(p.accounts).map(([accId, acc]) => {
                               const accName = accounts.find(a => a.id === accId)?.name || accId;
                               const accCum = (acc.cumulativeIndex - 100).toFixed(2);
-                              // dailyReturn은 신규 저장분부터 존재 (예전 기록엔 없어서 누적만 표시)
-                              const accDaily = acc.dailyReturn !== undefined ? parseFloat(acc.dailyReturn).toFixed(2) : null;
+                              // dailyReturn은 신규 저장분부터 저장돼 있음. 그 이전 기록들은 저장된 값이 없으므로
+                              // 코스피/코스닥 일간(kospiDailyRet)과 같은 방식으로, 날짜순으로 봤을 때 바로 전날
+                              // 기록의 같은 계좌 평가액과 비교해서 그 자리에서 계산해 보여준다.
+                              let accDailyNum = acc.dailyReturn !== undefined ? parseFloat(acc.dailyReturn) : null;
+                              if (accDailyNum === null) {
+                                const allDates = Object.keys(performance).sort();
+                                const dIdx = allDates.indexOf(date);
+                                const prevD = dIdx > 0 ? allDates[dIdx - 1] : null;
+                                const prevAccVal = prevD ? performance[prevD]?.accounts?.[accId]?.value : null;
+                                if (prevAccVal) accDailyNum = (acc.value - prevAccVal) / prevAccVal * 100;
+                              }
+                              const accDaily = accDailyNum !== null ? accDailyNum.toFixed(2) : null;
                               return (
                                 <div key={accId} style={{ background:T.card, borderRadius:6, padding:"4px 8px", fontSize:10 }}>
                                   <span style={{ color:T.textMuted }}>{accName} </span>
