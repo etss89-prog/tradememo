@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.5";
+const VERSION = "v1.5.6";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -558,6 +558,9 @@ export default function App() {
         const prevAccIndex = prevAccData?.cumulativeIndex || 100;
         accountsPerf[accId] = {
           value,
+          // 일간(전일 대비) 등락률 — 예전엔 계산만 하고 저장을 안 해서, 화면에는 계좌 추적 시작 이후
+          // 누적 수익률(cumulativeIndex-100)만 표시되고 있었음. "일간" 박스 바로 아래라 오해하기 쉬웠던 부분.
+          dailyReturn: parseFloat(accDaily.toFixed(4)),
           cumulativeIndex: parseFloat((prevAccIndex * (1 + accDaily / 100)).toFixed(4)),
         };
       });
@@ -1078,16 +1081,23 @@ export default function App() {
                       {/* 계좌별 수익률 */}
                       {p.accounts && Object.keys(p.accounts).length > 0 && (
                         <div style={{ borderTop:`1px solid ${T.cardBorder}`, paddingTop:8 }}>
-                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:4 }}>계좌별</div>
+                          <div style={{ fontSize:10, color:T.textMuted, marginBottom:4 }}>계좌별 (일간 · 누적)</div>
                           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
                             {Object.entries(p.accounts).map(([accId, acc]) => {
                               const accName = accounts.find(a => a.id === accId)?.name || accId;
-                              const accRet = (acc.cumulativeIndex - 100).toFixed(2);
+                              const accCum = (acc.cumulativeIndex - 100).toFixed(2);
+                              // dailyReturn은 신규 저장분부터 존재 (예전 기록엔 없어서 누적만 표시)
+                              const accDaily = acc.dailyReturn !== undefined ? parseFloat(acc.dailyReturn).toFixed(2) : null;
                               return (
                                 <div key={accId} style={{ background:T.card, borderRadius:6, padding:"4px 8px", fontSize:10 }}>
                                   <span style={{ color:T.textMuted }}>{accName} </span>
-                                  <span style={{ fontWeight:700, color: accRet >= 0 ? "#ef4444" : "#3b82f6" }}>
-                                    {accRet >= 0 ? '+' : ''}{accRet}%
+                                  {accDaily !== null && (
+                                    <span style={{ fontWeight:700, color: accDaily >= 0 ? "#ef4444" : "#3b82f6" }}>
+                                      일간{accDaily >= 0 ? '+' : ''}{accDaily}%
+                                    </span>
+                                  )}
+                                  <span style={{ fontWeight:600, color: accCum >= 0 ? "#ef4444" : "#3b82f6", marginLeft:4 }}>
+                                    (누적{accCum >= 0 ? '+' : ''}{accCum}%)
                                   </span>
                                   {isAdmin && <span style={{ color:T.textMuted, fontSize:9, marginLeft:4 }}>{acc.value?.toLocaleString()}원</span>}
                                 </div>
