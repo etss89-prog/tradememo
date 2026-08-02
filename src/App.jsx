@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.9";
+const VERSION = "v1.5.10";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -256,6 +256,96 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
   );
 }
 
+// ===== 맵차트(트리맵) 헬퍼 함수들 =====
+// Squarified treemap 알고리즘 (Bruls/Huizing/van Wijk) - 타일 면적이 실제 값 비율과 정확히 일치하도록 배치
+function worstAspectRatio(row, shortSide) {
+  const s = row.reduce((sum, it) => sum + it.area, 0);
+  if (s <= 0) return Infinity;
+  const areas = row.map(it => it.area);
+  const rmax = Math.max(...areas);
+  const rmin = Math.min(...areas);
+  const w2 = shortSide * shortSide;
+  const s2 = s * s;
+  return Math.max((w2 * rmax) / s2, s2 / (w2 * rmin));
+}
+
+function squarify(items, x, y, w, h) {
+  if (!items.length) return [];
+  if (items.length === 1) return [{ ...items[0], x, y, w, h }];
+
+  const shortSide = Math.min(w, h);
+
+  let i = 1;
+  let bestRow = items.slice(0, 1);
+  let bestWorst = worstAspectRatio(bestRow, shortSide);
+  while (i < items.length) {
+    const row = items.slice(0, i + 1);
+    const worst = worstAspectRatio(row, shortSide);
+    if (worst <= bestWorst) { bestRow = row; bestWorst = worst; i++; }
+    else break;
+  }
+
+  const rowArea = bestRow.reduce((s, it) => s + it.area, 0);
+  const isWide = w >= h;
+  let result = [];
+  if (isWide) {
+    const rowW = rowArea / h;
+    let cy = y;
+    bestRow.forEach(it => {
+      const itH = rowArea > 0 ? h * (it.area / rowArea) : 0;
+      result.push({ ...it, x, y: cy, w: rowW, h: itH });
+      cy += itH;
+    });
+    const rest = items.slice(bestRow.length);
+    if (rest.length) result = result.concat(squarify(rest, x + rowW, y, w - rowW, h));
+  } else {
+    const rowH = rowArea / w;
+    let cx = x;
+    bestRow.forEach(it => {
+      const itW = rowArea > 0 ? w * (it.area / rowArea) : 0;
+      result.push({ ...it, x: cx, y, w: itW, h: rowH });
+      cx += itW;
+    });
+    const rest = items.slice(bestRow.length);
+    if (rest.length) result = result.concat(squarify(rest, x, y + rowH, w, h - rowH));
+  }
+  return result;
+}
+
+// 등락률 → 색상 (한국 상하한가 ±30% 기준 클램프, 진한 빨강=급등 / 진한 파랑=급락)
+function pctToColor(pct) {
+  const p = Math.max(-30, Math.min(30, pct || 0));
+  const t = Math.abs(p) / 30; // 0~1
+  const hue = p >= 0 ? 0 : 217; // 빨강 / 파랑 (기존 앱의 #ef4444, #3b82f6 계열과 통일)
+  const sat = 25 + t * 65;
+  const light = 82 - t * 47;
+  return `hsl(${hue}, ${sat.toFixed(0)}%, ${light.toFixed(0)}%)`;
+}
+
+// 시총 비중 기반 "기타" 묶음 처리 - 임계치 미만 종목은 하나의 타일로 합치고, 가중평균 등락률로 색상 결정
+function buildTreemapItems(mapList, etcThresholdPct = 1.5) {
+  if (!mapList || !mapList.length) return { items: [], total: 0 };
+  const withCap = mapList.filter(s => s.marketCap && s.marketCap > 0);
+  const total = withCap.reduce((s, it) => s + it.marketCap, 0);
+  if (!total) return { items: [], total: 0 };
+
+  const threshold = total * (etcThresholdPct / 100);
+  const big = withCap.filter(s => s.marketCap >= threshold).sort((a, b) => b.marketCap - a.marketCap);
+  const small = withCap.filter(s => s.marketCap < threshold);
+
+  const items = big.map(s => ({ name: s.name, marketCap: s.marketCap, pctNum: s.pctNum ?? 0, isEtc: false }));
+
+  if (small.length) {
+    const smallTotal = small.reduce((s, it) => s + it.marketCap, 0);
+    const weightedPct = smallTotal > 0
+      ? small.reduce((s, it) => s + (it.pctNum ?? 0) * it.marketCap, 0) / smallTotal
+      : 0;
+    items.push({ name: `기타 ${small.length}종목`, marketCap: smallTotal, pctNum: weightedPct, isEtc: true });
+  }
+
+  return { items, total };
+}
+
 export default function App() {
   // ✅ 다크/라이트 모드
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("jb_dark_mode") !== "false");
@@ -299,6 +389,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("portfolio");
   const [marketData, setMarketData] = useState(null);
   const [marketLoading, setMarketLoading] = useState(false);
+  const [treemapMarket, setTreemapMarket] = useState('kospi'); // 맵차트 코스피/코스닥 토글
   const [performance, setPerformance] = useState({}); // 날짜별 성과 데이터
   const [perfSaving, setPerfSaving] = useState(false);
   const [perfRange, setPerfRange] = useState('mine');
@@ -2706,7 +2797,7 @@ export default function App() {
             <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
           )}
           {marketData && (() => {
-            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart } = marketData;
+            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart, kospiMap, kosdaqMap, kospiMapTotal, kosdaqMapTotal } = marketData;
 
             // 영역 차트 그리기 함수
             const renderAreaChart = (data, label, indexInfo) => {
@@ -2776,7 +2867,13 @@ export default function App() {
               ));
             };
 
+            // 맵차트용 데이터 준비 (코스피/코스닥 토글에 따라)
+            const activeMapList = treemapMarket === 'kospi' ? kospiMap : kosdaqMap;
+            const activeMapTotal = treemapMarket === 'kospi' ? kospiMapTotal : kosdaqMapTotal;
+            const { items: treemapItems, total: treemapTotal } = buildTreemapItems(activeMapList);
+
             return (
+              <>
               <div style={{ display:"flex", gap:8 }}>
                 {/* 코스피 */}
                 <div style={{ flex:1, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px", minWidth:0 }}>
@@ -2818,6 +2915,72 @@ export default function App() {
                   {renderStockList(kosdaqTop)}
                 </div>
               </div>
+
+              {/* 🗺️ 맵차트 (트리맵) - top10 시총 아래 최하단 배치 */}
+              <div style={{ marginTop:8, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                  <div style={{ fontSize:12, fontWeight:800, color:T.text }}>🗺️ 맵차트</div>
+                  <div style={{ display:"flex", gap:4 }}>
+                    {[{ k:'kospi', label:'코스피' }, { k:'kosdaq', label:'코스닥' }].map(o => (
+                      <button key={o.k} onClick={() => setTreemapMarket(o.k)}
+                        style={{
+                          fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:8, border:"none", cursor:"pointer",
+                          background: treemapMarket===o.k ? (darkMode?"#3730a3":"#e0e7ff") : "transparent",
+                          color: treemapMarket===o.k ? (darkMode?"#c7d2fe":"#3730a3") : T.textMuted,
+                        }}>{o.label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {(!treemapItems || treemapItems.length === 0) ? (
+                  <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>맵차트 데이터 없음</div>
+                ) : (() => {
+                  const W = 320, H = 280;
+                  const areaItems = treemapItems.map(it => ({ ...it, area: treemapTotal > 0 ? (W*H) * (it.marketCap/treemapTotal) : 0 }));
+                  const tiles = squarify(areaItems, 0, 0, W, H);
+                  const bigCount = treemapItems.filter(it => !it.isEtc).length;
+                  const hasEtc = treemapItems.some(it => it.isEtc);
+                  return (
+                    <>
+                      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", borderRadius:8, overflow:"hidden" }}>
+                        {tiles.map((t, i) => {
+                          const clampedAbs = Math.abs(Math.max(-30, Math.min(30, t.pctNum || 0))) / 30;
+                          const color = pctToColor(t.pctNum);
+                          const textColor = clampedAbs > 0.4 ? "#ffffff" : "#1a1a1a";
+                          const showFull = t.w > 42 && t.h > 26;
+                          const showSmall = !showFull && t.w > 22 && t.h > 15;
+                          const pctLabel = (t.pctNum >= 0 ? '+' : '') + t.pctNum.toFixed(t.w > 42 ? 2 : 1) + '%';
+                          return (
+                            <g key={i}>
+                              <rect x={t.x} y={t.y} width={Math.max(t.w-0.6,0)} height={Math.max(t.h-0.6,0)} fill={color} />
+                              {showFull && (
+                                <>
+                                  <text x={t.x + t.w/2} y={t.y + t.h/2 - 3} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={textColor}>
+                                    {t.isEtc ? t.name : (t.name.length > 7 ? t.name.slice(0,6)+'…' : t.name)}
+                                  </text>
+                                  <text x={t.x + t.w/2} y={t.y + t.h/2 + 9} textAnchor="middle" fontSize="8.5" fill={textColor}>
+                                    {t.isEtc ? '' : pctLabel}
+                                  </text>
+                                </>
+                              )}
+                              {showSmall && (
+                                <text x={t.x + t.w/2} y={t.y + t.h/2 + 3} textAnchor="middle" fontSize="7.5" fontWeight="700" fill={textColor}>
+                                  {t.isEtc ? '기타' : pctLabel}
+                                </text>
+                              )}
+                            </g>
+                          );
+                        })}
+                      </svg>
+                      <div style={{ display:"flex", justifyContent:"space-between", marginTop:6, fontSize:10, color:T.textMuted }}>
+                        <span>시총 상위 {bigCount}개{hasEtc ? ' + 기타' : ''} (박스 면적 = 시총 비중, 색 = 등락률)</span>
+                        <span>합계 {formatMktCap(activeMapTotal || treemapTotal) || '-'} (상위 {activeMapList?.length || 0}개 합)</span>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+              </>
             );
           })()}
         </div>
