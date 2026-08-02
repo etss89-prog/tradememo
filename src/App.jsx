@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.10";
+const VERSION = "v1.5.11";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -323,7 +323,8 @@ function pctToColor(pct) {
 }
 
 // 시총 비중 기반 "기타" 묶음 처리 - 임계치 미만 종목은 하나의 타일로 합치고, 가중평균 등락률로 색상 결정
-function buildTreemapItems(mapList, etcThresholdPct = 1.5) {
+// ✅ v1.5.11: 임계치를 1.5% → 0.4%로 낮춤 (기존 대비 최소 타일 크기를 약 1/4로 축소, 개별 종목 표시를 훨씬 늘림)
+function buildTreemapItems(mapList, etcThresholdPct = 0.4) {
   if (!mapList || !mapList.length) return { items: [], total: 0 };
   const withCap = mapList.filter(s => s.marketCap && s.marketCap > 0);
   const total = withCap.reduce((s, it) => s + it.marketCap, 0);
@@ -2935,7 +2936,7 @@ export default function App() {
                 {(!treemapItems || treemapItems.length === 0) ? (
                   <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>맵차트 데이터 없음</div>
                 ) : (() => {
-                  const W = 320, H = 280;
+                  const W = 320, H = 300;
                   const areaItems = treemapItems.map(it => ({ ...it, area: treemapTotal > 0 ? (W*H) * (it.marketCap/treemapTotal) : 0 }));
                   const tiles = squarify(areaItems, 0, 0, W, H);
                   const bigCount = treemapItems.filter(it => !it.isEtc).length;
@@ -2947,25 +2948,41 @@ export default function App() {
                           const clampedAbs = Math.abs(Math.max(-30, Math.min(30, t.pctNum || 0))) / 30;
                           const color = pctToColor(t.pctNum);
                           const textColor = clampedAbs > 0.4 ? "#ffffff" : "#1a1a1a";
-                          const showFull = t.w > 42 && t.h > 26;
-                          const showSmall = !showFull && t.w > 22 && t.h > 15;
-                          const pctLabel = (t.pctNum >= 0 ? '+' : '') + t.pctNum.toFixed(t.w > 42 ? 2 : 1) + '%';
+                          // ✅ v1.5.11: 4단계 세분화 (풀네임 → 축약이름 → 초축약이름 → 숨김), 박스가 작을수록 글씨도 함께 축소
+                          const showFull = t.w > 50 && t.h > 32;
+                          const showMed = !showFull && t.w > 30 && t.h > 19;
+                          const showSmall = !showFull && !showMed && t.w > 15 && t.h > 12;
+                          const pctDecimals = showFull ? 2 : showMed ? 1 : 0;
+                          const pctLabel = (t.pctNum >= 0 ? '+' : '') + t.pctNum.toFixed(pctDecimals) + '%';
+                          const fullName = t.isEtc ? t.name : (t.name.length > 7 ? t.name.slice(0,6)+'…' : t.name);
+                          const medName = t.isEtc ? '기타' : (t.name.length > 4 ? t.name.slice(0,4)+'…' : t.name);
+                          const smallName = t.isEtc ? '기타' : t.name.slice(0, 2);
                           return (
                             <g key={i}>
                               <rect x={t.x} y={t.y} width={Math.max(t.w-0.6,0)} height={Math.max(t.h-0.6,0)} fill={color} />
                               {showFull && (
                                 <>
                                   <text x={t.x + t.w/2} y={t.y + t.h/2 - 3} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={textColor}>
-                                    {t.isEtc ? t.name : (t.name.length > 7 ? t.name.slice(0,6)+'…' : t.name)}
+                                    {fullName}
                                   </text>
                                   <text x={t.x + t.w/2} y={t.y + t.h/2 + 9} textAnchor="middle" fontSize="8.5" fill={textColor}>
                                     {t.isEtc ? '' : pctLabel}
                                   </text>
                                 </>
                               )}
+                              {showMed && (
+                                <>
+                                  <text x={t.x + t.w/2} y={t.y + t.h/2 - 2} textAnchor="middle" fontSize="7.2" fontWeight="700" fill={textColor}>
+                                    {medName}
+                                  </text>
+                                  <text x={t.x + t.w/2} y={t.y + t.h/2 + 7} textAnchor="middle" fontSize="6.5" fill={textColor}>
+                                    {t.isEtc ? '' : pctLabel}
+                                  </text>
+                                </>
+                              )}
                               {showSmall && (
-                                <text x={t.x + t.w/2} y={t.y + t.h/2 + 3} textAnchor="middle" fontSize="7.5" fontWeight="700" fill={textColor}>
-                                  {t.isEtc ? '기타' : pctLabel}
+                                <text x={t.x + t.w/2} y={t.y + t.h/2 + 2} textAnchor="middle" fontSize="6" fontWeight="700" fill={textColor}>
+                                  {smallName}
                                 </text>
                               )}
                             </g>
