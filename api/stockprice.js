@@ -250,7 +250,7 @@ async function getCurrentPrice(token, code) {
   // 6자리 숫자지만 ETF인 경우 (069500, 233740 등) → J로 조회해도 됨 (한투 API가 처리)
   const isNewETF = /[A-Za-z]/.test(code); // 영문자 포함 여부로 판별
   const marketCode = isNewETF ? 'ETF' : 'J';
-  
+
   const res = await fetch(
     `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=${marketCode}&fid_input_iscd=${code}`,
     {
@@ -265,7 +265,7 @@ async function getCurrentPrice(token, code) {
   );
   const data = await res.json();
   const price = parseInt(data.output?.stck_prpr || 0);
-  
+
   // ETF 마켓으로 0 나오면 J로 재시도
   if (price === 0 && isNewETF) {
     const res2 = await fetch(
@@ -284,7 +284,7 @@ async function getCurrentPrice(token, code) {
     const price2 = parseInt(data2.output?.stck_prpr || 0);
     return price2 > 0 ? price2 : null;
   }
-  
+
   return price > 0 ? price : null;
 }
 
@@ -381,7 +381,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트)
+    // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트 + 맵차트)
     if (type === 'market') {
       const results = await Promise.all([
         fetchMarketIndex(),
@@ -390,12 +390,20 @@ export default async function handler(req, res) {
         fetchIntraday('%5EKS11'),
         fetchIntraday('%5EKQ11'),
       ]);
+      const kospiCap = results[1] || {};
+      const kosdaqCap = results[2] || {};
       return res.status(200).json({
+        // ── 기존 필드 (그대로 유지, 기존 UI 영향 없음) ──
         indices: results[0],
-        kospiTop: results[1],
-        kosdaqTop: results[2],
+        kospiTop: kospiCap.top10 || [],
+        kosdaqTop: kosdaqCap.top10 || [],
         kospiChart: results[3],
         kosdaqChart: results[4],
+        // ── 신규 필드 (맵차트용, 추가된 것만) ──
+        kospiMap: kospiCap.mapList || [],
+        kosdaqMap: kosdaqCap.mapList || [],
+        kospiMapTotal: kospiCap.totalMarketCap ?? null,
+        kosdaqMapTotal: kosdaqCap.totalMarketCap ?? null,
       });
     }
 
@@ -498,6 +506,10 @@ async function fetchMarketIndex() {
   } catch { return { kospi: null, kosdaq: null }; }
 }
 
+// ✅ 맵차트용으로 파싱 상한을 10 → 50으로 확대. top10은 기존과 100% 동일한 모양을 유지해서
+// 기존 "시총 TOP10" UI에는 전혀 영향이 없고, mapList/totalMarketCap만 새로 추가됨.
+const MAP_LIMIT = 50;
+
 async function fetchMarketCap(sosok) {
   const market = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
   try {
@@ -525,7 +537,7 @@ async function fetchMarketCap(sosok) {
     // 테이블 행 패턴
     const rowPattern = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
     let m;
-    while ((m = rowPattern.exec(html)) !== null && rows.length < 10) {
+    while ((m = rowPattern.exec(html)) !== null && rows.length < MAP_LIMIT) {
       const row = m[0];
       // 종목명
       const nameMatch = row.match(/href="[^"]*code=(\d{6})[^"]*"[^>]*>([^<]+)<\/a>/);
@@ -564,14 +576,19 @@ async function fetchMarketCap(sosok) {
         if (capRaw > 0) marketCap = capRaw;
       }
 
-      rows.push({ rank: rows.length + 1, name, price, pct, isUp, marketCap, code });
+      // pctNum: 맵차트 색상 계산용 (부호 있는 숫자), pct: 기존 UI 표시용 문자열 - 둘 다 유지
+      rows.push({ rank: rows.length + 1, name, price, pct, pctNum, isUp, marketCap, code });
     }
 
     if (rows.length >= 5) {
-      return rows.slice(0, 10).map(({ code, ...rest }) => rest);
+      const mapList = rows.map(({ code, ...rest }) => rest);
+      const top10 = mapList.slice(0, 10); // ✅ 기존과 동일한 모양 (top10 UI는 영향 없음)
+      const capSum = mapList.reduce((sum, s) => sum + (s.marketCap || 0), 0);
+      const totalMarketCap = capSum > 0 ? capSum : null;
+      return { top10, mapList, totalMarketCap };
     }
 
-    // 파싱 실패 시 네이버 JSON API 시도
+    // 파싱 실패 시 네이버 JSON API 시도 (이 경로는 marketCap을 못 채우므로 맵차트에는 부적합 → top10만 채움)
     const jsonUrl = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
     const jr = await fetch(jsonUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Referer': 'https://m.stock.naver.com/' }
@@ -580,7 +597,7 @@ async function fetchMarketCap(sosok) {
       const jd = await jr.json();
       const jStocks = jd?.stocks || jd?.list || (Array.isArray(jd) ? jd : null);
       if (jStocks && jStocks.length >= 5) {
-        return jStocks.slice(0, 10).map((s, i) => {
+        const list = jStocks.slice(0, 10).map((s, i) => {
           const p = Number(s.closePrice || s.currentPrice || 0);
           const prev = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
           const chg = p - prev;
@@ -592,10 +609,12 @@ async function fetchMarketCap(sosok) {
             price: p,
             change: Math.round(chg),
             pct: (up ? '+' : '') + pctVal.toFixed(2) + '%',
+            pctNum: Math.round(pctVal * 100) / 100,
             isUp: up,
             marketCap: null,
           };
         }).filter(s => s.name && s.price > 0);
+        return { top10: list, mapList: list, totalMarketCap: null };
       }
     }
 
@@ -619,11 +638,11 @@ async function fetchMarketCapFallback(sosok) {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
       }).then(r => r.json())
     ));
-    return results.map((r, i) => {
-      if (r.status !== 'fulfilled') return { rank: i+1, name: names[i], price: 0, pct: '0%', isUp: false, marketCap: null };
+    const list = results.map((r, i) => {
+      if (r.status !== 'fulfilled') return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
       const result = r.value?.chart?.result?.[0];
       const meta = result?.meta;
-      if (!meta) return { rank: i+1, name: names[i], price: 0, pct: '0%', isUp: false, marketCap: null };
+      if (!meta) return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
       const cur = Math.round(meta.regularMarketPrice);
       const prev = meta.chartPreviousClose || meta.previousClose || cur;
       const change = cur - prev;
@@ -638,11 +657,14 @@ async function fetchMarketCapFallback(sosok) {
         price: cur,
         change: Math.round(change),
         pct: (isUp?'+':'') + pct.toFixed(2) + '%',
+        pctNum: Math.round(pct * 100) / 100,
         isUp,
         marketCap: mktCap,
       };
     });
-  } catch { return []; }
+    const capSum = list.reduce((sum, s) => sum + (s.marketCap || 0), 0);
+    return { top10: list, mapList: list, totalMarketCap: capSum > 0 ? capSum : null };
+  } catch { return { top10: [], mapList: [], totalMarketCap: null }; }
 }
 
 async function fetchIntraday(symbol) {
