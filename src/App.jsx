@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.7";
+const VERSION = "v1.5.8";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -301,7 +301,7 @@ export default function App() {
   const [marketLoading, setMarketLoading] = useState(false);
   const [performance, setPerformance] = useState({}); // 날짜별 성과 데이터
   const [perfSaving, setPerfSaving] = useState(false);
-  const [perfRange, setPerfRange] = useState('all');
+  const [perfRange, setPerfRange] = useState('mine');
   const [perfDetailModal, setPerfDetailModal] = useState(false);
   const [indexChartData, setIndexChartData] = useState({}); // { range: { kospi: [...], kosdaq: [...] } }
   const [indexChartLoading, setIndexChartLoading] = useState(false);
@@ -317,6 +317,7 @@ export default function App() {
   const [portfolioEditMode, setPortfolioEditMode] = useState(false);
   const [editStockQty, setEditStockQty] = useState("");
   const [editStockAvg, setEditStockAvg] = useState("");
+  const [editStockName, setEditStockName] = useState("");
   const [accounts, setAccounts] = useState([
     { id: "main", name: "삼성증권 본계좌" },
     { id: "pension", name: "삼성증권 연금저축" },
@@ -758,14 +759,20 @@ export default function App() {
   async function saveEditStock() {
     const { accountId, stock } = editStockModal;
     const qty = parseInt(editStockQty), avg = parseInt(editStockAvg.replace(/,/g, ""));
+    const newName = editStockName.trim();
     if (isNaN(qty) || isNaN(avg)) return alert("수량과 평단가를 올바르게 입력해주세요.");
+    if (!newName) return alert("종목명을 입력해주세요.");
     const existing = portfolios[accountId]; if (!existing) return;
-    const updatedStocks = existing.stocks.map(s => s.ticker === stock.ticker ? { ...s, quantity: qty, avgBuyPrice: avg, currentValue: Math.round((livePrices[s.ticker] || s.currentPrice) * qty) } : s);
+    // 종목명을 고쳤다면(OCR 오인식 교정 등) ticker 자체를 바꿔치기. 가격 캐시(livePrices)는 새 이름으로
+    // 아직 안 채워져 있을 수 있어서, 새 이름 → 기존 이름 → 직전 현재가 순으로 폴백해서 평가금액을 계산한다.
+    const updatedStocks = existing.stocks.map(s => s.ticker === stock.ticker
+      ? { ...s, ticker: newName, quantity: qty, avgBuyPrice: avg, currentValue: Math.round((livePrices[newName] || livePrices[s.ticker] || s.currentPrice || avg) * qty) }
+      : s);
     const totalValue = updatedStocks.reduce((sum, s) => sum + (s.currentValue || 0), 0);
     const newPortfolios = { ...portfolios, [accountId]: { ...existing, stocks: updatedStocks, totalValue } };
-    setPortfolios(newPortfolios); setEditStockModal(null); setEditStockQty(""); setEditStockAvg("");
+    setPortfolios(newPortfolios); setEditStockModal(null); setEditStockQty(""); setEditStockAvg(""); setEditStockName("");
     await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
-    alert(`✅ ${stock.ticker} 수정 완료!`);
+    alert(`✅ ${newName} 수정 완료!`);
   }
   async function deleteStock(accountId, ticker) {
     if (!window.confirm(`"${ticker}" 종목을 삭제할까요?`)) return;
@@ -1669,6 +1676,10 @@ export default function App() {
             <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 16 }}>{editStockModal.stock.ticker}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
               <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>종목명 (OCR 오인식 교정용)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }} type="text" placeholder="예: 티에프이" value={editStockName} onChange={e => setEditStockName(e.target.value)} />
+              </div>
+              <div>
                 <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>보유 수량 (주)</div>
                 <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }} type="number" placeholder="예: 100" value={editStockQty} onChange={e => setEditStockQty(e.target.value)} />
               </div>
@@ -1678,7 +1689,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setEditStockModal(null); setEditStockQty(""); setEditStockAvg(""); }}>취소</button>
+              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setEditStockModal(null); setEditStockQty(""); setEditStockAvg(""); setEditStockName(""); }}>취소</button>
               <button style={{ ...S.btnDanger, flex: 1, fontSize: 12 }} onClick={() => { deleteStock(editStockModal.accountId, editStockModal.stock.ticker); setEditStockModal(null); }}>🗑️ 삭제</button>
               <button style={{ ...S.btnMain, flex: 1 }} onClick={saveEditStock}>저장</button>
             </div>
@@ -1913,7 +1924,7 @@ export default function App() {
                     }}
                     onEdit={(activeAccount !== "all" && portfolioEditMode) ? (s) => {
                       const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
-                      if (origStock) { setEditStockModal({ accountId: activeAccount, stock: origStock }); setEditStockQty(String(origStock.quantity||"")); setEditStockAvg(String(origStock.avgBuyPrice||"")); }
+                      if (origStock) { setEditStockModal({ accountId: activeAccount, stock: origStock }); setEditStockQty(String(origStock.quantity||"")); setEditStockAvg(String(origStock.avgBuyPrice||"")); setEditStockName(origStock.ticker||""); }
                     } : null}
                     data={displayPortfolio.stocks?.map(s => {
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
