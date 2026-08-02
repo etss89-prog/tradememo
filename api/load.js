@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     const token = process.env.KV_REST_API_TOKEN;
     if (!url || !token) return res.status(500).json({ error: 'DB not configured' });
 
-    const [recRes, portRes, accRes, mainRes, priceRes, memoRes, perfRes] = await Promise.all([
+    const [recRes, portRes, accRes, mainRes, priceRes, memoRes, perfRes, guruRes] = await Promise.all([
       fetch(`${url}/get/tradememo_records`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_portfolios`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_accounts`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -17,6 +17,7 @@ export default async function handler(req, res) {
       fetch(`${url}/get/tradememo_prices`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_memos`, { headers: { Authorization: `Bearer ${token}` } }),
       fetch(`${url}/get/tradememo_performance`, { headers: { Authorization: `Bearer ${token}` } }),
+      fetch(`${url}/get/tradememo_gurus`, { headers: { Authorization: `Bearer ${token}` } }),
     ]);
 
     const parse = async (r) => {
@@ -25,8 +26,8 @@ export default async function handler(req, res) {
       try { return typeof d.result === 'object' ? d.result : JSON.parse(d.result); } catch { return null; }
     };
 
-    const [records, portfolios, accounts, mainText, priceData, memos, perfData] = await Promise.all(
-      [recRes, portRes, accRes, mainRes, priceRes, memoRes, perfRes].map(parse)
+    const [records, portfolios, accounts, mainText, priceData, memos, perfData, guruData] = await Promise.all(
+      [recRes, portRes, accRes, mainRes, priceRes, memoRes, perfRes, guruRes].map(parse)
     );
 
     return res.status(200).json({
@@ -38,6 +39,7 @@ export default async function handler(req, res) {
       priceUpdatedAt: priceData?.priceUpdatedAt || null,
       memos: memos || {},
       performance: perfData || {},
+      gurus: guruData || [],
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
