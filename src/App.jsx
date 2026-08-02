@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.8";
+const VERSION = "v1.5.9";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -313,6 +313,11 @@ export default function App() {
   const [shareMsg, setShareMsg] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [showWealth, setShowWealth] = useState(false);
+  // 구루의 의견들 — 전문가별 롱/숏/시장 전망 기록
+  const [gurus, setGurus] = useState([]);
+  const [guruModal, setGuruModal] = useState(null); // null | 'new' | 편집할 entry 객체
+  const [guruForm, setGuruForm] = useState({ date:"", guru:"", target:"", position:"long", source:"", sourceUrl:"", summary:"", verdict:"pending", memo:"" });
+  const [guruFilter, setGuruFilter] = useState("all");
   const [editStockModal, setEditStockModal] = useState(null);
   const [portfolioEditMode, setPortfolioEditMode] = useState(false);
   const [editStockQty, setEditStockQty] = useState("");
@@ -409,6 +414,7 @@ export default function App() {
       if (d.priceUpdatedAt) setLastUpdated(d.priceUpdatedAt);
       if (d.memos) setMemos(d.memos);
       if (d.performance) setPerformance(d.performance);
+      if (d.gurus) setGurus(d.gurus);
     }).catch(() => {});
     // 5분마다 Redis에서 최신 가격 자동 로드 (다른 사람이 갱신해도 반영)
     const priceRefreshInterval = setInterval(() => {
@@ -782,6 +788,36 @@ export default function App() {
     const newPortfolios = { ...portfolios, [accountId]: { ...existing, stocks: updatedStocks, totalValue } };
     setPortfolios(newPortfolios);
     await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
+  }
+  // 구루의 의견 저장/삭제 — save.js가 필드별로 독립 저장하므로 gurus만 보내도 안전함
+  async function saveGuruOpinion() {
+    if (!guruForm.date || !guruForm.guru.trim() || !guruForm.target.trim()) {
+      return alert("날짜 · 구루명 · 대상은 필수예요.");
+    }
+    const isEdit = guruModal && guruModal !== 'new';
+    const entry = {
+      id: isEdit ? guruModal.id : ('guru_' + Date.now()),
+      date: guruForm.date,
+      guru: guruForm.guru.trim(),
+      target: guruForm.target.trim(),
+      position: guruForm.position,
+      source: guruForm.source.trim(),
+      sourceUrl: guruForm.sourceUrl.trim(),
+      summary: guruForm.summary.trim(),
+      verdict: guruForm.verdict,
+      memo: guruForm.memo.trim(),
+      createdAt: isEdit ? (guruModal.createdAt || new Date().toISOString()) : new Date().toISOString(),
+    };
+    const newGurus = isEdit ? gurus.map(g => g.id === entry.id ? entry : g) : [...gurus, entry];
+    setGurus(newGurus);
+    setGuruModal(null);
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", gurus: newGurus }) });
+  }
+  async function deleteGuruOpinion(id) {
+    if (!window.confirm("이 의견 기록을 삭제할까요?")) return;
+    const newGurus = gurus.filter(g => g.id !== id);
+    setGurus(newGurus);
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", gurus: newGurus }) });
   }
   async function saveManualStock() {
     const pin = sessionStorage.getItem('jb_pin') || '';
@@ -1735,6 +1771,82 @@ export default function App() {
         </div>
       )}
 
+      {/* 구루 의견 추가/수정 모달 */}
+      {guruModal && (
+        <div style={S.overlay}>
+          <div style={{ ...S.modal, width: 320, textAlign: "left", maxHeight: "85vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: T.text }}>
+              {guruModal === 'new' ? "🔮 의견 추가" : "✏️ 의견 수정"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>날짜 (발표일)</div>
+                <input type="date" style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  value={guruForm.date} onChange={e => setGuruForm(f => ({ ...f, date: e.target.value }))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>구루명</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  placeholder="예: 김프로" value={guruForm.guru} onChange={e => setGuruForm(f => ({ ...f, guru: e.target.value }))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>대상 (종목 / 지수 / 시장전반)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  placeholder="예: 코스피, 삼성전자" value={guruForm.target} onChange={e => setGuruForm(f => ({ ...f, target: e.target.value }))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>포지션</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[{ k: "long", l: "📈 롱" }, { k: "short", l: "📉 숏" }, { k: "neutral", l: "➖ 중립" }].map(p => (
+                    <button key={p.k} onClick={() => setGuruForm(f => ({ ...f, position: p.k }))}
+                      style={{ flex: 1, padding: "6px 0", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer", border: "1px solid",
+                        background: guruForm.position === p.k ? (darkMode ? "#1e3a5f" : "#dbeafe") : T.section,
+                        borderColor: guruForm.position === p.k ? "#3b82f6" : T.border,
+                        color: guruForm.position === p.k ? "#3b82f6" : T.textMuted }}>{p.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>출처 제목 (영상/기사명)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  placeholder="예: OO 유튜브 8월 전망" value={guruForm.source} onChange={e => setGuruForm(f => ({ ...f, source: e.target.value }))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>출처 링크 (선택)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }}
+                  placeholder="https://..." value={guruForm.sourceUrl} onChange={e => setGuruForm(f => ({ ...f, sourceUrl: e.target.value }))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>의견 요약</div>
+                <textarea style={{ width: "100%", minHeight: 60, background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 13, padding: "8px 10px", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+                  placeholder="핵심 코멘트" value={guruForm.summary} onChange={e => setGuruForm(f => ({ ...f, summary: e.target.value }))} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>결과 판정</div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[{ k: "pending", l: "미정" }, { k: "hit", l: "✅ 적중" }, { k: "miss", l: "❌ 불일치" }].map(v => (
+                    <button key={v.k} onClick={() => setGuruForm(f => ({ ...f, verdict: v.k }))}
+                      style={{ flex: 1, padding: "6px 0", fontSize: 11, fontWeight: 700, borderRadius: 8, cursor: "pointer", border: "1px solid",
+                        background: guruForm.verdict === v.k ? (darkMode ? "#1e3a5f" : "#dbeafe") : T.section,
+                        borderColor: guruForm.verdict === v.k ? "#3b82f6" : T.border,
+                        color: guruForm.verdict === v.k ? "#3b82f6" : T.textMuted }}>{v.l}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>메모 (선택)</div>
+                <textarea style={{ width: "100%", minHeight: 44, background: T.inputBg, border: `1px solid ${T.border}`, borderRadius: 8, color: T.text, fontSize: 13, padding: "8px 10px", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+                  placeholder="추가 메모" value={guruForm.memo} onChange={e => setGuruForm(f => ({ ...f, memo: e.target.value }))} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => setGuruModal(null)}>취소</button>
+              <button style={{ ...S.btnMain, flex: 1 }} onClick={saveGuruOpinion}>저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 헤더 */}
       <div style={S.header}>
         <div style={S.logoRow}>
@@ -1842,6 +1954,7 @@ export default function App() {
               { id: "portfolio", label: "📊 포트폴리오", activeBg: darkMode ? "#1a2a1a" : "#dcfce7", activeBorder: "#15803d", activeColor: darkMode ? "#22c55e" : "#15803d" },
               { id: "history", label: "📋 매매기록", activeBg: darkMode ? "#1a1a2a" : "#ede9fe", activeBorder: darkMode ? "#6366f1" : "#7c3aed", activeColor: darkMode ? "#a78bfa" : "#6d28d9" },
               { id: "diary", label: "🐜 존버기록실", activeBg: darkMode ? "#1a1500" : "#fef9c3", activeBorder: darkMode ? "#f59e0b" : "#ca8a04", activeColor: darkMode ? "#f59e0b" : "#92400e" },
+              { id: "gurus", label: "🔮 구루의견", activeBg: darkMode ? "#2a1a3a" : "#fce7f3", activeBorder: darkMode ? "#c084fc" : "#be185d", activeColor: darkMode ? "#e9d5ff" : "#be185d" },
             ].map(tab => (
               <button key={tab.id} onClick={() => {
                 setActiveTab(tab.id);
@@ -2146,6 +2259,83 @@ export default function App() {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* 구루의 의견 탭 */}
+          {activeTab === "gurus" && (
+            <div>
+              {isAdmin && (
+                <button style={{ ...S.btnMain, width: "100%", marginBottom: 12 }}
+                  onClick={() => { setGuruForm({ date: new Date().toISOString().split("T")[0], guru: "", target: "", position: "long", source: "", sourceUrl: "", summary: "", verdict: "pending", memo: "" }); setGuruModal('new'); }}>
+                  ➕ 의견 추가
+                </button>
+              )}
+              {gurus.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 20px", color: T.textMuted }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>🔮</div>
+                  <div style={{ fontSize: 13 }}>아직 기록된 의견이 없어요</div>
+                </div>
+              ) : (() => {
+                const guruNames = [...new Set(gurus.map(g => g.guru))];
+                const filtered = (guruFilter === "all" ? gurus : gurus.filter(g => g.guru === guruFilter))
+                  .slice().sort((a, b) => b.date.localeCompare(a.date) || (b.createdAt || "").localeCompare(a.createdAt || ""));
+                const posLabel = { long: "📈 롱", short: "📉 숏", neutral: "➖ 중립" };
+                const posColor = { long: "#ef4444", short: "#3b82f6", neutral: "#94a3b8" };
+                const verdictLabel = { hit: "✅ 적중", miss: "❌ 불일치", pending: "⏳ 미정" };
+                const verdictColor = { hit: "#22c55e", miss: "#f97316", pending: "#94a3b8" };
+                return (
+                  <>
+                    <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4, marginBottom: 12 }}>
+                      {["all", ...guruNames].map(name => (
+                        <button key={name} onClick={() => setGuruFilter(name)}
+                          style={{ flexShrink: 0, padding: "6px 12px", fontSize: 11, fontWeight: 700, borderRadius: 20, cursor: "pointer", border: "1px solid",
+                            background: guruFilter === name ? (darkMode ? "#2a1a3a" : "#fce7f3") : T.section,
+                            borderColor: guruFilter === name ? "#be185d" : T.border,
+                            color: guruFilter === name ? (darkMode ? "#e9d5ff" : "#be185d") : T.textMuted }}>
+                          {name === "all" ? "전체" : name}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {filtered.map(g => (
+                        <div key={g.id} style={{ background: T.card, border: `1px solid ${T.cardBorder}`, borderRadius: 12, padding: "12px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: T.text }}>{g.guru}</span>
+                              <span style={{ fontSize: 10, color: T.textMuted }}>{g.date}</span>
+                            </div>
+                            {isAdmin && (
+                              <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                <button onClick={() => { setGuruForm({ date: g.date, guru: g.guru, target: g.target, position: g.position, source: g.source || "", sourceUrl: g.sourceUrl || "", summary: g.summary || "", verdict: g.verdict || "pending", memo: g.memo || "" }); setGuruModal(g); }}
+                                  style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.textMuted, fontSize: 10, padding: "2px 6px", cursor: "pointer" }}>✏️</button>
+                                <button onClick={() => deleteGuruOpinion(g.id)}
+                                  style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.textMuted, fontSize: 10, padding: "2px 6px", cursor: "pointer" }}>🗑️</button>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: T.text, background: T.section, borderRadius: 6, padding: "2px 8px" }}>🎯 {g.target}</span>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: posColor[g.position] || T.textMuted, background: T.section, borderRadius: 6, padding: "2px 8px" }}>
+                              {posLabel[g.position] || g.position}
+                            </span>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: verdictColor[g.verdict] || T.textMuted, background: T.section, borderRadius: 6, padding: "2px 8px" }}>
+                              {verdictLabel[g.verdict] || g.verdict}
+                            </span>
+                          </div>
+                          {g.summary && <div style={{ fontSize: 12, color: T.textSub, lineHeight: 1.5, marginBottom: 6 }}>{g.summary}</div>}
+                          {g.source && (
+                            g.sourceUrl
+                              ? <a href={g.sourceUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: "#3b82f6", textDecoration: "underline" }}>🔗 {g.source}</a>
+                              : <div style={{ fontSize: 11, color: T.textMuted }}>📎 {g.source}</div>
+                          )}
+                          {g.memo && <div style={{ fontSize: 10, color: T.textMuted, marginTop: 6, borderTop: `1px solid ${T.cardBorder}`, paddingTop: 6 }}>💬 {g.memo}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
         </>
