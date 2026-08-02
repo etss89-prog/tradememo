@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
 
   // ✅ 저장은 관리자 PIN만 허용
-  const { pin, records, portfolios, accounts, mainText, memos, performance } = req.body || {};
+  const { pin, records, portfolios, accounts, mainText, memos, performance, gurus } = req.body || {};
   const ADMIN_PIN = process.env.ADMIN_PIN || "4254";
 
   if (pin !== ADMIN_PIN) {
@@ -26,7 +26,8 @@ export default async function handler(req, res) {
     if (mainText !== undefined) saves.push(fetch(`${url}/set/tradememo_main`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(mainText) }));
     if (memos !== undefined) saves.push(fetch(`${url}/set/tradememo_memos`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(memos) }));
     if (performance !== undefined) saves.push(fetch(`${url}/set/tradememo_performance`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(performance) }));
-    if (performance !== undefined) saves.push(fetch(`${url}/set/tradememo_performance`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(performance) }));
+    // 구루의 의견들 (신규)
+    if (gurus !== undefined) saves.push(fetch(`${url}/set/tradememo_gurus`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(gurus) }));
 
     await Promise.all(saves);
     return res.status(200).json({ ok: true });
