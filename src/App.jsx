@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.11";
+const VERSION = "v1.5.14";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -347,6 +347,20 @@ function buildTreemapItems(mapList, etcThresholdPct = 0.4) {
   return { items, total };
 }
 
+// ✅ v1.5.13: 업종별 그룹 묶기 (2단계 맵차트용). sectorMap이 없거나 매칭 안 되는 종목은 '미분류'로 처리.
+function buildSectorGroups(mapList, sectorMap) {
+  const valid = (mapList || []).filter(s => s.marketCap && s.marketCap > 0);
+  const bySector = {};
+  valid.forEach(s => {
+    const sector = (sectorMap && sectorMap[s.name]) || '미분류';
+    if (!bySector[sector]) bySector[sector] = [];
+    bySector[sector].push(s);
+  });
+  return Object.entries(bySector)
+    .map(([sector, stocks]) => ({ sector, stocks, marketCap: stocks.reduce((sum, s) => sum + s.marketCap, 0) }))
+    .sort((a, b) => b.marketCap - a.marketCap);
+}
+
 export default function App() {
   // ✅ 다크/라이트 모드
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("jb_dark_mode") !== "false");
@@ -391,6 +405,9 @@ export default function App() {
   const [marketData, setMarketData] = useState(null);
   const [marketLoading, setMarketLoading] = useState(false);
   const [treemapMarket, setTreemapMarket] = useState('kospi'); // 맵차트 코스피/코스닥 토글
+  const [showSectorView, setShowSectorView] = useState(false); // 업종별 2단계 맵차트 토글
+  const [sectorMap, setSectorMap] = useState(null); // { 종목명: 업종명 } - 최초 토글 시에만 지연 로딩
+  const [sectorMapLoading, setSectorMapLoading] = useState(false);
   const [performance, setPerformance] = useState({}); // 날짜별 성과 데이터
   const [perfSaving, setPerfSaving] = useState(false);
   const [perfRange, setPerfRange] = useState('mine');
@@ -748,6 +765,20 @@ export default function App() {
     setMarketLoading(false);
   }
 
+  // ✅ v1.5.13: 업종별 맵차트용 - 최초 "업종별 보기" 토글 시에만 1회 호출 (서버에서 1시간 캐시)
+  async function loadSectorMap() {
+    if (sectorMap || sectorMapLoading) return;
+    setSectorMapLoading(true);
+    try {
+      const r = await fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'sectorMap' }) });
+      const d = await r.json();
+      setSectorMap(d.sectorMap || {});
+    } catch {
+      setSectorMap({});
+    }
+    setSectorMapLoading(false);
+  }
+
   async function openChart(stock) {
     setChartModal(stock);
     setChartTimeframe('day');
@@ -1008,12 +1039,27 @@ export default function App() {
     const valid = images.filter(i => i.result).map(i => i.result); if (!valid.length) return;
     setMerging(true);
     try {
-      let merged = valid[0];
-      if (valid.length > 1) { const r = await fetch("/api/merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ results: valid }) }); merged = await r.json(); }
+      // ✅ v1.5.14 버그 수정 ①: "오늘 날짜"로 저장된 기존 레코드를 통째로 교체하던 방식 때문에,
+      // 같은 날 두 번째(별도) 업로드를 하면 첫 번째 업로드분이 통째로 사라지는 버그가 있었음
+      // (allRecords.filter(r => r.date !== today)가 오늘자 기존 기록을 지워버리고 새 배치로만 교체함).
+      // → 기존에 저장돼 있던 전체 매매기록도 항상 병합 대상에 포함시켜서, 몇 번을 나눠 올리든 누적되도록 함.
+      const existingStocks = allRecords.flatMap(r => r.result?.stocks || []);
+      const toMerge = existingStocks.length ? [{ stocks: existingStocks }, ...valid] : valid;
+      const mergeRes = await fetch("/api/merge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ results: toMerge }) });
+      const merged = await mergeRes.json();
+      if (merged.error) throw new Error(merged.error);
+
       const today = new Date().toISOString().split("T")[0];
-      const newRecord = { date: today, result: merged };
-      const updated = [...allRecords.filter(r => r.date !== today), newRecord];
-      await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ records: updated, portfolios, accounts, mainText }) });
+      // ✅ 이제부터 allRecords는 업로드 날짜별로 쪼개지 않고, 누적된 전체 기록을 레코드 1개로 관리함
+      const updated = [{ date: today, result: merged }];
+
+      // ✅ v1.5.14 버그 수정 ②: 이 저장 요청에만 pin이 빠져 있어서, 서버가 401로 거부해도(=실제로는 저장 안 됨)
+      // 응답을 확인하지 않고 무조건 "저장 완료" 알림을 띄우고 있었음. pin 추가 + 응답 검증 추가.
+      const pin = sessionStorage.getItem('jb_pin') || '';
+      const saveRes = await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, records: updated, portfolios, accounts, mainText }) });
+      const saveData = await saveRes.json();
+      if (!saveRes.ok || saveData.error) throw new Error(saveData.error || `저장 실패 (${saveRes.status})`);
+
       setAllRecords(updated); setImages([]); alert("✅ 저장 완료!");
     } catch(e) { alert("저장 실패: " + e.message); }
     setMerging(false);
@@ -2798,7 +2844,7 @@ export default function App() {
             <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
           )}
           {marketData && (() => {
-            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart, kospiMap, kosdaqMap, kospiMapTotal, kosdaqMapTotal } = marketData;
+            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart, kospiMap, kosdaqMap, kospiMapTotal, kosdaqMapTotal, kospiTotalMarketCap, kosdaqTotalMarketCap } = marketData;
 
             // 영역 차트 그리기 함수
             const renderAreaChart = (data, label, indexInfo) => {
@@ -2871,6 +2917,8 @@ export default function App() {
             // 맵차트용 데이터 준비 (코스피/코스닥 토글에 따라)
             const activeMapList = treemapMarket === 'kospi' ? kospiMap : kosdaqMap;
             const activeMapTotal = treemapMarket === 'kospi' ? kospiMapTotal : kosdaqMapTotal;
+            // ✅ v1.5.12: 시장 "전체" 시가총액 (파싱 성공 시). 실패하면 null → 기존 "상위 N개 합"으로 자동 폴백
+            const activeOfficialTotal = treemapMarket === 'kospi' ? kospiTotalMarketCap : kosdaqTotalMarketCap;
             const { items: treemapItems, total: treemapTotal } = buildTreemapItems(activeMapList);
 
             return (
@@ -2919,9 +2967,16 @@ export default function App() {
 
               {/* 🗺️ 맵차트 (트리맵) - top10 시총 아래 최하단 배치 */}
               <div style={{ marginTop:8, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px" }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, flexWrap:"wrap", gap:6 }}>
                   <div style={{ fontSize:12, fontWeight:800, color:T.text }}>🗺️ 맵차트</div>
-                  <div style={{ display:"flex", gap:4 }}>
+                  <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                    <button
+                      onClick={() => { const next = !showSectorView; setShowSectorView(next); if (next) loadSectorMap(); }}
+                      style={{
+                        fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:8, border:"none", cursor:"pointer",
+                        background: showSectorView ? (darkMode?"#164e3a":"#dcfce7") : "transparent",
+                        color: showSectorView ? (darkMode?"#86efac":"#15803d") : T.textMuted,
+                      }}>🏷️ 업종별{sectorMapLoading ? ' ⏳' : ''}</button>
                     {[{ k:'kospi', label:'코스피' }, { k:'kosdaq', label:'코스닥' }].map(o => (
                       <button key={o.k} onClick={() => setTreemapMarket(o.k)}
                         style={{
@@ -2936,7 +2991,100 @@ export default function App() {
                 {(!treemapItems || treemapItems.length === 0) ? (
                   <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>맵차트 데이터 없음</div>
                 ) : (() => {
-                  const W = 320, H = 300;
+                  const useSectorView = showSectorView && sectorMap;
+                  const W = 320, H = useSectorView ? 400 : 300;
+
+                  // 개별 종목 타일 렌더 (풀네임 → 축약이름 → 초축약이름 → 숨김, 박스가 작을수록 글씨도 축소) - 평면/업종별 모드 공용
+                  const renderStockTile = (t, key) => {
+                    const clampedAbs = Math.abs(Math.max(-30, Math.min(30, t.pctNum || 0))) / 30;
+                    const color = pctToColor(t.pctNum);
+                    const textColor = clampedAbs > 0.4 ? "#ffffff" : "#1a1a1a";
+                    const showFull = t.w > 50 && t.h > 32;
+                    const showMed = !showFull && t.w > 30 && t.h > 19;
+                    const showSmall = !showFull && !showMed && t.w > 15 && t.h > 12;
+                    const pctDecimals = showFull ? 2 : showMed ? 1 : 0;
+                    const pctLabel = (t.pctNum >= 0 ? '+' : '') + t.pctNum.toFixed(pctDecimals) + '%';
+                    const fullName = t.isEtc ? t.name : (t.name.length > 7 ? t.name.slice(0,6)+'…' : t.name);
+                    const medName = t.isEtc ? t.name : (t.name.length > 4 ? t.name.slice(0,4)+'…' : t.name);
+                    const smallName = t.isEtc ? '기타' : t.name.slice(0, 2);
+                    return (
+                      <g key={key}>
+                        <rect x={t.x} y={t.y} width={Math.max(t.w-0.6,0)} height={Math.max(t.h-0.6,0)} fill={color} />
+                        {showFull && (
+                          <>
+                            <text x={t.x + t.w/2} y={t.y + t.h/2 - 3} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={textColor}>
+                              {fullName}
+                            </text>
+                            <text x={t.x + t.w/2} y={t.y + t.h/2 + 9} textAnchor="middle" fontSize="8.5" fill={textColor}>
+                              {t.isEtc ? '' : pctLabel}
+                            </text>
+                          </>
+                        )}
+                        {showMed && (
+                          <>
+                            <text x={t.x + t.w/2} y={t.y + t.h/2 - 2} textAnchor="middle" fontSize="7.2" fontWeight="700" fill={textColor}>
+                              {medName}
+                            </text>
+                            <text x={t.x + t.w/2} y={t.y + t.h/2 + 7} textAnchor="middle" fontSize="6.5" fill={textColor}>
+                              {t.isEtc ? '' : pctLabel}
+                            </text>
+                          </>
+                        )}
+                        {showSmall && (
+                          <text x={t.x + t.w/2} y={t.y + t.h/2 + 2} textAnchor="middle" fontSize="6" fontWeight="700" fill={textColor}>
+                            {smallName}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  };
+
+                  // ── 업종별 2단계 맵차트 ──
+                  if (useSectorView) {
+                    const sectorGroups = buildSectorGroups(activeMapList, sectorMap);
+                    const grandTotal = sectorGroups.reduce((s, g) => s + g.marketCap, 0);
+                    const sectorAreaItems = sectorGroups.map(g => ({ ...g, area: grandTotal > 0 ? (W*H) * (g.marketCap/grandTotal) : 0 }));
+                    const sectorTiles = squarify(sectorAreaItems, 0, 0, W, H);
+                    const HEADER_H = 13;
+
+                    return (
+                      <>
+                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", borderRadius:8, overflow:"hidden" }}>
+                          {sectorTiles.map((st, si) => {
+                            const showHeader = st.w > 26 && st.h > HEADER_H + 10;
+                            const innerY = showHeader ? st.y + HEADER_H : st.y;
+                            const innerH = showHeader ? Math.max(st.h - HEADER_H, 0) : st.h;
+                            // 업종 내부는 자체 총액 기준 3% 미만 종목을 "기타"로 재묶음 (세부 업종일수록 종목 수가 적어 임계치를 상대적으로 높게)
+                            const { items: subItems, total: subTotal } = buildTreemapItems(st.stocks, 3);
+                            const subAreaItems = subItems.map(it => ({ ...it, area: subTotal > 0 ? (st.w*innerH) * (it.marketCap/subTotal) : 0 }));
+                            const subTiles = (innerH > 4 && st.w > 4) ? squarify(subAreaItems, st.x, innerY, st.w, innerH) : [];
+                            const sectorLabel = st.sector.length > 9 ? st.sector.slice(0,8)+'…' : st.sector;
+                            return (
+                              <g key={si}>
+                                {subTiles.map((t, ti) => renderStockTile(t, `${si}-${ti}`))}
+                                <rect x={st.x} y={st.y} width={Math.max(st.w-1,0)} height={Math.max(st.h-1,0)} fill="none" stroke={darkMode?"#0a0f1e":"#ffffff"} strokeWidth="1.5" />
+                                {showHeader && (
+                                  <text x={st.x+4} y={st.y+9.5} fontSize="7.5" fontWeight="800" fill={darkMode?"#e2e8f0":"#1a1a1a"} style={{ textShadow: darkMode ? "0 0 3px #000" : "0 0 3px #fff" }}>
+                                    {sectorLabel}
+                                  </text>
+                                )}
+                              </g>
+                            );
+                          })}
+                        </svg>
+                        <div style={{ display:"flex", justifyContent:"space-between", marginTop:6, fontSize:10, color:T.textMuted }}>
+                          <span>업종 {sectorGroups.length}개 (⚠️ 네이버 업종 분류 기준, 미분류 종목 포함될 수 있음)</span>
+                          <span>
+                            {activeOfficialTotal
+                              ? `${treemapMarket === 'kospi' ? '코스피' : '코스닥'} 전체 시총 ${formatMktCap(activeOfficialTotal)}`
+                              : `합계 ${formatMktCap(activeMapTotal || treemapTotal) || '-'} (상위 ${activeMapList?.length || 0}개 합)`}
+                          </span>
+                        </div>
+                      </>
+                    );
+                  }
+
+                  // ── 평면(업종 구분 없는) 맵차트 ──
                   const areaItems = treemapItems.map(it => ({ ...it, area: treemapTotal > 0 ? (W*H) * (it.marketCap/treemapTotal) : 0 }));
                   const tiles = squarify(areaItems, 0, 0, W, H);
                   const bigCount = treemapItems.filter(it => !it.isEtc).length;
@@ -2944,54 +3092,15 @@ export default function App() {
                   return (
                     <>
                       <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", borderRadius:8, overflow:"hidden" }}>
-                        {tiles.map((t, i) => {
-                          const clampedAbs = Math.abs(Math.max(-30, Math.min(30, t.pctNum || 0))) / 30;
-                          const color = pctToColor(t.pctNum);
-                          const textColor = clampedAbs > 0.4 ? "#ffffff" : "#1a1a1a";
-                          // ✅ v1.5.11: 4단계 세분화 (풀네임 → 축약이름 → 초축약이름 → 숨김), 박스가 작을수록 글씨도 함께 축소
-                          const showFull = t.w > 50 && t.h > 32;
-                          const showMed = !showFull && t.w > 30 && t.h > 19;
-                          const showSmall = !showFull && !showMed && t.w > 15 && t.h > 12;
-                          const pctDecimals = showFull ? 2 : showMed ? 1 : 0;
-                          const pctLabel = (t.pctNum >= 0 ? '+' : '') + t.pctNum.toFixed(pctDecimals) + '%';
-                          const fullName = t.isEtc ? t.name : (t.name.length > 7 ? t.name.slice(0,6)+'…' : t.name);
-                          const medName = t.isEtc ? '기타' : (t.name.length > 4 ? t.name.slice(0,4)+'…' : t.name);
-                          const smallName = t.isEtc ? '기타' : t.name.slice(0, 2);
-                          return (
-                            <g key={i}>
-                              <rect x={t.x} y={t.y} width={Math.max(t.w-0.6,0)} height={Math.max(t.h-0.6,0)} fill={color} />
-                              {showFull && (
-                                <>
-                                  <text x={t.x + t.w/2} y={t.y + t.h/2 - 3} textAnchor="middle" fontSize="9.5" fontWeight="700" fill={textColor}>
-                                    {fullName}
-                                  </text>
-                                  <text x={t.x + t.w/2} y={t.y + t.h/2 + 9} textAnchor="middle" fontSize="8.5" fill={textColor}>
-                                    {t.isEtc ? '' : pctLabel}
-                                  </text>
-                                </>
-                              )}
-                              {showMed && (
-                                <>
-                                  <text x={t.x + t.w/2} y={t.y + t.h/2 - 2} textAnchor="middle" fontSize="7.2" fontWeight="700" fill={textColor}>
-                                    {medName}
-                                  </text>
-                                  <text x={t.x + t.w/2} y={t.y + t.h/2 + 7} textAnchor="middle" fontSize="6.5" fill={textColor}>
-                                    {t.isEtc ? '' : pctLabel}
-                                  </text>
-                                </>
-                              )}
-                              {showSmall && (
-                                <text x={t.x + t.w/2} y={t.y + t.h/2 + 2} textAnchor="middle" fontSize="6" fontWeight="700" fill={textColor}>
-                                  {smallName}
-                                </text>
-                              )}
-                            </g>
-                          );
-                        })}
+                        {tiles.map((t, i) => renderStockTile(t, i))}
                       </svg>
                       <div style={{ display:"flex", justifyContent:"space-between", marginTop:6, fontSize:10, color:T.textMuted }}>
                         <span>시총 상위 {bigCount}개{hasEtc ? ' + 기타' : ''} (박스 면적 = 시총 비중, 색 = 등락률)</span>
-                        <span>합계 {formatMktCap(activeMapTotal || treemapTotal) || '-'} (상위 {activeMapList?.length || 0}개 합)</span>
+                        <span>
+                          {activeOfficialTotal
+                            ? `${treemapMarket === 'kospi' ? '코스피' : '코스닥'} 전체 시총 ${formatMktCap(activeOfficialTotal)}`
+                            : `합계 ${formatMktCap(activeMapTotal || treemapTotal) || '-'} (상위 ${activeMapList?.length || 0}개 합)`}
+                        </span>
                       </div>
                     </>
                   );
