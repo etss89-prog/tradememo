@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.14";
+const VERSION = "v1.5.15";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2600,36 +2600,51 @@ export default function App() {
                   const maxV = Math.max(...allVals) * 1.002;
                   const vRange = maxV - minV || 1;
 
-                  // X축: 코스피 데이터 기준
-                  const totalN = Math.max(kospiNorm.length, 1);
-                  const pxByIdx = (i) => PAD.l + (W - PAD.l - PAD.r) * i / Math.max(totalN - 1, 1);
+                  // ✅ v1.5.15 버그 수정: X축을 "배열 인덱스" 기반 → "실제 날짜(시간)" 기반으로 교체.
+                  // 기존에는 코스피 데이터 배열의 인덱스를 균등 분할해 X좌표를 정했는데, 조회 range(1개월/전체 등)마다
+                  // Yahoo가 실제로 내려주는 거래일 데이터의 개수/간격이 미세하게 달라질 수 있어서, 서로 다른 날짜의
+                  // 내 기록이 같은 인덱스로 매칭되어 같은 X좌표에 겹쳐 찍히는 문제가 있었음
+                  // (예: 1개월 차트에서 7/30, 7/31 두 타점이 같은 자리에 겹침 — '내 기록' 보기에선 정상이었던 건
+                  //  그 모드가 별도 range로 더 넓은 데이터를 받아와 우연히 인덱스가 안 겹쳤을 뿐, 근본 원인은 동일했음).
+                  // → 각 점의 X좌표를 그 점의 "날짜" 자체로 직접 계산하면, 날짜가 다르면 X좌표도 반드시 달라지므로
+                  //   이 문제 자체가 원천적으로 발생할 수 없음.
+                  const toTime = (d) => new Date(d).getTime();
+                  const timeCandidates = [
+                    ...kospiNorm.map(d => toTime(d.date)),
+                    ...kosdaqNorm.map(d => toTime(d.date)),
+                    ...myNorm.map(d => toTime(d.date)),
+                  ];
+                  const minTime = timeCandidates.length ? Math.min(...timeCandidates) : Date.now();
+                  const maxTime = timeCandidates.length ? Math.max(...timeCandidates) : Date.now();
+                  const timeRange = (maxTime - minTime) || 1;
+                  const pxByDate = (dateStr) => PAD.l + (W - PAD.l - PAD.r) * (toTime(dateStr) - minTime) / timeRange;
                   const pyVal = (v) => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / vRange);
 
-                  // 코스피/코스닥 path
+                  // 코스피/코스닥 path (날짜 기준 X좌표)
                   const linePath = (arr) => arr.length < 2
                     ? null
-                    : arr.map((d, i) => `${i===0?'M':'L'}${pxByIdx(d.i)},${pyVal(d.val)}`).join(' ');
+                    : arr.map((d, i) => `${i===0?'M':'L'}${pxByDate(d.date)},${pyVal(d.val)}`).join(' ');
 
-                  // 내 포트 타점 X좌표: 날짜로 코스피 인덱스 찾기
-                  const kospiDateMap = {};
-                  kospiNorm.forEach(d => { kospiDateMap[d.date] = d.i; });
-                  const myDots = myNorm.map(p => {
-                    // 정확한 날짜 매칭 우선
-                    let idx = kospiDateMap[p.date];
-                    if (idx === undefined && kospiNorm.length > 0) {
-                      // 비영업일(주말/공휴일) 기록: 다음 영업일이 아니라 "직전" 영업일 종가에 매칭
-                      // (예: 일요일 기록이 절대적 시간차만으로 매칭되면 월요일과 더 가까워 겹쳐 보이는 문제 방지)
-                      const pTime = new Date(p.date).getTime();
-                      for (let k = 0; k < kospiNorm.length; k++) {
-                        const dTime = new Date(kospiNorm[k].date).getTime();
-                        if (dTime <= pTime) idx = kospiNorm[k].i;
-                        else break; // kospiNorm은 날짜 오름차순 정렬 가정
-                      }
-                      if (idx === undefined) idx = kospiNorm[0].i; // 그 이전 영업일 데이터가 아예 없으면 첫 영업일로
+                  // 내 포트 타점: X좌표는 날짜로 직접 계산(항상 정확). idx는 그날 코스피/코스닥 수치를
+                  // 툴팁에 보여주기 위한 참고용일 뿐, X좌표 계산에는 더 이상 관여하지 않음.
+                  const findNearestKospiIdx = (targetDate) => {
+                    if (kospiNorm.length === 0) return undefined;
+                    let idx;
+                    const tTime = toTime(targetDate);
+                    for (let k = 0; k < kospiNorm.length; k++) {
+                      // 비영업일(주말/공휴일) 기록: "직전" 영업일 종가에 매칭
+                      if (toTime(kospiNorm[k].date) <= tTime) idx = kospiNorm[k].i;
+                      else break; // kospiNorm은 날짜 오름차순 정렬 가정
                     }
-                    const x = idx !== undefined ? pxByIdx(idx) : pxByIdx(totalN - 1);
-                    return { x, y: pyVal(p.val), val: p.val, date: p.date, idx };
-                  });
+                    return idx !== undefined ? idx : kospiNorm[0].i; // 그 이전 영업일 데이터가 아예 없으면 첫 영업일로
+                  };
+                  const myDots = myNorm.map(p => ({
+                    x: pxByDate(p.date),
+                    y: pyVal(p.val),
+                    val: p.val,
+                    date: p.date,
+                    idx: findNearestKospiIdx(p.date),
+                  }));
 
                   // Y축 - 10칸
                   const ySteps = 10;
@@ -2638,17 +2653,17 @@ export default function App() {
                     return { y: pyVal(v), label: (v-100).toFixed(1)+'%' };
                   });
 
-                  // X축 - 월별로 표시 (연도 포함)
+                  // X축 - 월별로 표시 (연도 포함, 날짜 기준 X좌표)
                   const xLabels = [];
                   let prevYearMonth = '';
-                  kospiNorm.forEach((d, i) => {
+                  kospiNorm.forEach((d) => {
                     if (!d.date) return;
                     const [yyyy, mm] = d.date.split('-');
                     const ym = `${yyyy}-${mm}`;
                     if (ym !== prevYearMonth) {
                       // 매월 1일 근처에 레이블
                       const label = mm === '01' ? `${yyyy.slice(2)}.${mm}` : `'${mm}`;
-                      xLabels.push({ x: pxByIdx(i), label, i });
+                      xLabels.push({ x: pxByDate(d.date), label });
                       prevYearMonth = ym;
                     }
                   });
@@ -2703,10 +2718,14 @@ export default function App() {
                           onClick={e => {
                             const rect = e.currentTarget.getBoundingClientRect();
                             const mx = (e.clientX - rect.left) / rect.width * W;
-                            // 클릭 X좌표에 해당하는 kospiNorm 인덱스 찾기
+                            // 클릭 X좌표 → 실제 시각으로 역산 후, 가장 가까운 코스피 데이터 포인트 탐색 (날짜 기준 X축)
                             if (kospiNorm.length === 0) { setPerfTooltip(null); return; }
-                            const idx = Math.round((mx - PAD.l) / (W - PAD.l - PAD.r) * (totalN - 1));
-                            const clampedIdx = Math.max(0, Math.min(totalN - 1, idx));
+                            const clickTime = minTime + (mx - PAD.l) / (W - PAD.l - PAD.r) * timeRange;
+                            let clampedIdx = 0, bestDiff = Infinity;
+                            kospiNorm.forEach((d, i) => {
+                              const diff = Math.abs(toTime(d.date) - clickTime);
+                              if (diff < bestDiff) { bestDiff = diff; clampedIdx = i; }
+                            });
                             const kd = kospiNorm[clampedIdx];
                             const qd = kosdaqNorm[clampedIdx];
                             if (!kd) { setPerfTooltip(null); return; }
