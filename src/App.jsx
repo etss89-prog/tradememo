@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.16";
+const VERSION = "v1.5.17";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2949,6 +2949,16 @@ export default function App() {
             const activeOfficialTotal = treemapMarket === 'kospi' ? kospiTotalMarketCap : kosdaqTotalMarketCap;
             const { items: treemapItems, total: treemapTotal } = buildTreemapItems(activeMapList);
 
+            // ✅ v1.5.17: 상위 2개 종목 시총 집중도 코멘트 (예: "삼성전자+SK하이닉스가 코스피의 X%")
+            // 전체 시총 파싱에 성공했으면 그 값 기준, 실패했으면 상위 50개 합 기준으로 계산하고 그 사실을 표시함
+            const top2 = [...(activeMapList || [])].filter(s => s.marketCap > 0).sort((a,b) => b.marketCap - a.marketCap).slice(0, 2);
+            const top2Sum = top2.reduce((s, it) => s + it.marketCap, 0);
+            const concentrationDenom = activeOfficialTotal || treemapTotal;
+            const top2Pct = (top2.length === 2 && concentrationDenom > 0) ? (top2Sum / concentrationDenom * 100).toFixed(1) : null;
+            const concentrationNote = top2Pct
+              ? `💡 ${top2[0].name}+${top2[1].name}이(가) ${treemapMarket === 'kospi' ? '코스피' : '코스닥'} 시가총액의 ${top2Pct}%를 차지해요${activeOfficialTotal ? '' : ' (상위 50개 기준)'}`
+              : null;
+
             return (
               <>
               <div style={{ display:"flex", gap:8 }}>
@@ -3108,6 +3118,9 @@ export default function App() {
                               : `합계 ${formatMktCap(activeMapTotal || treemapTotal) || '-'} (상위 ${activeMapList?.length || 0}개 합)`}
                           </span>
                         </div>
+                        {concentrationNote && (
+                          <div style={{ marginTop:4, fontSize:10, color:T.textMuted }}>{concentrationNote}</div>
+                        )}
                       </>
                     );
                   }
@@ -3130,6 +3143,9 @@ export default function App() {
                             : `합계 ${formatMktCap(activeMapTotal || treemapTotal) || '-'} (상위 ${activeMapList?.length || 0}개 합)`}
                         </span>
                       </div>
+                      {concentrationNote && (
+                        <div style={{ marginTop:4, fontSize:10, color:T.textMuted }}>{concentrationNote}</div>
+                      )}
                     </>
                   );
                 })()}
