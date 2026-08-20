@@ -493,6 +493,81 @@ export default async function handler(req, res) {
       }
     }
 
+    // ✅ 삼성전자+SK하이닉스 시총 집중도 히스토리 (코스피 전체 시총 대비 비율, 날짜별)
+    // ⚠️ 근사치 계산임 - 네이버는 "오늘" 시총 스냅샷만 제공하고 과거 일별 시총은 스크래핑으로 구할 방법이 없어서,
+    // 다음 방식으로 근사함:
+    //  · 삼성전자/SK하이닉스: Yahoo 차트 API의 상장주식수(sharesOutstanding, 기간 내 거의 불변으로 가정)를
+    //    그날그날의 종가에 곱해서 그날의 시가총액을 직접 계산 (상장주식수 자체가 과거 데이터라 오차 적음)
+    //  · 코스피 전체: 코스피지수는 정의상 전체 시가총액에 비례하므로,
+    //    "오늘 실측한 전체 시가총액 × (그날 지수 ÷ 오늘 지수)"로 근사
+    //    (지수 산출용 나눗값이 종목 교체 등으로 미세하게 바뀔 수 있어 100% 정확하진 않음)
+    if (type === 'concentrationHistory') {
+      try {
+        const range = req.body.range || '6mo';
+        const yHeaders = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+        const [samsungRes, hynixRes, kospiRes] = await Promise.all([
+          fetch(`https://query1.finance.yahoo.com/v8/finance/chart/005930.KS?interval=1d&range=${range}`, { headers: yHeaders }),
+          fetch(`https://query1.finance.yahoo.com/v8/finance/chart/000660.KS?interval=1d&range=${range}`, { headers: yHeaders }),
+          fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?interval=1d&range=${range}`, { headers: yHeaders }),
+        ]);
+        const [samsungData, hynixData, kospiData] = await Promise.all([samsungRes.json(), hynixRes.json(), kospiRes.json()]);
+
+        const parseSeries = (d) => {
+          const result = d?.chart?.result?.[0];
+          if (!result?.timestamp) return { series: [], sharesOutstanding: null };
+          const ts = result.timestamp;
+          const closes = result.indicators?.quote?.[0]?.close || [];
+          const series = ts.map((t, i) => ({
+            date: new Date(t * 1000).toISOString().split('T')[0],
+            close: closes[i] != null ? closes[i] : null,
+          })).filter(d => d.close !== null);
+          return { series, sharesOutstanding: result.meta?.sharesOutstanding || null };
+        };
+
+        const samsung = parseSeries(samsungData);
+        const hynix = parseSeries(hynixData);
+        const kospi = parseSeries(kospiData);
+
+        if (!samsung.sharesOutstanding || !hynix.sharesOutstanding) {
+          return res.status(200).json({ data: [], error: '상장주식수 조회 실패 (Yahoo 데이터 없음)' });
+        }
+        if (kospi.series.length === 0) {
+          return res.status(200).json({ data: [], error: '코스피 지수 데이터 조회 실패' });
+        }
+
+        // 코스피 지수는 Yahoo에서 10배로 오는 경우가 있어 보정 (기존 indexChart 로직과 동일)
+        const kospiMetaPrice = kospiData?.chart?.result?.[0]?.meta?.regularMarketPrice || 0;
+        const kospiRawLast = kospi.series[kospi.series.length - 1]?.close || 0;
+        const needsDivide = kospiMetaPrice > 0 && kospiRawLast > 0 && (kospiRawLast / kospiMetaPrice) > 5;
+        const kospiSeriesAdj = kospi.series.map(d => ({ date: d.date, close: needsDivide ? d.close / 10 : d.close }));
+        const kospiIndexLast = kospiSeriesAdj[kospiSeriesAdj.length - 1]?.close;
+
+        // 코스피 "전체" 시가총액 현재값 (이미 검증된 전체 스크래핑 결과, 30분 캐시 재사용 - 추가 요청 비용 없음)
+        const kospiTotalNow = await getMarketCapFullTotal(0); // 억원 단위
+        if (!kospiTotalNow || !kospiIndexLast) {
+          return res.status(200).json({ data: [], error: '코스피 전체 시총 기준값 조회 실패' });
+        }
+
+        const samsungMap = {}; samsung.series.forEach(d => { samsungMap[d.date] = d.close; });
+        const hynixMap = {}; hynix.series.forEach(d => { hynixMap[d.date] = d.close; });
+
+        const data = kospiSeriesAdj.map(kd => {
+          const sPrice = samsungMap[kd.date];
+          const hPrice = hynixMap[kd.date];
+          if (sPrice == null || hPrice == null || !kd.close) return null;
+          const samsungCap = samsung.sharesOutstanding * sPrice / 100000000; // 억원
+          const hynixCap = hynix.sharesOutstanding * hPrice / 100000000;
+          const kospiTotalEst = kospiTotalNow * (kd.close / kospiIndexLast);
+          const ratio = kospiTotalEst > 0 ? (samsungCap + hynixCap) / kospiTotalEst * 100 : null;
+          return ratio !== null ? { date: kd.date, ratio: Math.round(ratio * 100) / 100 } : null;
+        }).filter(Boolean);
+
+        return res.status(200).json({ data });
+      } catch (e) {
+        return res.status(200).json({ data: [], error: e.message });
+      }
+    }
+
     // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트 + 맵차트)
     if (type === 'market') {
       const results = await Promise.all([
