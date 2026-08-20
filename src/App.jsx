@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.15";
+const VERSION = "v1.5.16";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -1123,7 +1123,11 @@ export default function App() {
     if (activeAccount === "all") {
       const allPortfolios = Object.values(portfolios);
       if (allPortfolios.length === 0) return null;
-      const allNormalStocks = allPortfolios.flatMap(p => (p.stocks||[]).filter(s => !s.approximateData));
+      // ✅ 버그 수정: 예수금은 모든 계좌가 티커명이 똑같이 "예수금"이라, 아래 종목 병합 로직(같은 티커면
+      // 수량/평가금액은 더하고 평단가는 가중평균)을 그대로 타면 서로 다른 계좌의 예수금이 "같은 종목"처럼
+      // 합산돼버려서 금액이 부풀려짐(두 계좌 예수금이 같은 금액이면 평단가는 그대로인데 평가금액만 배로 늘어남).
+      // → 예수금은 종목 병합 대상에서 완전히 제외하고, 전체 계좌 예수금 합계를 별도로 한 줄로만 더함.
+      const allNormalStocks = allPortfolios.flatMap(p => (p.stocks||[]).filter(s => !s.approximateData && !s.isCash));
       const merged = Object.values(allNormalStocks.reduce((acc, s) => {
         if (s.isOverseas) {
           const krwValue = livePrices[s.ticker] ? Math.round(livePrices[s.ticker] * s.quantity) : Math.round(s.currentValue || 0);
@@ -1140,9 +1144,14 @@ export default function App() {
         }
         return acc;
       }, {}));
-      const normalTotal = merged.reduce((s, d) => s + (d.currentValue||0), 0);
+      const cashTotal = allPortfolios.flatMap(p => (p.stocks||[]).filter(s => !s.approximateData && s.isCash))
+        .reduce((sum, s) => sum + (s.currentValue || s.currentPrice || 0), 0);
+      const finalStocks = cashTotal > 0
+        ? [...merged, { ticker: "예수금", isCash: true, quantity: 1, avgBuyPrice: cashTotal, currentPrice: cashTotal, currentValue: cashTotal }]
+        : merged;
+      const normalTotal = finalStocks.reduce((s, d) => s + (d.currentValue||0), 0);
       const approxTotal = allPortfolios.filter(p => p.approximateData).reduce((s, p) => s + (p.totalValue||0), 0);
-      return { stocks: merged, totalValue: normalTotal + approxTotal, approxTotal };
+      return { stocks: finalStocks, totalValue: normalTotal + approxTotal, approxTotal };
     }
     const p = portfolios[activeAccount]; if (!p) return null;
     if (p.approximateData) return p;
