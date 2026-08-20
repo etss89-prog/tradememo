@@ -190,6 +190,107 @@ async function findCodeFromKrx(tickerName) {
   return null;
 }
 
+// ===== 업종별 맵차트용 - 네이버 "업종별 시세" 스크래핑 =====
+// ⚠️ 이 섹션 전체는 실제 배포 환경에서 아직 검증되지 않았음 (샌드박스는 외부 네트워크 접근 불가라 직접 테스트 불가).
+// 업종 개수가 많아(수십~백 개 가능) 요청이 많이 나갈 수 있어서, 결과를 1시간 캐시해 재요청 비용을 줄임.
+// 실패하더라도 항상 {}(빈 맵)을 반환하도록 방어해서, 업종별 맵차트가 실패해도 기존 평면 맵차트/앱 전체에는 영향 없음.
+let sectorMapCache = null;
+let sectorMapLoadedAt = null;
+
+// 네이버 "업종별 시세" 목록 페이지에서 업종명 + 그룹번호(no) 목록 추출
+async function fetchUpjongList() {
+  try {
+    const url = 'https://finance.naver.com/sise/sise_group.naver?type=upjong';
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Charset': 'EUC-KR,utf-8;q=0.7,*;q=0.3',
+        'Referer': 'https://finance.naver.com/sise/',
+      }
+    });
+    if (!r.ok) return [];
+    const buf = await r.arrayBuffer();
+    const html = new TextDecoder('euc-kr').decode(buf);
+
+    const groups = [];
+    const seen = new Set();
+    const re = /href="\/sise\/sise_group_detail\.naver\?type=upjong&no=(\d+)"[^>]*>([^<]+)<\/a>/g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const no = m[1];
+      const name = m[2].trim();
+      if (no && name && !seen.has(no)) { seen.add(no); groups.push({ no, name }); }
+    }
+    return groups;
+  } catch (e) {
+    console.error('fetchUpjongList error:', e.message);
+    return [];
+  }
+}
+
+// 특정 업종 그룹의 상세페이지에서 소속 종목명 목록 추출
+async function fetchUpjongMembers(no) {
+  try {
+    const url = `https://finance.naver.com/sise/sise_group_detail.naver?type=upjong&no=${no}`;
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+        'Accept-Charset': 'EUC-KR,utf-8;q=0.7,*;q=0.3',
+        'Referer': 'https://finance.naver.com/sise/',
+      }
+    });
+    if (!r.ok) return [];
+    const buf = await r.arrayBuffer();
+    const html = new TextDecoder('euc-kr').decode(buf);
+
+    const names = [];
+    const re = /href="[^"]*code=(\d{6})[^"]*"[^>]*>([^<]+)<\/a>/g;
+    let m;
+    while ((m = re.exec(html)) !== null) {
+      const name = m[2].trim();
+      if (name) names.push(name);
+    }
+    return names;
+  } catch {
+    return [];
+  }
+}
+
+// 업종 목록 + 각 업종 상세를 모두 모아 { 종목명: 업종명 } 맵을 구성 (1시간 캐시)
+async function loadSectorMap() {
+  if (sectorMapCache && sectorMapLoadedAt && Date.now() - sectorMapLoadedAt < 3600000) {
+    return sectorMapCache;
+  }
+  try {
+    const groups = await fetchUpjongList();
+    if (!groups.length) return sectorMapCache || {};
+
+    // 파싱 오류 등으로 비정상적으로 많은 그룹이 잡히는 경우를 대비한 안전 상한
+    const SECTOR_GROUP_LIMIT = 150;
+    const targetGroups = groups.slice(0, SECTOR_GROUP_LIMIT);
+
+    const results = await Promise.allSettled(targetGroups.map(g => fetchUpjongMembers(g.no)));
+    const map = {};
+    results.forEach((r, i) => {
+      if (r.status !== 'fulfilled') return;
+      const groupName = targetGroups[i].name;
+      (r.value || []).forEach(name => {
+        if (!map[name]) map[name] = groupName; // 이미 배정된 종목은 최초 매칭 유지 (중복 업종 방지)
+      });
+    });
+
+    if (Object.keys(map).length > 0) {
+      sectorMapCache = map;
+      sectorMapLoadedAt = Date.now();
+      return map;
+    }
+    return sectorMapCache || {};
+  } catch (e) {
+    console.error('loadSectorMap error:', e.message);
+    return sectorMapCache || {};
+  }
+}
+
 // ✅ Yahoo Finance로 해외주식 현재가 조회 (API 키 불필요)
 async function getOverseasPrice(ticker) {
   try {
@@ -381,6 +482,17 @@ export default async function handler(req, res) {
       }
     }
 
+    // ✅ 업종별 맵차트용 - 종목명 → 업종명 매핑 (서버에서 1시간 캐시, 최초 "업종별 보기" 토글 시에만 호출됨)
+    // ⚠️ 실제 배포 환경에서 아직 검증되지 않은 스크래핑 경로임 (샌드박스는 외부 네트워크 접근 불가라 직접 테스트 불가).
+    if (type === 'sectorMap') {
+      try {
+        const map = await loadSectorMap();
+        return res.status(200).json({ sectorMap: map || {} });
+      } catch (e) {
+        return res.status(200).json({ sectorMap: {}, error: e.message });
+      }
+    }
+
     // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트 + 맵차트)
     if (type === 'market') {
       const results = await Promise.all([
@@ -389,9 +501,17 @@ export default async function handler(req, res) {
         fetchMarketCap(1),
         fetchIntraday('%5EKS11'),
         fetchIntraday('%5EKQ11'),
+        getMarketCapFullTotal(0),
+        getMarketCapFullTotal(1),
       ]);
       const kospiCap = results[1] || {};
       const kosdaqCap = results[2] || {};
+      const kospiTop50Sum = kospiCap.totalMarketCap || 0;
+      const kosdaqTop50Sum = kosdaqCap.totalMarketCap || 0;
+      // 안전장치: 공식 전체 시총 파싱값이 "상위 50개 합"보다 작으면 파싱 실패/오류로 간주하고 버림
+      // (전체 시총은 반드시 상위 50개 합 이상이어야 정상)
+      const kospiOfficialTotal = (results[5] && results[5] >= kospiTop50Sum) ? results[5] : null;
+      const kosdaqOfficialTotal = (results[6] && results[6] >= kosdaqTop50Sum) ? results[6] : null;
       return res.status(200).json({
         // ── 기존 필드 (그대로 유지, 기존 UI 영향 없음) ──
         indices: results[0],
@@ -402,8 +522,10 @@ export default async function handler(req, res) {
         // ── 신규 필드 (맵차트용, 추가된 것만) ──
         kospiMap: kospiCap.mapList || [],
         kosdaqMap: kosdaqCap.mapList || [],
-        kospiMapTotal: kospiCap.totalMarketCap ?? null,
+        kospiMapTotal: kospiCap.totalMarketCap ?? null,     // 상위 50개 합 (fallback용)
         kosdaqMapTotal: kosdaqCap.totalMarketCap ?? null,
+        kospiTotalMarketCap: kospiOfficialTotal,            // ✅ 코스피 시장 전체 시가총액 (파싱 성공 시에만)
+        kosdaqTotalMarketCap: kosdaqOfficialTotal,          // ✅ 코스닥 시장 전체 시가총액
       });
     }
 
@@ -504,6 +626,88 @@ async function fetchMarketIndex() {
 
     return { kospi: parse(ksd), kosdaq: parse(kqd) };
   } catch { return { kospi: null, kosdaq: null }; }
+}
+
+// ✅ 코스피/코스닥 "시장 전체" 시가총액 조회
+// v1.5.12에서 시도했던 "네이버 지수 상세페이지(sise_index.naver)의 시가총액 항목 파싱" 방식은
+// 실제 배포 후 확인해보니 값을 못 찾아 계속 폴백("상위 50개 합")으로만 표시되는 것으로 확인됨.
+// → 이미 정상 동작이 검증된 fetchMarketCap의 "시총순위 페이지" 파싱 로직을 그대로 재사용해서,
+//   1페이지(상위 50개)만 보던 것을 전체 페이지로 확장해 실제 상장된 모든 종목의 시가총액을 합산하는
+//   방식으로 교체함. 같은 파싱 방식이라 신뢰도가 더 높음.
+// 페이지 수가 많아(코스피 약 20페이지, 코스닥 약 35페이지) 매 요청마다 다시 긁으면 느리고 부담이 커서
+// 30분 서버 캐시를 둠 (Vercel 서버리스 특성상 콜드스타트 시엔 캐시가 비어 다시 전체 스크래핑이 일어날 수 있음).
+const marketCapTotalCache = { 0: null, 1: null };
+const marketCapTotalCachedAt = { 0: null, 1: null };
+const MARKET_CAP_TOTAL_TTL = 30 * 60 * 1000; // 30분
+
+async function getMarketCapFullTotal(sosok) {
+  const now = Date.now();
+  if (marketCapTotalCache[sosok] && marketCapTotalCachedAt[sosok] && now - marketCapTotalCachedAt[sosok] < MARKET_CAP_TOTAL_TTL) {
+    return marketCapTotalCache[sosok];
+  }
+  const result = await fetchMarketCapFullTotal(sosok);
+  if (result && result.total > 0) {
+    marketCapTotalCache[sosok] = result.total;
+    marketCapTotalCachedAt[sosok] = now;
+    return result.total;
+  }
+  return marketCapTotalCache[sosok]; // 이번에 실패하면 이전 캐시라도(없으면 null) 반환
+}
+
+async function fetchMarketCapFullTotal(sosok) {
+  try {
+    const naverHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Charset': 'EUC-KR,utf-8;q=0.7,*;q=0.3',
+      'Referer': 'https://finance.naver.com/sise/',
+    };
+    const fetchHtml = async (page) => {
+      const url = `https://finance.naver.com/sise/sise_market_sum.naver?sosok=${sosok}&page=${page}`;
+      const r = await fetch(url, { headers: naverHeaders });
+      if (!r.ok) return '';
+      const buf = await r.arrayBuffer();
+      return new TextDecoder('euc-kr').decode(buf);
+    };
+
+    // 1페이지에서 하단 페이지네이션의 최대 page= 번호를 유추해서 총 페이지 수를 파악
+    const html1 = await fetchHtml(1);
+    if (!html1) return null;
+    const pageNums = [...html1.matchAll(/sise_market_sum\.naver\?sosok=\d+&page=(\d+)/g)].map(m => Number(m[1]));
+    const SAFETY_CAP = 45; // 코스닥(~1700개 종목 안팎)까지 넉넉히 커버하는 안전 상한
+    const lastPage = Math.min(pageNums.length ? Math.max(...pageNums) : 1, SAFETY_CAP);
+
+    const restPages = [];
+    for (let p = 2; p <= lastPage; p++) restPages.push(p);
+    const restHtmls = await Promise.allSettled(restPages.map(p => fetchHtml(p)));
+    const htmls = [html1, ...restHtmls.map(r => r.status === 'fulfilled' ? r.value : '')];
+
+    // fetchMarketCap과 동일한 행/셀 파싱 로직 재사용 (이미 검증된 방식)
+    let total = 0, count = 0;
+    for (const html of htmls) {
+      if (!html) continue;
+      const rowPattern = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
+      let m;
+      while ((m = rowPattern.exec(html)) !== null) {
+        const row = m[0];
+        const nameMatch = row.match(/href="[^"]*code=(\d{6})[^"]*"[^>]*>([^<]+)<\/a>/);
+        if (!nameMatch) continue;
+        const numberCells = [];
+        const cellPattern = /<td[^>]*class="[^"]*number[^"]*"[^>]*>([\s\S]*?)<\/td>/gi;
+        let cellM;
+        while ((cellM = cellPattern.exec(row)) !== null) {
+          numberCells.push(cellM[1].replace(/<[^>]+>/g, '').replace(/[\s,]/g, '').trim());
+        }
+        if (numberCells.length > 4) {
+          const cap = Number(numberCells[4]);
+          if (cap > 0) { total += cap; count++; }
+        }
+      }
+    }
+    return total > 0 ? { total, count } : null;
+  } catch (e) {
+    console.error('fetchMarketCapFullTotal error:', e.message);
+    return null;
+  }
 }
 
 // ✅ 맵차트용으로 파싱 상한을 10 → 50으로 확대. top10은 기존과 100% 동일한 모양을 유지해서
