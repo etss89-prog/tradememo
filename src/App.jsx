@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.17";
+const VERSION = "v1.5.18";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -408,6 +408,10 @@ export default function App() {
   const [showSectorView, setShowSectorView] = useState(false); // 업종별 2단계 맵차트 토글
   const [sectorMap, setSectorMap] = useState(null); // { 종목명: 업종명 } - 최초 토글 시에만 지연 로딩
   const [sectorMapLoading, setSectorMapLoading] = useState(false);
+  const [concentrationData, setConcentrationData] = useState(null); // [{date, ratio}] - 삼성전자+SK하이닉스 / 코스피 전체 시총 비율(6개월)
+  const [concentrationLoading, setConcentrationLoading] = useState(false);
+  const [concentrationError, setConcentrationError] = useState(null);
+  const [concentrationTooltip, setConcentrationTooltip] = useState(null); // { date, ratio }
   const [performance, setPerformance] = useState({}); // 날짜별 성과 데이터
   const [perfSaving, setPerfSaving] = useState(false);
   const [perfRange, setPerfRange] = useState('mine');
@@ -560,6 +564,7 @@ export default function App() {
 
   useEffect(() => {
     loadMarketData();
+    loadConcentrationHistory(); // 6개월치라 자주 안 바뀜 - 5분 간격 갱신 대상에서는 제외, 최초 1회만
     const marketInterval = setInterval(loadMarketData, 5 * 60 * 1000);
 
     fetch("/api/diary-load").then(r => r.json()).then(d => {
@@ -582,14 +587,14 @@ export default function App() {
     if (viewerPinInput === VIEWER_PIN) {
       sessionStorage.setItem("jb_pin", viewerPinInput);
       setIsViewer(true); setViewerPinInput(""); setViewerPinError("");
-      setActiveTab("home"); if (!marketData) loadMarketData(); loadIndexChart(perfRange);
+      setActiveTab("home"); if (!marketData) loadMarketData(); if (!concentrationData) loadConcentrationHistory(); loadIndexChart(perfRange);
     } else { setViewerPinError("코드가 틀렸습니다."); setViewerPinInput(""); }
   }
   function checkPin() {
     if (pinInput === ADMIN_PIN) {
       sessionStorage.setItem("jb_pin", pinInput);
       setIsAdmin(true); setIsViewer(true); setShowPin(false); setPinInput(""); setPinError("");
-      setActiveTab("home"); if (!marketData) loadMarketData(); loadIndexChart(perfRange);
+      setActiveTab("home"); if (!marketData) loadMarketData(); if (!concentrationData) loadConcentrationHistory(); loadIndexChart(perfRange);
     } else { setPinError("PIN이 틀렸습니다."); setPinInput(""); }
   }
 
@@ -763,6 +768,22 @@ export default function App() {
       setMarketData(d);
     } catch {}
     setMarketLoading(false);
+  }
+
+  // ✅ v1.5.18: 삼성전자+SK하이닉스 시총 / 코스피 전체 시총 비율의 6개월 히스토리 차트용
+  async function loadConcentrationHistory() {
+    setConcentrationLoading(true);
+    setConcentrationError(null);
+    try {
+      const r = await fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'concentrationHistory', range: '6mo' }) });
+      const d = await r.json();
+      setConcentrationData(d.data || []);
+      if (d.error) setConcentrationError(d.error);
+    } catch (e) {
+      setConcentrationData([]);
+      setConcentrationError(e.message);
+    }
+    setConcentrationLoading(false);
   }
 
   // ✅ v1.5.13: 업종별 맵차트용 - 최초 "업종별 보기" 토글 시에만 1회 호출 (서버에서 1시간 캐시)
@@ -2001,7 +2022,7 @@ export default function App() {
           <span style={S.logoText}>존버일기장</span>
           <span style={S.verBadge}>{VERSION}</span>
           {/* 홈(시장현황) 버튼 */}
-          <button onClick={() => { const next = activeTab !== "home"; setActiveTab(next ? "home" : "portfolio"); if (next) { if (!marketData) loadMarketData(); loadIndexChart(perfRange); } }}
+          <button onClick={() => { const next = activeTab !== "home"; setActiveTab(next ? "home" : "portfolio"); if (next) { if (!marketData) loadMarketData(); if (!concentrationData) loadConcentrationHistory(); loadIndexChart(perfRange); } }}
             style={{ background: activeTab === "home" ? (darkMode?"#1e3a5f":"#dbeafe") : T.section, border: `1px solid ${activeTab==="home"?"#3b82f6":T.border}`, borderRadius: 8, padding: "4px 8px", fontSize: 14, cursor: "pointer", lineHeight: 1, color: activeTab==="home"?"#3b82f6":T.textMuted }}
             title="시장 현황">🏠</button>
           {/* 다크/라이트 토글 */}
@@ -3146,6 +3167,112 @@ export default function App() {
                       {concentrationNote && (
                         <div style={{ marginTop:4, fontSize:10, color:T.textMuted }}>{concentrationNote}</div>
                       )}
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* ✅ v1.5.18: 삼성전자+SK하이닉스 시총 집중도 6개월 추이 차트 */}
+              <div style={{ marginTop:8, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px" }}>
+                <div style={{ fontSize:12, fontWeight:800, color:T.text, marginBottom:8 }}>📊 삼성전자+SK하이닉스 시총 집중도 (6개월)</div>
+                {concentrationLoading ? (
+                  <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>📈 불러오는 중...</div>
+                ) : (!concentrationData || concentrationData.length === 0) ? (
+                  <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>
+                    데이터 없음{concentrationError ? ` (${concentrationError})` : ''}
+                  </div>
+                ) : (() => {
+                  const cd = concentrationData;
+                  const last = cd[cd.length - 1];
+                  const first = cd[0];
+                  const delta = (last.ratio - first.ratio);
+
+                  const W = 320, H = 110, PAD = { l:32, r:8, t:8, b:20 };
+                  const ratios = cd.map(d => d.ratio);
+                  const minV = Math.min(...ratios) * 0.98;
+                  const maxV = Math.max(...ratios) * 1.02;
+                  const vRange = (maxV - minV) || 1;
+
+                  const toTime2 = (d) => new Date(d).getTime();
+                  const minTime2 = toTime2(cd[0].date);
+                  const maxTime2 = toTime2(cd[cd.length - 1].date);
+                  const timeRange2 = (maxTime2 - minTime2) || 1;
+                  const pxByDate2 = (dateStr) => PAD.l + (W - PAD.l - PAD.r) * (toTime2(dateStr) - minTime2) / timeRange2;
+                  const pyVal2 = (v) => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / vRange);
+
+                  const linePath2 = cd.map((d, i) => `${i === 0 ? 'M' : 'L'}${pxByDate2(d.date)},${pyVal2(d.ratio)}`).join(' ');
+                  const areaPath2 = `${linePath2} L${pxByDate2(last.date)},${pyVal2(minV)} L${pxByDate2(first.date)},${pyVal2(minV)} Z`;
+
+                  const ySteps2 = 4;
+                  const yLabels2 = Array.from({ length: ySteps2 + 1 }, (_, i) => {
+                    const v = minV + (maxV - minV) * i / ySteps2;
+                    return { y: pyVal2(v), label: v.toFixed(1) + '%' };
+                  });
+
+                  const xLabels2 = [];
+                  let prevYm2 = '';
+                  cd.forEach(d => {
+                    const [yyyy, mm] = d.date.split('-');
+                    const ym = `${yyyy}-${mm}`;
+                    if (ym !== prevYm2) {
+                      xLabels2.push({ x: pxByDate2(d.date), label: mm === '01' ? `${yyyy.slice(2)}.${mm}` : `'${mm}` });
+                      prevYm2 = ym;
+                    }
+                  });
+
+                  return (
+                    <>
+                      <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:8 }}>
+                        <div style={{ fontSize:20, fontWeight:900, color:T.text }}>{last.ratio.toFixed(2)}%</div>
+                        <div style={{ fontSize:11, fontWeight:700, color: delta >= 0 ? "#ef4444" : "#3b82f6" }}>
+                          {delta >= 0 ? '+' : ''}{delta.toFixed(2)}%p (6개월)
+                        </div>
+                        <div style={{ fontSize:10, color:T.textMuted, marginLeft:"auto" }}>{last.date} 기준</div>
+                      </div>
+                      <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", cursor:"crosshair" }}
+                        onClick={e => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const mx = (e.clientX - rect.left) / rect.width * W;
+                          const clickTime = minTime2 + (mx - PAD.l) / (W - PAD.l - PAD.r) * timeRange2;
+                          let best = cd[0], bestDiff = Infinity;
+                          cd.forEach(d => {
+                            const diff = Math.abs(toTime2(d.date) - clickTime);
+                            if (diff < bestDiff) { bestDiff = diff; best = d; }
+                          });
+                          setConcentrationTooltip(concentrationTooltip?.date === best.date ? null : best);
+                        }}>
+                        {yLabels2.map((yl, i) => (
+                          <g key={i}>
+                            <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth="0.5" strokeDasharray="3,3" />
+                            <text x={PAD.l-3} y={yl.y+3} textAnchor="end" fontSize="7" fill={T.textMuted}>{yl.label}</text>
+                          </g>
+                        ))}
+                        {xLabels2.map((xl, i) => (
+                          <text key={i} x={xl.x} y={H-6} textAnchor="middle" fontSize="7" fill={T.textMuted}>{xl.label}</text>
+                        ))}
+                        <path d={areaPath2} fill="#8b5cf6" opacity="0.12" stroke="none" />
+                        <path d={linePath2} fill="none" stroke="#8b5cf6" strokeWidth="1.6" />
+                        {concentrationTooltip && (() => {
+                          const tx = pxByDate2(concentrationTooltip.date);
+                          const ty = pyVal2(concentrationTooltip.ratio);
+                          return (
+                            <g>
+                              <line x1={tx} y1={PAD.t} x2={tx} y2={H-PAD.b} stroke={T.textMuted} strokeWidth="0.5" strokeDasharray="2,2" />
+                              <circle cx={tx} cy={ty} r="2.5" fill="#8b5cf6" stroke="#fff" strokeWidth="0.8" />
+                            </g>
+                          );
+                        })()}
+                      </svg>
+                      {concentrationTooltip && (
+                        <div style={{ marginTop:4, textAlign:"center", fontSize:11, color:T.text, background:T.section, borderRadius:6, padding:"4px 0" }}>
+                          {concentrationTooltip.date} · {concentrationTooltip.ratio.toFixed(2)}%
+                        </div>
+                      )}
+                      <div style={{ marginTop:6, fontSize:9, color:T.textMuted, lineHeight:1.4 }}>
+                        ※ 추정치입니다. 삼성전자·SK하이닉스는 상장주식수를 현재 기준으로 고정하고 과거 주가를 곱해 계산했고,
+                        코스피 전체 시총은 현재 전체 시총에 코스피 지수의 과거 대비 변동 비율을 곱해 역산한 값입니다.
+                        (네이버는 과거 일자별 전체 시총 데이터를 제공하지 않아 정확한 값과는 다소 차이가 있을 수 있습니다.)
+                      </div>
                     </>
                   );
                 })()}
