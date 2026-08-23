@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.18";
+const VERSION = "v1.5.19";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -390,6 +390,12 @@ export default function App() {
   const [chartTimeframe, setChartTimeframe] = useState('day');
   const [chartRange, setChartRange] = useState('3mo'); // 기간 선택
   const [chartTooltip, setChartTooltip] = useState(null); // { x, y, candle }
+  // ✅ v1.5.19: 개별 거래(매수/매도 1건) 수정·삭제용 - OCR 오인식(예: 19주→1주) 발견 시 직접 교정할 수 있도록
+  const [tradeEditModal, setTradeEditModal] = useState(null); // { trade, ticker }
+  const [teDate, setTeDate] = useState("");
+  const [teType, setTeType] = useState("매수");
+  const [tePrice, setTePrice] = useState("");
+  const [teQty, setTeQty] = useState("");
   const [memos, setMemos] = useState({});
   const [memoEditing, setMemoEditing] = useState(false);
   const [memoDraft, setMemoDraft] = useState('');
@@ -933,6 +939,54 @@ export default function App() {
     setPortfolios(newPortfolios);
     await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios: newPortfolios, accounts, mainText }) });
   }
+  // ✅ v1.5.19: 개별 거래 1건 수정/삭제 - AI 인식 오류(예: 수량 오독)를 사용자가 직접 교정.
+  // allRecords[].result.stocks[].trades[] 안의 해당 trade 객체를 참조 동일성(===)으로 찾아 교체/제거한다.
+  // (tradesByDate는 flatMap/filter로만 구성되어 trade 객체 자체는 원본과 동일 참조이므로 안전하게 비교 가능)
+  function openTradeEdit(trade, ticker) {
+    setTradeEditModal({ trade, ticker });
+    setTeDate(trade.date || "");
+    setTeType(trade.type === "매도" ? "매도" : "매수");
+    setTePrice(String(trade.price ?? ""));
+    setTeQty(String(trade.quantity ?? ""));
+  }
+  async function saveTradeEdit() {
+    const { trade, ticker } = tradeEditModal;
+    const price = parseInt(String(tePrice).replace(/,/g, ""), 10);
+    const qty = parseInt(teQty, 10);
+    if (!teDate || isNaN(price) || isNaN(qty) || price <= 0 || qty <= 0) return alert("날짜/가격/수량을 올바르게 입력해주세요.");
+    const updatedTrade = { ...trade, date: teDate, type: teType, price, quantity: qty, total: price * qty };
+    const newRecords = allRecords.map(r => {
+      if (!r.result?.stocks) return r;
+      const newStocks = r.result.stocks.map(s => {
+        if (s.ticker !== ticker) return s;
+        return { ...s, trades: (s.trades || []).map(t => t === trade ? updatedTrade : t) };
+      });
+      return { ...r, result: { ...r.result, stocks: newStocks } };
+    });
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    const res = await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, records: newRecords, portfolios, accounts, mainText }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) return alert("저장 실패: " + (data.error || `HTTP ${res.status}`));
+    setAllRecords(newRecords); setTradeEditModal(null); setChartTooltip(null);
+    alert("✅ 거래 기록 수정 완료!");
+  }
+  async function deleteTradeEntry(trade, ticker) {
+    if (!window.confirm(`${ticker} ${trade.date} ${trade.type} ${trade.quantity}주 거래 기록을 삭제할까요?\n(포트폴리오 보유수량/평단가는 별도 데이터라 자동으로는 바뀌지 않아요. 필요하면 "종목 수정"에서 직접 맞춰주세요.)`)) return;
+    const newRecords = allRecords.map(r => {
+      if (!r.result?.stocks) return r;
+      const newStocks = r.result.stocks.map(s => {
+        if (s.ticker !== ticker) return s;
+        return { ...s, trades: (s.trades || []).filter(t => t !== trade) };
+      });
+      return { ...r, result: { ...r.result, stocks: newStocks } };
+    });
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    const res = await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, records: newRecords, portfolios, accounts, mainText }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.error) return alert("삭제 실패: " + (data.error || `HTTP ${res.status}`));
+    setAllRecords(newRecords); setTradeEditModal(null); setChartTooltip(null);
+    alert("🗑️ 거래 기록 삭제 완료!");
+  }
   // 구루의 의견 저장/삭제 — save.js가 필드별로 독립 저장하므로 gurus만 보내도 안전함
   async function saveGuruOpinion() {
     if (!guruForm.date || !guruForm.guru.trim() || !guruForm.target.trim()) {
@@ -1049,7 +1103,9 @@ export default function App() {
     for (const item of items) {
       setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: true } : i));
       try {
-        const base64 = await compressImage(item.file, 800);
+        // ✅ v1.5.19: 매매내역 표(특히 2자리 이상 수량 숫자)가 800px 압축 과정에서 흐려져서
+        // AI가 "19"를 "1"로 잘못 읽는 등의 오인식이 발생 → 해상도를 높여 숫자 인식 정확도 개선
+        const base64 = await compressImage(item.file, 1400);
         const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64 }) });
         const result = await res.json(); if (result.error) throw new Error(result.error);
         setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, result } : i));
@@ -1671,6 +1727,15 @@ export default function App() {
                             <div style={{ color:T.text }}>가격: {chartTooltip.trade.price?.toLocaleString()}원</div>
                             {chartTooltip.trade.quantity && <div style={{ color:T.text }}>수량: {chartTooltip.trade.quantity}주</div>}
                             {chartTooltip.trade.total && <div style={{ color:T.text }}>금액: {chartTooltip.trade.total?.toLocaleString()}원</div>}
+                            {/* ✅ v1.5.19: AI 인식 오류(예: 19주→1주 오독) 직접 교정용 */}
+                            {isAdmin && (
+                              <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                                <button onClick={() => openTradeEdit(chartTooltip.trade, ticker)}
+                                  style={{ flex:1, fontSize:11, fontWeight:600, padding:"5px 0", borderRadius:6, border:`1px solid ${T.border}`, background:T.card, color:T.text, cursor:"pointer" }}>✏️ 수정</button>
+                                <button onClick={() => deleteTradeEntry(chartTooltip.trade, ticker)}
+                                  style={{ flex:1, fontSize:11, fontWeight:600, padding:"5px 0", borderRadius:6, border:"1px solid #ef4444", background:"transparent", color:"#ef4444", cursor:"pointer" }}>🗑️ 삭제</button>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           // 일반 캔들 툴팁
@@ -1896,6 +1961,46 @@ export default function App() {
               <button style={{ ...S.btnSub, flex: 1 }} onClick={() => { setEditStockModal(null); setEditStockQty(""); setEditStockAvg(""); setEditStockName(""); }}>취소</button>
               <button style={{ ...S.btnDanger, flex: 1, fontSize: 12 }} onClick={() => { deleteStock(editStockModal.accountId, editStockModal.stock.ticker); setEditStockModal(null); }}>🗑️ 삭제</button>
               <button style={{ ...S.btnMain, flex: 1 }} onClick={saveEditStock}>저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ v1.5.19: 개별 거래(매수/매도 1건) 수정 모달 - AI 인식 오류 교정용 */}
+      {tradeEditModal && (
+        <div style={S.overlay}>
+          <div style={{ ...S.modal, width: 300 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, color: T.text }}>✏️ 거래 기록 수정</div>
+            <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 16 }}>{tradeEditModal.ticker}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, textAlign: "left" }}>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>날짜</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }} type="date" value={teDate} onChange={e => setTeDate(e.target.value)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>매매구분</div>
+                <div style={{ display:"flex", gap:8 }}>
+                  {["매수","매도"].map(tp => (
+                    <button key={tp} onClick={() => setTeType(tp)}
+                      style={{ flex:1, padding:"8px 0", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:700,
+                        border:`1px solid ${teType===tp ? (tp==='매수'?'#ef4444':'#3b82f6') : T.border}`,
+                        background: teType===tp ? (tp==='매수' ? (darkMode?'#3a1a1a':'#fee2e2') : (darkMode?'#1a2a3a':'#dbeafe')) : "transparent",
+                        color: teType===tp ? (tp==='매수'?'#ef4444':'#3b82f6') : T.textMuted }}>{tp}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>체결단가 (원)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }} type="number" placeholder="예: 250750" value={tePrice} onChange={e => setTePrice(e.target.value)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.textMuted, marginBottom: 4 }}>체결수량 (주)</div>
+                <input style={{ ...S.pinInput, fontSize: 14, letterSpacing: 0, textAlign: "left", padding: "8px 12px" }} type="number" placeholder="예: 19" value={teQty} onChange={e => setTeQty(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button style={{ ...S.btnSub, flex: 1 }} onClick={() => setTradeEditModal(null)}>취소</button>
+              <button style={{ ...S.btnMain, flex: 1 }} onClick={saveTradeEdit}>저장</button>
             </div>
           </div>
         </div>
