@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.19";
+const VERSION = "v1.5.21";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -954,12 +954,17 @@ export default function App() {
     const price = parseInt(String(tePrice).replace(/,/g, ""), 10);
     const qty = parseInt(teQty, 10);
     if (!teDate || isNaN(price) || isNaN(qty) || price <= 0 || qty <= 0) return alert("날짜/가격/수량을 올바르게 입력해주세요.");
-    const updatedTrade = { ...trade, date: teDate, type: teType, price, quantity: qty, total: price * qty };
+    const updatedTrade = { date: teDate, type: teType, price, quantity: qty, total: price * qty };
+    // ✅ v1.5.21: trade는 화면에 보이는 "그날 매수/매도 합산" 항목. _rawTrades에 합쳐지기 전 원본
+    // 개별 체결(분할 체결 등)들이 들어있으면, 그 원본들을 전부 지우고 새 합산값 1건으로 교체한다.
+    // (원본이 1건뿐이었으면 그 1건만 교체 - 기존과 동일하게 동작)
+    const rawSet = new Set(trade._rawTrades && trade._rawTrades.length ? trade._rawTrades : [trade]);
     const newRecords = allRecords.map(r => {
       if (!r.result?.stocks) return r;
       const newStocks = r.result.stocks.map(s => {
         if (s.ticker !== ticker) return s;
-        return { ...s, trades: (s.trades || []).map(t => t === trade ? updatedTrade : t) };
+        const kept = (s.trades || []).filter(t => !rawSet.has(t));
+        return { ...s, trades: [...kept, updatedTrade] };
       });
       return { ...r, result: { ...r.result, stocks: newStocks } };
     });
@@ -971,12 +976,14 @@ export default function App() {
     alert("✅ 거래 기록 수정 완료!");
   }
   async function deleteTradeEntry(trade, ticker) {
-    if (!window.confirm(`${ticker} ${trade.date} ${trade.type} ${trade.quantity}주 거래 기록을 삭제할까요?\n(포트폴리오 보유수량/평단가는 별도 데이터라 자동으로는 바뀌지 않아요. 필요하면 "종목 수정"에서 직접 맞춰주세요.)`)) return;
+    const rawCount = trade._rawTrades && trade._rawTrades.length ? trade._rawTrades.length : 1;
+    if (!window.confirm(`${ticker} ${trade.date} ${trade.type} ${trade.quantity}주(체결 ${rawCount}건 합산) 거래 기록을 삭제할까요?\n(포트폴리오 보유수량/평단가는 별도 데이터라 자동으로는 바뀌지 않아요. 필요하면 "종목 수정"에서 직접 맞춰주세요.)`)) return;
+    const rawSet = new Set(trade._rawTrades && trade._rawTrades.length ? trade._rawTrades : [trade]);
     const newRecords = allRecords.map(r => {
       if (!r.result?.stocks) return r;
       const newStocks = r.result.stocks.map(s => {
         if (s.ticker !== ticker) return s;
-        return { ...s, trades: (s.trades || []).filter(t => t !== trade) };
+        return { ...s, trades: (s.trades || []).filter(t => !rawSet.has(t)) };
       });
       return { ...r, result: { ...r.result, stocks: newStocks } };
     });
@@ -1540,14 +1547,30 @@ export default function App() {
 
                 // 매매기록에서 해당 종목 거래 추출
                 const ticker = chartModal.ticker;
-                const tradesByDate = {};
+                // ✅ v1.5.21: 같은 날짜에 매수(혹은 매도)가 여러 건(분할 체결 등)이면 예전엔 전부
+                // 같은 좌표에 겹쳐 그려져서 구분이 안 됐음. 사용자 요청대로, 개별 체결을 각각 보여주는
+                // 대신 "같은 날짜 + 같은 매매구분"은 수량을 합치고 그날의 가중평균 단가로 합쳐서 하루에
+                // 1건(매수 1개/매도 1개)으로만 표시. _rawTrades에 합쳐지기 전 원본 거래들을 들고 있어서,
+                // 이 합산 항목을 수정/삭제하면 원본 여러 건이 한 번에 교체/삭제되도록 함.
+                const rawTradesByDate = {};
                 allRecords.flatMap(r => r.result?.stocks || [])
                   .filter(s => s.ticker === ticker)
                   .flatMap(s => s.trades || [])
                   .forEach(t => {
-                    if (!tradesByDate[t.date]) tradesByDate[t.date] = [];
-                    tradesByDate[t.date].push(t);
+                    if (!rawTradesByDate[t.date]) rawTradesByDate[t.date] = [];
+                    rawTradesByDate[t.date].push(t);
                   });
+                const tradesByDate = {};
+                Object.entries(rawTradesByDate).forEach(([date, raws]) => {
+                  const groups = {};
+                  raws.forEach(t => { (groups[t.type] = groups[t.type] || []).push(t); });
+                  tradesByDate[date] = Object.entries(groups).map(([type, raws2]) => {
+                    const qty = raws2.reduce((sum, t) => sum + (t.quantity || 0), 0);
+                    const amt = raws2.reduce((sum, t) => sum + (t.price || 0) * (t.quantity || 0), 0);
+                    const avgPrice = qty > 0 ? Math.round(amt / qty) : (raws2[0]?.price || 0);
+                    return { date, type, price: avgPrice, quantity: qty, total: amt, _rawTrades: raws2 };
+                  });
+                });
 
                 // 가격 범위
                 const highs = chartData.map(c => c.high);
@@ -1723,6 +1746,10 @@ export default function App() {
                           <div>
                             <div style={{ fontWeight:700, color:chartTooltip.trade.type==='매수'?"#ef4444":"#3b82f6", marginBottom:4 }}>
                               {chartTooltip.trade.type} ({chartTooltip.candle.date})
+                              {/* ✅ v1.5.21: 그날 분할 체결이 여러 건 합쳐진 값이면 몇 건이 합쳐졌는지 표시 */}
+                              {chartTooltip.trade._rawTrades && chartTooltip.trade._rawTrades.length > 1 && (
+                                <span style={{ fontSize:10, color:T.textMuted, fontWeight:500 }}> · 체결 {chartTooltip.trade._rawTrades.length}건 합산 (평단)</span>
+                              )}
                             </div>
                             <div style={{ color:T.text }}>가격: {chartTooltip.trade.price?.toLocaleString()}원</div>
                             {chartTooltip.trade.quantity && <div style={{ color:T.text }}>수량: {chartTooltip.trade.quantity}주</div>}
