@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.21";
+const VERSION = "v1.5.22";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -137,7 +137,7 @@ function DonutChart({ data, title, centerText, labelName, labelPct, labelAvg, T 
   );
 }
 
-function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
+function PortfolioChart({ data, isAdmin, showWealth, onEdit, onEditCash, onChart, T }) {
   if (!data || data.length === 0) return null;
   const sorted = [...data].sort((a, b) => b.value - a.value);
   const total = sorted.reduce((s, d) => s + d.value, 0);
@@ -218,6 +218,11 @@ function PortfolioChart({ data, isAdmin, showWealth, onEdit, onChart, T }) {
               </span>
               {isAdmin && onEdit && !s.isCash && (
                 <button onClick={() => onEdit(s)} style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}>✏️</button>
+              )}
+              {/* ✅ v1.5.22: 예수금도 종목 목록에서 바로 연필로 수정할 수 있게 함 (예전엔 계좌 이름 옆
+                  연필 → "예수금" 탭으로 다시 들어가야 해서 번거로웠음) */}
+              {isAdmin && onEditCash && s.isCash && (
+                <button onClick={() => onEditCash(s)} style={{ background: "none", border: "none", color: "#60a5fa", fontSize: 11, cursor: "pointer", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}>✏️</button>
               )}
             </div>
             <span style={{ color: T.text, fontWeight: 700, fontSize: 12, textAlign: "center" }}>{Number(s.pct).toFixed(1)}%</span>
@@ -2338,6 +2343,14 @@ export default function App() {
                     onEdit={(activeAccount !== "all" && portfolioEditMode) ? (s) => {
                       const origStock = portfolios[activeAccount]?.stocks?.find(st => st.ticker === s.ticker);
                       if (origStock) { setEditStockModal({ accountId: activeAccount, stock: origStock }); setEditStockQty(String(origStock.quantity||"")); setEditStockAvg(String(origStock.avgBuyPrice||"")); setEditStockName(origStock.ticker||""); }
+                    } : null}
+                    // ✅ v1.5.22: 예수금 전용 빠른 수정 - "계좌 편집" 모달을 예수금 탭으로 바로 열고
+                    // 현재 예수금 금액을 미리 채워줘서, 금액만 고쳐서 바로 저장할 수 있게 함
+                    onEditCash={(activeAccount !== "all" && portfolioEditMode) ? () => {
+                      const cashStock = portfolios[activeAccount]?.stocks?.find(st => st.isCash);
+                      setManualModal({ accountId: activeAccount });
+                      setManualMode("cash");
+                      setManualCashAmount(String(cashStock?.avgBuyPrice || ""));
                     } : null}
                     data={displayPortfolio.stocks?.map(s => {
                       const currentPrice = livePrices[s.ticker] || s.currentPrice;
