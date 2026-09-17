@@ -396,6 +396,37 @@ async function getCurrentPrice(token, code) {
   return price > 0 ? price : null;
 }
 
+// ✅ 시가총액 스냅샷 조회 (한국투자증권 KIS API 재사용).
+// Yahoo 차트 API의 meta.sharesOutstanding이 최근 한국 종목들에 대해 자주 비어있어서(원인 불명 - Yahoo 쪽 변경으로 추정),
+// 이미 검증되어 잘 동작 중인 KIS 현재가 API의 hts_avls(시가총액, 억원 단위) 필드로 대체.
+// 가격 조회(getCurrentPrice)와 완전히 동일한 엔드포인트라 별도 인증/레이트리밋 걱정 없음.
+async function getKisSnapshot(token, code) {
+  try {
+    const res = await fetch(
+      `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/quotations/inquire-price?fid_cond_mrkt_div_code=J&fid_input_iscd=${code}`,
+      {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+          appkey: process.env.KIS_APP_KEY,
+          appsecret: process.env.KIS_APP_SECRET,
+          tr_id: 'FHKST01010100',
+        },
+      }
+    );
+    const data = await res.json();
+    const o = data.output;
+    const price = parseInt(o?.stck_prpr) || 0;
+    if (!o || price <= 0) return null;
+    const change = parseInt(o.prdy_vrss) || 0;
+    const pctNum = parseFloat(o.prdy_ctrt) || 0;
+    const marketCap = o.hts_avls ? Math.round(Number(o.hts_avls)) : null; // 억원
+    return { price, change, pctNum, marketCap };
+  } catch {
+    return null;
+  }
+}
+
 async function guessTickerCode(tickerName) {
   if (dynamicCache[tickerName]) return dynamicCache[tickerName];
 
@@ -500,8 +531,10 @@ export default async function handler(req, res) {
     // ✅ 삼성전자+SK하이닉스 시총 집중도 히스토리 (코스피 전체 시총 대비 비율, 날짜별)
     // ⚠️ 근사치 계산임 - 네이버는 "오늘" 시총 스냅샷만 제공하고 과거 일별 시총은 스크래핑으로 구할 방법이 없어서,
     // 다음 방식으로 근사함:
-    //  · 삼성전자/SK하이닉스: Yahoo 차트 API의 상장주식수(sharesOutstanding, 기간 내 거의 불변으로 가정)를
-    //    그날그날의 종가에 곱해서 그날의 시가총액을 직접 계산 (상장주식수 자체가 과거 데이터라 오차 적음)
+    //  · 삼성전자/SK하이닉스: "오늘" KIS 시가총액(hts_avls) ÷ 오늘 종가로 상장주식수를 역산하고
+    //    (상장주식수는 기간 내 거의 불변으로 가정), 이를 그날그날의 종가에 곱해서 그날의 시가총액을 계산
+    //    (✅ 기존엔 Yahoo 차트 API의 meta.sharesOutstanding을 썼는데, 최근 한국 종목에 대해 이 필드가
+    //    자주 비어서 "상장주식수 조회 실패"가 났음 → 이미 검증된 KIS API로 교체)
     //  · 코스피 전체: 코스피지수는 정의상 전체 시가총액에 비례하므로,
     //    "오늘 실측한 전체 시가총액 × (그날 지수 ÷ 오늘 지수)"로 근사
     //    (지수 산출용 나눗값이 종목 교체 등으로 미세하게 바뀔 수 있어 100% 정확하진 않음)
@@ -517,23 +550,37 @@ export default async function handler(req, res) {
 
         const parseSeries = (d) => {
           const result = d?.chart?.result?.[0];
-          if (!result?.timestamp) return { series: [], sharesOutstanding: null };
+          if (!result?.timestamp) return { series: [] };
           const ts = result.timestamp;
           const closes = result.indicators?.quote?.[0]?.close || [];
           const series = ts.map((t, i) => ({
             date: new Date(t * 1000).toISOString().split('T')[0],
             close: closes[i] != null ? closes[i] : null,
           })).filter(d => d.close !== null);
-          return { series, sharesOutstanding: result.meta?.sharesOutstanding || null };
+          return { series };
         };
 
         const samsung = parseSeries(samsungData);
         const hynix = parseSeries(hynixData);
         const kospi = parseSeries(kospiData);
 
-        if (!samsung.sharesOutstanding || !hynix.sharesOutstanding) {
-          const reason = samsungR.error || hynixR.error || 'Yahoo 데이터 없음';
-          return res.status(200).json({ data: [], error: `상장주식수 조회 실패 (${reason})` });
+        // ✅ 상장주식수를 KIS 시가총액(hts_avls, 억원) ÷ 현재가로 역산 (Yahoo sharesOutstanding 대체)
+        let samsungShares = null, hynixShares = null, sharesFailReason = null;
+        try {
+          const token = await getAccessToken();
+          const [samsungSnap, hynixSnap] = await Promise.all([
+            getKisSnapshot(token, '005930'),
+            getKisSnapshot(token, '000660'),
+          ]);
+          if (samsungSnap?.marketCap && samsungSnap.price) samsungShares = samsungSnap.marketCap * 100000000 / samsungSnap.price;
+          if (hynixSnap?.marketCap && hynixSnap.price) hynixShares = hynixSnap.marketCap * 100000000 / hynixSnap.price;
+          if (!samsungShares || !hynixShares) sharesFailReason = 'KIS 시가총액/현재가 없음';
+        } catch (e) {
+          sharesFailReason = `KIS 예외: ${e.message}`;
+        }
+
+        if (!samsungShares || !hynixShares) {
+          return res.status(200).json({ data: [], error: `상장주식수 조회 실패 (${sharesFailReason || 'KIS 데이터 없음'})` });
         }
         if (kospi.series.length === 0) {
           return res.status(200).json({ data: [], error: `코스피 지수 데이터 조회 실패 (${kospiR.error || 'Yahoo 데이터 없음'})` });
@@ -559,8 +606,8 @@ export default async function handler(req, res) {
           const sPrice = samsungMap[kd.date];
           const hPrice = hynixMap[kd.date];
           if (sPrice == null || hPrice == null || !kd.close) return null;
-          const samsungCap = samsung.sharesOutstanding * sPrice / 100000000; // 억원
-          const hynixCap = hynix.sharesOutstanding * hPrice / 100000000;
+          const samsungCap = samsungShares * sPrice / 100000000; // 억원
+          const hynixCap = hynixShares * hPrice / 100000000;
           const kospiTotalEst = kospiTotalNow * (kd.close / kospiIndexLast);
           const ratio = kospiTotalEst > 0 ? (samsungCap + hynixCap) / kospiTotalEst * 100 : null;
           return ratio !== null ? { date: kd.date, ratio: Math.round(ratio * 100) / 100 } : null;
@@ -932,17 +979,17 @@ async function fetchMarketCap(sosok) {
         }).filter(s => s.name && s.price > 0);
 
         // ✅ 이 경로(네이버 JSON API 폴백)는 marketCap을 안 주기 때문에, 트리맵을 그릴 수 있도록
-        // 종목코드를 유추해서(guessTickerCode) Yahoo의 상장주식수 × 현재가로 시가총액을 근사 계산한다.
+        // 종목코드를 유추해서(guessTickerCode) KIS(한국투자증권) API의 시가총액(hts_avls)을 직접 가져온다.
+        // (Yahoo meta.sharesOutstanding은 최근 한국 종목에 대해 자주 비어있어 신뢰할 수 없어 KIS로 교체)
         // 실패해도 marketCap: null 그대로 두고(트리맵에서 해당 타일만 빠짐) 절대 죽지 않는다.
-        const suffix = sosok === 0 ? '.KS' : '.KQ';
         const enriched = await Promise.allSettled(list.map(async (s) => {
           try {
             const code = await guessTickerCode(s.name);
             if (!code) return s;
-            const chart = await fetchYahooChart(code + suffix, { interval: '1d', range: '5d' });
-            const sharesOut = chart?.ok ? chart.result?.meta?.sharesOutstanding : null;
-            if (!sharesOut) return s;
-            return { ...s, marketCap: Math.round(sharesOut * s.price / 100000000) }; // 억원
+            const token = await getAccessToken();
+            const snap = await getKisSnapshot(token, code);
+            if (!snap?.marketCap) return s;
+            return { ...s, marketCap: snap.marketCap };
           } catch { return s; }
         }));
         const list2 = enriched.map((r, i) => r.status === 'fulfilled' ? r.value : list[i]);
@@ -962,50 +1009,41 @@ async function fetchMarketCap(sosok) {
 }
 
 async function fetchMarketCapFallback(sosok, naverFailReason) {
-  const kospiCodes = ['005930.KS','000660.KS','373220.KS','207940.KS','005380.KS','000270.KS','068270.KS','105560.KS','055550.KS','006400.KS'];
-  const kosdaqCodes = ['196170.KQ','247540.KQ','086520.KQ','028300.KQ','058470.KQ','068760.KQ','214150.KQ','240810.KQ','277810.KQ','003780.KQ'];
+  // ✅ v: 네이버가 완전히 SPA로 바뀌면서 원본 HTML에 시세 테이블이 아예 없어짐 + Yahoo도 한국 종목
+  // sharesOutstanding을 잘 안 줘서, 이미 검증되어 잘 동작 중인 KIS(한국투자증권) API로 폴백을 교체.
+  const kospiCodes = ['005930','000660','373220','207940','005380','000270','068270','105560','055550','006400'];
+  const kosdaqCodes = ['196170','247540','086520','028300','058470','068760','214150','240810','277810','003780'];
   const kospiNames = ['삼성전자','SK하이닉스','LG에너지솔루션','삼성바이오로직스','현대차','기아','셀트리온','KB금융','신한지주','삼성SDI'];
   const kosdaqNames = ['알테오젠','에코프로비엠','에코프로','HLB','리노공업','셀트리온헬스케어','클래시스','원익IPS','레인보우로보틱스','포스코DX'];
   const codes = sosok === 0 ? kospiCodes : kosdaqCodes;
   const names = sosok === 0 ? kospiNames : kosdaqNames;
   try {
-    const results = await Promise.allSettled(codes.map(code => fetchYahooChart(code, { interval: '1d', range: '5d' })));
-    let yahooFailReason = null;
+    const token = await getAccessToken();
+    const results = await Promise.allSettled(codes.map(code => getKisSnapshot(token, code)));
+    let kisFailReason = null;
     const list = results.map((r, i) => {
-      const chartResult = r.status === 'fulfilled' ? r.value : null;
-      if (!chartResult?.ok) {
-        if (!yahooFailReason) yahooFailReason = (chartResult && chartResult.error) || (r.status !== 'fulfilled' ? r.reason?.message : null) || 'Yahoo 조회 실패';
+      const snap = r.status === 'fulfilled' ? r.value : null;
+      if (!snap) {
+        if (!kisFailReason) kisFailReason = (r.status !== 'fulfilled' ? r.reason?.message : null) || 'KIS 조회 실패';
         return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
       }
-      const meta = chartResult.result?.meta;
-      if (!meta) {
-        if (!yahooFailReason) yahooFailReason = 'Yahoo meta 없음';
-        return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
-      }
-      const cur = Math.round(meta.regularMarketPrice);
-      const prev = meta.chartPreviousClose || meta.previousClose || cur;
-      const change = cur - prev;
-      const pct = prev ? (change / prev * 100) : 0;
-      const isUp = change >= 0;
-      // 시가총액: regularMarketVolume * regularMarketPrice 대신 직접 계산
-      const sharesOut = meta.sharesOutstanding || null;
-      const mktCap = sharesOut ? Math.round(sharesOut * cur / 100000000) : null; // 억원
+      const isUp = snap.change >= 0;
       return {
         rank: i+1,
         name: names[i],
-        price: cur,
-        change: Math.round(change),
-        pct: (isUp?'+':'') + pct.toFixed(2) + '%',
-        pctNum: Math.round(pct * 100) / 100,
+        price: snap.price,
+        change: snap.change,
+        pct: (isUp?'+':'') + snap.pctNum.toFixed(2) + '%',
+        pctNum: snap.pctNum,
         isUp,
-        marketCap: mktCap,
+        marketCap: snap.marketCap,
       };
     });
     const capSum = list.reduce((sum, s) => sum + (s.marketCap || 0), 0);
     const totalMarketCap = capSum > 0 ? capSum : null;
-    // ✅ 진단용: 네이버(1차)와 Yahoo(폴백) 둘 다 실패했을 때만, 두 원인을 합쳐서 error로 전달
-    const error = (totalMarketCap === null && (naverFailReason || yahooFailReason))
-      ? `1차(네이버): ${naverFailReason || '성공'} / 폴백(Yahoo): ${yahooFailReason || '성공'}`
+    // ✅ 진단용: 네이버(1차)와 KIS(폴백) 둘 다 실패했을 때만, 두 원인을 합쳐서 error로 전달
+    const error = (totalMarketCap === null && (naverFailReason || kisFailReason))
+      ? `1차(네이버): ${naverFailReason || '성공'} / 폴백(KIS): ${kisFailReason || '성공'}`
       : undefined;
     return { top10: list, mapList: list, totalMarketCap, error };
   } catch (e) {
