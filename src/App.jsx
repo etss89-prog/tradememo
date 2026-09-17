@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.22";
+const VERSION = "v1.5.23";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2949,14 +2949,15 @@ export default function App() {
                                     kosdaqClose: kosdaqLine[dotIdx]?.close,
                                   });
                                 }}>
-                                {/* 클릭 영역 확대 */}
+                                {/* 클릭 영역 확대 (탭 편의성 유지, 화면엔 안 보임) */}
                                 <circle cx={dot.x} cy={dot.y} r="12" fill="transparent" />
                                 {/* 선택 시 외곽 링 */}
-                                {isSelected && <circle cx={dot.x} cy={dot.y} r="8" fill="none" stroke="#3b82f6" strokeWidth="1.5" opacity="0.5" />}
-                                <circle cx={dot.x} cy={dot.y} r="5" fill={isSelected ? "#1d4ed8" : "#3b82f6"} stroke="white" strokeWidth="1.5" />
+                                {isSelected && <circle cx={dot.x} cy={dot.y} r="5.5" fill="none" stroke="#3b82f6" strokeWidth="1.2" opacity="0.5" />}
+                                {/* ✅ v1.5.23: 타점이 너무 커서 차트 전체 모양이 안 보인다는 피드백 → r 5→2.5, 테두리도 얇게 */}
+                                <circle cx={dot.x} cy={dot.y} r="2.5" fill={isSelected ? "#1d4ed8" : "#3b82f6"} stroke="white" strokeWidth="0.8" />
                                 {/* 마지막 타점엔 항상 수익률 표시 */}
                                 {i === myDots.length - 1 && !isSelected && (
-                                  <text x={dot.x} y={dot.y - 9} textAnchor="middle" fontSize="8" fill="#3b82f6" fontWeight="700">
+                                  <text x={dot.x} y={dot.y - 7} textAnchor="middle" fontSize="8" fill="#3b82f6" fontWeight="700">
                                     {dot.val >= 100 ? '+' : ''}{(dot.val - 100).toFixed(1)}%
                                   </text>
                                 )}
