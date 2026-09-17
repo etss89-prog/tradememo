@@ -591,10 +591,13 @@ export default async function handler(req, res) {
       // (전체 시총은 반드시 상위 50개 합 이상이어야 정상)
       const kospiOfficialTotal = (results[5] && results[5] >= kospiTop50Sum) ? results[5] : null;
       const kosdaqOfficialTotal = (results[6] && results[6] >= kosdaqTop50Sum) ? results[6] : null;
-      // ✅ 진단용: 맵차트(mapList)가 비었을 때만, 1차(네이버 시총순위)/폴백(Yahoo) 실패 사유를 그대로 노출.
+      // ✅ 진단용: 맵차트(mapList)가 비었거나, 항목은 있어도 전부 marketCap이 null이라 트리맵을
+      // 실제로 그릴 수 없는 상태일 때 1차(네이버 시총순위)/폴백(Yahoo) 실패 사유를 그대로 노출.
       // 정상일 땐 항상 undefined라 기존 클라이언트/화면에는 아무 영향 없음.
-      const kospiMapError = (kospiCap.mapList || []).length === 0 ? (kospiCap.error || '알 수 없는 오류') : undefined;
-      const kosdaqMapError = (kosdaqCap.mapList || []).length === 0 ? (kosdaqCap.error || '알 수 없는 오류') : undefined;
+      const kospiMapUsable = (kospiCap.mapList || []).some(s => s.marketCap);
+      const kosdaqMapUsable = (kosdaqCap.mapList || []).some(s => s.marketCap);
+      const kospiMapError = !kospiMapUsable ? (kospiCap.error || '알 수 없는 오류 (marketCap 전부 null)') : undefined;
+      const kosdaqMapError = !kosdaqMapUsable ? (kosdaqCap.error || '알 수 없는 오류 (marketCap 전부 null)') : undefined;
       // ✅ 진단용: "전체 시총" 값 자체가 실패했을 때(맵차트와는 별개 경로)의 사유
       const kospiTotalError = kospiOfficialTotal === null ? (marketCapTotalLastError[0] || '알 수 없는 오류') : undefined;
       const kosdaqTotalError = kosdaqOfficialTotal === null ? (marketCapTotalLastError[1] || '알 수 없는 오류') : undefined;
@@ -798,7 +801,11 @@ async function fetchMarketCapFullTotal(sosok) {
         }
       }
     }
-    return total > 0 ? { total, count } : { total: 0, error: `파싱 실패 (총 ${htmls.filter(Boolean).length}개 페이지 중 유효 행 0개)` };
+    if (total > 0) return { total, count };
+    // ✅ 진단용: 유효 행이 0개면 페이지1 응답의 앞부분을 스니펫으로 남겨서
+    // 마크업 변경/차단 페이지/캡차 여부를 다음 요청 없이도 구분할 수 있게 한다.
+    const snippet = (html1 || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150);
+    return { total: 0, error: `파싱 실패 (총 ${htmls.filter(Boolean).length}개 페이지 중 유효 행 0개, 응답: "${snippet}")` };
   } catch (e) {
     console.error('fetchMarketCapFullTotal error:', e.message);
     return { total: 0, error: `예외: ${e.message}` };
@@ -923,7 +930,27 @@ async function fetchMarketCap(sosok) {
             marketCap: null,
           };
         }).filter(s => s.name && s.price > 0);
-        return { top10: list, mapList: list, totalMarketCap: null };
+
+        // ✅ 이 경로(네이버 JSON API 폴백)는 marketCap을 안 주기 때문에, 트리맵을 그릴 수 있도록
+        // 종목코드를 유추해서(guessTickerCode) Yahoo의 상장주식수 × 현재가로 시가총액을 근사 계산한다.
+        // 실패해도 marketCap: null 그대로 두고(트리맵에서 해당 타일만 빠짐) 절대 죽지 않는다.
+        const suffix = sosok === 0 ? '.KS' : '.KQ';
+        const enriched = await Promise.allSettled(list.map(async (s) => {
+          try {
+            const code = await guessTickerCode(s.name);
+            if (!code) return s;
+            const chart = await fetchYahooChart(code + suffix, { interval: '1d', range: '5d' });
+            const sharesOut = chart?.ok ? chart.result?.meta?.sharesOutstanding : null;
+            if (!sharesOut) return s;
+            return { ...s, marketCap: Math.round(sharesOut * s.price / 100000000) }; // 억원
+          } catch { return s; }
+        }));
+        const list2 = enriched.map((r, i) => r.status === 'fulfilled' ? r.value : list[i]);
+        const capSum2 = list2.reduce((sum, s) => sum + (s.marketCap || 0), 0);
+        const totalMarketCap2 = capSum2 > 0 ? capSum2 : null;
+        // marketCap 근사 계산까지 실패했을 때만 원래 네이버 실패 사유를 진단용으로 노출
+        const jsonFallbackError = totalMarketCap2 === null ? naverFailReason : undefined;
+        return { top10: list2, mapList: list2, totalMarketCap: totalMarketCap2, error: jsonFallbackError };
       }
     }
 
