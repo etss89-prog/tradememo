@@ -880,197 +880,71 @@ async function fetchMarketCapFullTotal(sosok) {
   }
 }
 
-// ✅ 맵차트용으로 파싱 상한을 10 → 50으로 확대. top10은 기존과 100% 동일한 모양을 유지해서
-// 기존 "시총 TOP10" UI에는 전혀 영향이 없고, mapList/totalMarketCap만 새로 추가됨.
-const MAP_LIMIT = 50;
-
+// ✅ v: 기존엔 "네이버 HTML 스크래핑 → (실패시) 네이버 모바일 JSON → (그것도 실패시) 하드코딩 10종목"
+// 이렇게 3단 폴백이 있었는데, 네이버가 완전 SPA로 바뀌면서 HTML 스크래핑은 항상 실패하고,
+// 그 아래 두 경로가 시장(코스피/코스닥)마다 다르게 성공/실패하면서 "TOP10과 맵차트가 서로 다르게 나온다"는
+// 혼란을 낳았음. → 하나의 명확한 경로로 단순화:
+//   1) 네이버 모바일 JSON API로 시총순위 종목명/현재가 목록(최대 50개)을 가져오고
+//   2) 각 종목의 시가총액은 KIS(한국투자증권) API로 직접 채운다 (동시 5개 제한, 이미 검증된 API 재사용)
+// top10과 mapList는 항상 "같은 배열"에서 나오므로 서로 어긋날 수 없음 (그게 정상 동작).
 async function fetchMarketCap(sosok) {
   const market = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
-  let naverFailReason = null;
   try {
-    // 네이버 시총순위 페이지 - EUC-KR 인코딩으로 가져오기
-    const url = `https://finance.naver.com/sise/sise_market_sum.nhn?sosok=${sosok}&page=1`;
-    const r = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
-        'Accept-Charset': 'EUC-KR,utf-8;q=0.7,*;q=0.3',
-        'Referer': 'https://finance.naver.com/sise/',
-        'Cache-Control': 'no-cache',
-      }
-    });
-    if (!r.ok) {
-      naverFailReason = `네이버 HTTP ${r.status}`;
-      return fetchMarketCapFallback(sosok, naverFailReason);
-    }
-
-    // EUC-KR 디코딩
-    const buf = await r.arrayBuffer();
-    const decoder = new TextDecoder('euc-kr');
-    const html = decoder.decode(buf);
-
-    const rows = [];
-    // 종목명, 현재가, 전일비, 등락률, 시가총액 파싱
-    // 테이블 행 패턴
-    const rowPattern = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
-    let m;
-    while ((m = rowPattern.exec(html)) !== null && rows.length < MAP_LIMIT) {
-      const row = m[0];
-      // 종목명
-      const nameMatch = row.match(/href="[^"]*code=(\d{6})[^"]*"[^>]*>([^<]+)<\/a>/);
-      if (!nameMatch) continue;
-      const code = nameMatch[1];
-      const name = nameMatch[2].trim();
-      if (!name || !code) continue;
-
-      // td.number 셀들 추출 (현재가, 전일비, 등락률, 거래량, 거래대금, 시가총액 순)
-      const numberCells = [];
-      const cellPattern = /<td[^>]*class="[^"]*number[^"]*"[^>]*>([\s\S]*?)<\/td>/gi;
-      let cellM;
-      while ((cellM = cellPattern.exec(row)) !== null) {
-        const val = cellM[1].replace(/<[^>]+>/g, '').replace(/[\s,]/g, '').trim();
-        numberCells.push(val);
-      }
-
-      if (numberCells.length < 1) continue;
-      const price = Number(numberCells[0]) || 0;
-      if (price === 0) continue;
-
-      // 등락률 - numberCells[2]에서 추출
-      const pctRaw = numberCells[2] || '0';
-      const pctNum = parseFloat(pctRaw.replace('%','')) || 0;
-      const isUp = pctNum > 0;
-      const pct = (pctNum > 0 ? '+' : '') + pctNum.toFixed(2) + '%';
-
-      // 네이버 시총순위 테이블 컬럼 순서:
-      // 0:현재가 1:전일비 2:등락률 3:액면가 4:거래량 5:시가총액 6:PER 7:ROE
-      // 단위: 시가총액은 억원
-      // 인덱스 4 = 시가총액 (억원 단위)
-      // 컬럼순서: 0:현재가 1:전일비 2:등락률 3:액면가 4:시가총액 5:상장주식수 ...
-      let marketCap = null;
-      if (numberCells.length > 4) {
-        const capRaw = Number(numberCells[4]);
-        if (capRaw > 0) marketCap = capRaw;
-      }
-
-      // pctNum: 맵차트 색상 계산용 (부호 있는 숫자), pct: 기존 UI 표시용 문자열 - 둘 다 유지
-      rows.push({ rank: rows.length + 1, name, price, pct, pctNum, isUp, marketCap, code });
-    }
-
-    if (rows.length >= 5) {
-      const mapList = rows.map(({ code, ...rest }) => rest);
-      const top10 = mapList.slice(0, 10); // ✅ 기존과 동일한 모양 (top10 UI는 영향 없음)
-      const capSum = mapList.reduce((sum, s) => sum + (s.marketCap || 0), 0);
-      const totalMarketCap = capSum > 0 ? capSum : null;
-      return { top10, mapList, totalMarketCap };
-    }
-
-    // ✅ 진단용: 파싱된 행이 5개 미만이면 원인 추적을 위해 응답 HTML 앞부분을 스니펫으로 남김
-    // (차단 안내 문구, 캡차, 마크업 구조 변경 등을 구분하기 위함 - 이 문자열 자체는 화면에 노출되지 않고
-    // 실패 시 최종적으로 market 응답의 kospiMapError/kosdaqMapError로만 전달됨)
-    const htmlSnippet = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150);
-    naverFailReason = `네이버 파싱 실패 (행 ${rows.length}개, 응답: "${htmlSnippet}")`;
-
-    // 파싱 실패 시 네이버 JSON API 시도 (이 경로는 marketCap을 못 채우므로 맵차트에는 부적합 → top10만 채움)
-    const jsonUrl = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
+    const jsonUrl = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=50`;
     const jr = await fetch(jsonUrl, {
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json', 'Referer': 'https://m.stock.naver.com/' }
     });
-    if (jr.ok) {
-      const jd = await jr.json();
-      const jStocks = jd?.stocks || jd?.list || (Array.isArray(jd) ? jd : null);
-      if (jStocks && jStocks.length >= 5) {
-        const list = jStocks.slice(0, 10).map((s, i) => {
-          const p = Number(s.closePrice || s.currentPrice || 0);
-          const prev = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
-          const chg = p - prev;
-          const pctVal = prev > 0 ? (chg / prev * 100) : 0;
-          const up = chg >= 0;
-          return {
-            rank: i + 1,
-            name: s.stockName || s.name || '',
-            price: p,
-            change: Math.round(chg),
-            pct: (up ? '+' : '') + pctVal.toFixed(2) + '%',
-            pctNum: Math.round(pctVal * 100) / 100,
-            isUp: up,
-            marketCap: null,
-          };
-        }).filter(s => s.name && s.price > 0);
-
-        // ✅ 이 경로(네이버 JSON API 폴백)는 marketCap을 안 주기 때문에, 트리맵을 그릴 수 있도록
-        // 종목코드를 유추해서(guessTickerCode) KIS(한국투자증권) API의 시가총액(hts_avls)을 직접 가져온다.
-        // (Yahoo meta.sharesOutstanding은 최근 한국 종목에 대해 자주 비어있어 신뢰할 수 없어 KIS로 교체)
-        // 실패해도 marketCap: null 그대로 두고(트리맵에서 해당 타일만 빠짐) 절대 죽지 않는다.
-        // 동시 요청 수는 5개로 제한(레이트리밋 방지).
-        let enrichFailReason = null;
-        const kisToken = await getAccessToken().catch(e => { enrichFailReason = `토큰 발급 실패: ${e.message}`; return null; });
-        const list2 = kisToken ? await runLimited(list, 5, async (s) => {
-          try {
-            const code = await guessTickerCode(s.name);
-            if (!code) { if (!enrichFailReason) enrichFailReason = `${s.name}: 종목코드 조회 실패`; return s; }
-            const snap = await getKisSnapshot(kisToken, code);
-            if (!snap?.marketCap) { if (!enrichFailReason) enrichFailReason = snap?.error || `${s.name}: marketCap 없음`; return s; }
-            return { ...s, marketCap: snap.marketCap };
-          } catch (e) { if (!enrichFailReason) enrichFailReason = e.message; return s; }
-        }) : list;
-        const capSum2 = list2.reduce((sum, s) => sum + (s.marketCap || 0), 0);
-        const totalMarketCap2 = capSum2 > 0 ? capSum2 : null;
-        // marketCap 근사 계산까지 실패했을 때만 원래 네이버 실패 사유 + KIS enrich 실패 사유를 함께 진단용으로 노출
-        const jsonFallbackError = totalMarketCap2 === null ? `${naverFailReason || ''} / KIS enrich: ${enrichFailReason || '알 수 없음'}` : undefined;
-        return { top10: list2, mapList: list2, totalMarketCap: totalMarketCap2, error: jsonFallbackError };
-      }
+    if (!jr.ok) return { top10: [], mapList: [], totalMarketCap: null, error: `네이버 API HTTP ${jr.status}` };
+    const jd = await jr.json();
+    const jStocks = jd?.stocks || jd?.list || (Array.isArray(jd) ? jd : null);
+    if (!jStocks || jStocks.length < 5) {
+      return { top10: [], mapList: [], totalMarketCap: null, error: `네이버 API 응답 이상 (항목 ${jStocks?.length ?? 0}개)` };
     }
 
-    return fetchMarketCapFallback(sosok, naverFailReason);
-  } catch(e) {
-    console.error('fetchMarketCap error:', e.message);
-    return fetchMarketCapFallback(sosok, `네이버 예외: ${e.message}`);
-  }
-}
-
-async function fetchMarketCapFallback(sosok, naverFailReason) {
-  // ✅ v: 네이버가 완전히 SPA로 바뀌면서 원본 HTML에 시세 테이블이 아예 없어짐 + Yahoo도 한국 종목
-  // sharesOutstanding을 잘 안 줘서, 이미 검증되어 잘 동작 중인 KIS(한국투자증권) API로 폴백을 교체.
-  const kospiCodes = ['005930','000660','373220','207940','005380','000270','068270','105560','055550','006400'];
-  const kosdaqCodes = ['196170','247540','086520','028300','058470','068760','214150','240810','277810','003780'];
-  const kospiNames = ['삼성전자','SK하이닉스','LG에너지솔루션','삼성바이오로직스','현대차','기아','셀트리온','KB금융','신한지주','삼성SDI'];
-  const kosdaqNames = ['알테오젠','에코프로비엠','에코프로','HLB','리노공업','셀트리온헬스케어','클래시스','원익IPS','레인보우로보틱스','포스코DX'];
-  const codes = sosok === 0 ? kospiCodes : kosdaqCodes;
-  const names = sosok === 0 ? kospiNames : kosdaqNames;
-  try {
-    const token = await getAccessToken();
-    // 동시 요청 수를 5개로 제한 (KIS 초당 거래건수 제한 방지 - 코스피/코스닥 각 10건씩 한 번에 몰리는 걸 완화)
-    const snapshots = await runLimited(codes, 5, code => getKisSnapshot(token, code));
-    let kisFailReason = null;
-    const list = snapshots.map((snap, i) => {
-      if (!snap || snap.price <= 0) {
-        if (!kisFailReason) kisFailReason = snap?.error || 'KIS 조회 실패';
-        return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
-      }
-      if (snap.marketCap === null && !kisFailReason) kisFailReason = snap.error || `${names[i]}: marketCap 없음`;
-      const isUp = snap.change >= 0;
+    const rawList = jStocks.map((s, i) => {
+      const p = Number(s.closePrice || s.currentPrice || 0);
+      const prev = Number(s.compareToPreviousClosePrice || s.previousClose || 0);
+      const chg = p - prev;
+      const pctVal = prev > 0 ? (chg / prev * 100) : 0;
+      const up = chg >= 0;
       return {
-        rank: i+1,
-        name: names[i],
-        price: snap.price,
-        change: snap.change,
-        pct: (isUp?'+':'') + snap.pctNum.toFixed(2) + '%',
-        pctNum: snap.pctNum,
-        isUp,
-        marketCap: snap.marketCap,
+        rank: i + 1,
+        name: s.stockName || s.name || '',
+        code: s.itemCode || s.code || null, // ✅ 응답에 코드가 있으면 그대로 쓰고, 없으면 아래서 이름으로 유추
+        price: p,
+        change: Math.round(chg),
+        pct: (up ? '+' : '') + pctVal.toFixed(2) + '%',
+        pctNum: Math.round(pctVal * 100) / 100,
+        isUp: up,
+        marketCap: null,
       };
+    }).filter(s => s.name && s.price > 0);
+
+    if (rawList.length < 5) {
+      return { top10: [], mapList: [], totalMarketCap: null, error: `네이버 API 유효 항목 부족 (${rawList.length}개)` };
+    }
+
+    const token = await getAccessToken();
+    let kisFailReason = null;
+    const enriched = await runLimited(rawList, 5, async (s) => {
+      try {
+        const code = s.code || await guessTickerCode(s.name);
+        if (!code) { if (!kisFailReason) kisFailReason = `${s.name}: 종목코드 조회 실패`; return s; }
+        const snap = await getKisSnapshot(token, code);
+        if (!snap?.marketCap) { if (!kisFailReason) kisFailReason = snap?.error || `${s.name}: marketCap 없음`; return s; }
+        return { ...s, marketCap: snap.marketCap };
+      } catch (e) { if (!kisFailReason) kisFailReason = e.message; return s; }
     });
-    const capSum = list.reduce((sum, s) => sum + (s.marketCap || 0), 0);
+
+    const mapList = enriched.map(({ code, ...rest }) => rest);
+    const top10 = mapList.slice(0, 10);
+    const capSum = mapList.reduce((sum, s) => sum + (s.marketCap || 0), 0);
     const totalMarketCap = capSum > 0 ? capSum : null;
-    // ✅ 진단용: 네이버(1차)와 KIS(폴백) 둘 다 실패했을 때만, 두 원인을 합쳐서 error로 전달
-    const error = (totalMarketCap === null && (naverFailReason || kisFailReason))
-      ? `1차(네이버): ${naverFailReason || '성공'} / 폴백(KIS): ${kisFailReason || '성공'}`
-      : undefined;
-    return { top10: list, mapList: list, totalMarketCap, error };
+    const error = totalMarketCap === null ? (kisFailReason || '알 수 없는 오류') : undefined;
+    return { top10, mapList, totalMarketCap, error };
   } catch (e) {
-    return { top10: [], mapList: [], totalMarketCap: null, error: `1차(네이버): ${naverFailReason || '성공'} / 폴백 예외: ${e.message}` };
+    console.error('fetchMarketCap error:', e.message);
+    return { top10: [], mapList: [], totalMarketCap: null, error: `예외: ${e.message}` };
   }
 }
 
