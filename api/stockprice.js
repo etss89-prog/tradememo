@@ -333,22 +333,37 @@ async function getUsdKrwRate() {
   return rate || 1380; // 기본값 1380원
 }
 
+// ⚠️⚠️ 중요 (원인 발견): 이 함수에 "동시에 여러 곳에서 부르면 락 없이 각자 새 토큰을 발급받는" 버그가 있었음.
+// KIS는 토큰을 새로 발급할 때마다 보안 알림(카카오톡)을 보내는데, market 응답 하나를 만들 때
+// fetchMarketCap(코스피)/fetchMarketCap(코스닥)/집중도차트가 Promise.all로 동시에 실행되면서
+// 각자 getAccessToken()을 호출 → cachedToken이 아직 비어있는 순간에 3곳이 동시에 토큰 발급을 시도 →
+// KIS 서버가 짧은 시간 내 중복 발급 요청을 거부(그래서 "토큰 발급 실패"가 남) + 새로 발급될 때마다 알림 발송.
+// → "로그인 새로고침만 해도 카톡이 온다"의 직접적인 원인. single-flight 락으로 완전히 해결.
+let tokenFetchPromise = null;
 async function getAccessToken() {
   if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) return cachedToken;
-  const res = await fetch('https://openapi.koreainvestment.com:9443/oauth2/tokenP', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      grant_type: 'client_credentials',
-      appkey: process.env.KIS_APP_KEY,
-      appsecret: process.env.KIS_APP_SECRET,
-    }),
-  });
-  const data = await res.json();
-  if (!data.access_token) throw new Error('토큰 발급 실패');
-  cachedToken = data.access_token;
-  tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
-  return cachedToken;
+  if (tokenFetchPromise) return tokenFetchPromise; // 이미 발급 진행 중이면 새로 시도하지 않고 그 결과를 같이 기다림
+  tokenFetchPromise = (async () => {
+    try {
+      const res = await fetch('https://openapi.koreainvestment.com:9443/oauth2/tokenP', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          grant_type: 'client_credentials',
+          appkey: process.env.KIS_APP_KEY,
+          appsecret: process.env.KIS_APP_SECRET,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!data?.access_token) throw new Error(data?.error_description || data?.msg1 || `토큰 발급 실패 (HTTP ${res.status})`);
+      cachedToken = data.access_token;
+      tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
+      return cachedToken;
+    } finally {
+      tokenFetchPromise = null; // 성공/실패와 무관하게 락 해제 - 다음 만료 시 다시 시도 가능
+    }
+  })();
+  return tokenFetchPromise;
 }
 
 async function getCurrentPrice(token, code) {
