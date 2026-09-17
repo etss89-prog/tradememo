@@ -400,6 +400,8 @@ async function getCurrentPrice(token, code) {
 // Yahoo 차트 API의 meta.sharesOutstanding이 최근 한국 종목들에 대해 자주 비어있어서(원인 불명 - Yahoo 쪽 변경으로 추정),
 // 이미 검증되어 잘 동작 중인 KIS 현재가 API의 hts_avls(시가총액, 억원 단위) 필드로 대체.
 // 가격 조회(getCurrentPrice)와 완전히 동일한 엔드포인트라 별도 인증/레이트리밋 걱정 없음.
+// ✅ 반환 모양을 항상 { price, change, pctNum, marketCap, error } 로 통일.
+// 실패 시에도 null 대신 error 사유를 담아서 돌려줘야 위에서 "왜 실패했는지"를 화면/응답에 남길 수 있음.
 async function getKisSnapshot(token, code) {
   try {
     const res = await fetch(
@@ -414,17 +416,36 @@ async function getKisSnapshot(token, code) {
         },
       }
     );
-    const data = await res.json();
-    const o = data.output;
+    const data = await res.json().catch(() => null);
+    const o = data?.output;
     const price = parseInt(o?.stck_prpr) || 0;
-    if (!o || price <= 0) return null;
+    if (!o || price <= 0) {
+      // KIS 표준 응답 필드: rt_cd(0이 아니면 오류), msg1(사유 텍스트, 예: 초당 거래건수 초과)
+      const reason = data?.msg1 || (!res.ok ? `HTTP ${res.status}` : `가격 0 (rt_cd=${data?.rt_cd ?? '?'})`);
+      return { price: 0, change: 0, pctNum: 0, marketCap: null, error: `${code}: ${reason}` };
+    }
     const change = parseInt(o.prdy_vrss) || 0;
     const pctNum = parseFloat(o.prdy_ctrt) || 0;
     const marketCap = o.hts_avls ? Math.round(Number(o.hts_avls)) : null; // 억원
-    return { price, change, pctNum, marketCap };
-  } catch {
-    return null;
+    return { price, change, pctNum, marketCap, error: marketCap === null ? `${code}: hts_avls 없음` : undefined };
+  } catch (e) {
+    return { price: 0, change: 0, pctNum: 0, marketCap: null, error: `${code}: 예외 ${e.message}` };
   }
+}
+
+// ✅ 동시 요청 수를 제한해서 KIS 초당 거래건수 제한(레이트리밋)에 걸리지 않도록 함.
+// (맵차트 하나 그리는 데 코스피10+코스닥10=20건을 한 번에 병렬 호출하면 걸릴 위험이 있어서 배치 크기를 제한)
+async function runLimited(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      results[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 async function guessTickerCode(tickerName) {
@@ -574,7 +595,7 @@ export default async function handler(req, res) {
           ]);
           if (samsungSnap?.marketCap && samsungSnap.price) samsungShares = samsungSnap.marketCap * 100000000 / samsungSnap.price;
           if (hynixSnap?.marketCap && hynixSnap.price) hynixShares = hynixSnap.marketCap * 100000000 / hynixSnap.price;
-          if (!samsungShares || !hynixShares) sharesFailReason = 'KIS 시가총액/현재가 없음';
+          if (!samsungShares || !hynixShares) sharesFailReason = [samsungSnap?.error, hynixSnap?.error].filter(Boolean).join(' / ') || 'KIS 시가총액/현재가 없음';
         } catch (e) {
           sharesFailReason = `KIS 예외: ${e.message}`;
         }
@@ -982,21 +1003,22 @@ async function fetchMarketCap(sosok) {
         // 종목코드를 유추해서(guessTickerCode) KIS(한국투자증권) API의 시가총액(hts_avls)을 직접 가져온다.
         // (Yahoo meta.sharesOutstanding은 최근 한국 종목에 대해 자주 비어있어 신뢰할 수 없어 KIS로 교체)
         // 실패해도 marketCap: null 그대로 두고(트리맵에서 해당 타일만 빠짐) 절대 죽지 않는다.
-        const enriched = await Promise.allSettled(list.map(async (s) => {
+        // 동시 요청 수는 5개로 제한(레이트리밋 방지).
+        let enrichFailReason = null;
+        const kisToken = await getAccessToken().catch(e => { enrichFailReason = `토큰 발급 실패: ${e.message}`; return null; });
+        const list2 = kisToken ? await runLimited(list, 5, async (s) => {
           try {
             const code = await guessTickerCode(s.name);
-            if (!code) return s;
-            const token = await getAccessToken();
-            const snap = await getKisSnapshot(token, code);
-            if (!snap?.marketCap) return s;
+            if (!code) { if (!enrichFailReason) enrichFailReason = `${s.name}: 종목코드 조회 실패`; return s; }
+            const snap = await getKisSnapshot(kisToken, code);
+            if (!snap?.marketCap) { if (!enrichFailReason) enrichFailReason = snap?.error || `${s.name}: marketCap 없음`; return s; }
             return { ...s, marketCap: snap.marketCap };
-          } catch { return s; }
-        }));
-        const list2 = enriched.map((r, i) => r.status === 'fulfilled' ? r.value : list[i]);
+          } catch (e) { if (!enrichFailReason) enrichFailReason = e.message; return s; }
+        }) : list;
         const capSum2 = list2.reduce((sum, s) => sum + (s.marketCap || 0), 0);
         const totalMarketCap2 = capSum2 > 0 ? capSum2 : null;
-        // marketCap 근사 계산까지 실패했을 때만 원래 네이버 실패 사유를 진단용으로 노출
-        const jsonFallbackError = totalMarketCap2 === null ? naverFailReason : undefined;
+        // marketCap 근사 계산까지 실패했을 때만 원래 네이버 실패 사유 + KIS enrich 실패 사유를 함께 진단용으로 노출
+        const jsonFallbackError = totalMarketCap2 === null ? `${naverFailReason || ''} / KIS enrich: ${enrichFailReason || '알 수 없음'}` : undefined;
         return { top10: list2, mapList: list2, totalMarketCap: totalMarketCap2, error: jsonFallbackError };
       }
     }
@@ -1019,14 +1041,15 @@ async function fetchMarketCapFallback(sosok, naverFailReason) {
   const names = sosok === 0 ? kospiNames : kosdaqNames;
   try {
     const token = await getAccessToken();
-    const results = await Promise.allSettled(codes.map(code => getKisSnapshot(token, code)));
+    // 동시 요청 수를 5개로 제한 (KIS 초당 거래건수 제한 방지 - 코스피/코스닥 각 10건씩 한 번에 몰리는 걸 완화)
+    const snapshots = await runLimited(codes, 5, code => getKisSnapshot(token, code));
     let kisFailReason = null;
-    const list = results.map((r, i) => {
-      const snap = r.status === 'fulfilled' ? r.value : null;
-      if (!snap) {
-        if (!kisFailReason) kisFailReason = (r.status !== 'fulfilled' ? r.reason?.message : null) || 'KIS 조회 실패';
+    const list = snapshots.map((snap, i) => {
+      if (!snap || snap.price <= 0) {
+        if (!kisFailReason) kisFailReason = snap?.error || 'KIS 조회 실패';
         return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
       }
+      if (snap.marketCap === null && !kisFailReason) kisFailReason = snap.error || `${names[i]}: marketCap 없음`;
       const isUp = snap.change >= 0;
       return {
         rank: i+1,
