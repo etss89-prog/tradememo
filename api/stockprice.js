@@ -291,39 +291,46 @@ async function loadSectorMap() {
   }
 }
 
+// ✅ Yahoo Finance 차트 API 공용 래퍼 (2026-09 대응)
+// 며칠 전부터 query1.finance.yahoo.com 쪽에서 종종 정상 응답(특히 meta.sharesOutstanding 포함)을
+// 못 받아오는 현상이 관찰됨(집중도 차트 "상장주식수 조회 실패" 등). Yahoo는 query1/query2 두 호스트가
+// 같은 API를 제공하므로, query1이 비정상(에러/빈 결과)이면 query2로 한 번 더 자동 재시도한다.
+// 그래도 둘 다 실패하면 { ok:false, error } 형태로 실패 사유를 그대로 돌려줘서, 호출부에서
+// "그냥 데이터 없음"이 아니라 구체적인 원인을 파악할 수 있게 함.
+async function fetchYahooChart(symbol, { interval = '1d', range = '1d' } = {}) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'application/json',
+  };
+  const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
+  let lastError = 'unknown';
+  for (const host of hosts) {
+    try {
+      const url = `https://${host}/v8/finance/chart/${symbol}?interval=${interval}&range=${range}`;
+      const r = await fetch(url, { headers });
+      const data = await r.json().catch(() => null);
+      const result = data?.chart?.result?.[0];
+      if (result) return { ok: true, data, result };
+      lastError = data?.chart?.error?.description || `HTTP ${r.status} (${host})`;
+    } catch (e) {
+      lastError = `${e.message} (${host})`;
+    }
+  }
+  return { ok: false, data: null, result: null, error: lastError };
+}
+
 // ✅ Yahoo Finance로 해외주식 현재가 조회 (API 키 불필요)
 async function getOverseasPrice(ticker) {
-  try {
-    const res = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0',
-          'Accept': 'application/json',
-        }
-      }
-    );
-    const data = await res.json();
-    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-    return price ? Math.round(price * 10000) / 10000 : null; // 소수점 4자리
-  } catch {
-    return null;
-  }
+  const { result } = await fetchYahooChart(ticker, { interval: '1d', range: '1d' });
+  const price = result?.meta?.regularMarketPrice;
+  return price ? Math.round(price * 10000) / 10000 : null; // 소수점 4자리
 }
 
 // ✅ USD → KRW 환율 조회
 async function getUsdKrwRate() {
-  try {
-    const res = await fetch(
-      'https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X?interval=1d&range=1d',
-      { headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' } }
-    );
-    const data = await res.json();
-    const rate = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-    return rate || 1380; // 기본값 1380원
-  } catch {
-    return 1380;
-  }
+  const { result } = await fetchYahooChart('USDKRW=X', { interval: '1d', range: '1d' });
+  const rate = result?.meta?.regularMarketPrice;
+  return rate || 1380; // 기본값 1380원
 }
 
 async function getAccessToken() {
@@ -455,11 +462,8 @@ export default async function handler(req, res) {
           }
         }
 
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${yRange}`;
-        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
-        const d = await r.json();
-        const result = d?.chart?.result?.[0];
-        if (!result?.timestamp) return res.status(200).json({ data: [] });
+        const { result, error: yErr } = await fetchYahooChart(encodeURIComponent(symbol), { interval: '1d', range: yRange });
+        if (!result?.timestamp) return res.status(200).json({ data: [], error: yErr || 'Yahoo 데이터 없음' });
 
         const ts = result.timestamp;
         const closes = result.indicators?.quote?.[0]?.close || [];
@@ -504,13 +508,12 @@ export default async function handler(req, res) {
     if (type === 'concentrationHistory') {
       try {
         const range = req.body.range || '6mo';
-        const yHeaders = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
-        const [samsungRes, hynixRes, kospiRes] = await Promise.all([
-          fetch(`https://query1.finance.yahoo.com/v8/finance/chart/005930.KS?interval=1d&range=${range}`, { headers: yHeaders }),
-          fetch(`https://query1.finance.yahoo.com/v8/finance/chart/000660.KS?interval=1d&range=${range}`, { headers: yHeaders }),
-          fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?interval=1d&range=${range}`, { headers: yHeaders }),
+        const [samsungR, hynixR, kospiR] = await Promise.all([
+          fetchYahooChart('005930.KS', { interval: '1d', range }),
+          fetchYahooChart('000660.KS', { interval: '1d', range }),
+          fetchYahooChart('%5EKS11', { interval: '1d', range }),
         ]);
-        const [samsungData, hynixData, kospiData] = await Promise.all([samsungRes.json(), hynixRes.json(), kospiRes.json()]);
+        const samsungData = samsungR.data, hynixData = hynixR.data, kospiData = kospiR.data;
 
         const parseSeries = (d) => {
           const result = d?.chart?.result?.[0];
@@ -529,10 +532,11 @@ export default async function handler(req, res) {
         const kospi = parseSeries(kospiData);
 
         if (!samsung.sharesOutstanding || !hynix.sharesOutstanding) {
-          return res.status(200).json({ data: [], error: '상장주식수 조회 실패 (Yahoo 데이터 없음)' });
+          const reason = samsungR.error || hynixR.error || 'Yahoo 데이터 없음';
+          return res.status(200).json({ data: [], error: `상장주식수 조회 실패 (${reason})` });
         }
         if (kospi.series.length === 0) {
-          return res.status(200).json({ data: [], error: '코스피 지수 데이터 조회 실패' });
+          return res.status(200).json({ data: [], error: `코스피 지수 데이터 조회 실패 (${kospiR.error || 'Yahoo 데이터 없음'})` });
         }
 
         // 코스피 지수는 Yahoo에서 10배로 오는 경우가 있어 보정 (기존 indexChart 로직과 동일)
@@ -587,6 +591,13 @@ export default async function handler(req, res) {
       // (전체 시총은 반드시 상위 50개 합 이상이어야 정상)
       const kospiOfficialTotal = (results[5] && results[5] >= kospiTop50Sum) ? results[5] : null;
       const kosdaqOfficialTotal = (results[6] && results[6] >= kosdaqTop50Sum) ? results[6] : null;
+      // ✅ 진단용: 맵차트(mapList)가 비었을 때만, 1차(네이버 시총순위)/폴백(Yahoo) 실패 사유를 그대로 노출.
+      // 정상일 땐 항상 undefined라 기존 클라이언트/화면에는 아무 영향 없음.
+      const kospiMapError = (kospiCap.mapList || []).length === 0 ? (kospiCap.error || '알 수 없는 오류') : undefined;
+      const kosdaqMapError = (kosdaqCap.mapList || []).length === 0 ? (kosdaqCap.error || '알 수 없는 오류') : undefined;
+      // ✅ 진단용: "전체 시총" 값 자체가 실패했을 때(맵차트와는 별개 경로)의 사유
+      const kospiTotalError = kospiOfficialTotal === null ? (marketCapTotalLastError[0] || '알 수 없는 오류') : undefined;
+      const kosdaqTotalError = kosdaqOfficialTotal === null ? (marketCapTotalLastError[1] || '알 수 없는 오류') : undefined;
       return res.status(200).json({
         // ── 기존 필드 (그대로 유지, 기존 UI 영향 없음) ──
         indices: results[0],
@@ -601,6 +612,10 @@ export default async function handler(req, res) {
         kosdaqMapTotal: kosdaqCap.totalMarketCap ?? null,
         kospiTotalMarketCap: kospiOfficialTotal,            // ✅ 코스피 시장 전체 시가총액 (파싱 성공 시에만)
         kosdaqTotalMarketCap: kosdaqOfficialTotal,          // ✅ 코스닥 시장 전체 시가총액
+        kospiMapError,                                      // ✅ 맵차트 데이터가 비었을 때만 채워지는 진단 메시지
+        kosdaqMapError,
+        kospiTotalError,
+        kosdaqTotalError,
       });
     }
 
@@ -713,6 +728,7 @@ async function fetchMarketIndex() {
 // 30분 서버 캐시를 둠 (Vercel 서버리스 특성상 콜드스타트 시엔 캐시가 비어 다시 전체 스크래핑이 일어날 수 있음).
 const marketCapTotalCache = { 0: null, 1: null };
 const marketCapTotalCachedAt = { 0: null, 1: null };
+const marketCapTotalLastError = { 0: null, 1: null }; // ✅ 진단용: 마지막 실패 사유
 const MARKET_CAP_TOTAL_TTL = 30 * 60 * 1000; // 30분
 
 async function getMarketCapFullTotal(sosok) {
@@ -724,8 +740,10 @@ async function getMarketCapFullTotal(sosok) {
   if (result && result.total > 0) {
     marketCapTotalCache[sosok] = result.total;
     marketCapTotalCachedAt[sosok] = now;
+    marketCapTotalLastError[sosok] = null;
     return result.total;
   }
+  marketCapTotalLastError[sosok] = (result && result.error) || '알 수 없는 오류';
   return marketCapTotalCache[sosok]; // 이번에 실패하면 이전 캐시라도(없으면 null) 반환
 }
 
@@ -736,9 +754,11 @@ async function fetchMarketCapFullTotal(sosok) {
       'Accept-Charset': 'EUC-KR,utf-8;q=0.7,*;q=0.3',
       'Referer': 'https://finance.naver.com/sise/',
     };
+    let firstPageHttpStatus = null;
     const fetchHtml = async (page) => {
       const url = `https://finance.naver.com/sise/sise_market_sum.naver?sosok=${sosok}&page=${page}`;
       const r = await fetch(url, { headers: naverHeaders });
+      if (page === 1) firstPageHttpStatus = r.status;
       if (!r.ok) return '';
       const buf = await r.arrayBuffer();
       return new TextDecoder('euc-kr').decode(buf);
@@ -746,7 +766,7 @@ async function fetchMarketCapFullTotal(sosok) {
 
     // 1페이지에서 하단 페이지네이션의 최대 page= 번호를 유추해서 총 페이지 수를 파악
     const html1 = await fetchHtml(1);
-    if (!html1) return null;
+    if (!html1) return { total: 0, error: `네이버 HTTP ${firstPageHttpStatus}` };
     const pageNums = [...html1.matchAll(/sise_market_sum\.naver\?sosok=\d+&page=(\d+)/g)].map(m => Number(m[1]));
     const SAFETY_CAP = 45; // 코스닥(~1700개 종목 안팎)까지 넉넉히 커버하는 안전 상한
     const lastPage = Math.min(pageNums.length ? Math.max(...pageNums) : 1, SAFETY_CAP);
@@ -778,10 +798,10 @@ async function fetchMarketCapFullTotal(sosok) {
         }
       }
     }
-    return total > 0 ? { total, count } : null;
+    return total > 0 ? { total, count } : { total: 0, error: `파싱 실패 (총 ${htmls.filter(Boolean).length}개 페이지 중 유효 행 0개)` };
   } catch (e) {
     console.error('fetchMarketCapFullTotal error:', e.message);
-    return null;
+    return { total: 0, error: `예외: ${e.message}` };
   }
 }
 
@@ -791,6 +811,7 @@ const MAP_LIMIT = 50;
 
 async function fetchMarketCap(sosok) {
   const market = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
+  let naverFailReason = null;
   try {
     // 네이버 시총순위 페이지 - EUC-KR 인코딩으로 가져오기
     const url = `https://finance.naver.com/sise/sise_market_sum.nhn?sosok=${sosok}&page=1`;
@@ -804,7 +825,10 @@ async function fetchMarketCap(sosok) {
         'Cache-Control': 'no-cache',
       }
     });
-    if (!r.ok) return fetchMarketCapFallback(sosok);
+    if (!r.ok) {
+      naverFailReason = `네이버 HTTP ${r.status}`;
+      return fetchMarketCapFallback(sosok, naverFailReason);
+    }
 
     // EUC-KR 디코딩
     const buf = await r.arrayBuffer();
@@ -867,6 +891,12 @@ async function fetchMarketCap(sosok) {
       return { top10, mapList, totalMarketCap };
     }
 
+    // ✅ 진단용: 파싱된 행이 5개 미만이면 원인 추적을 위해 응답 HTML 앞부분을 스니펫으로 남김
+    // (차단 안내 문구, 캡차, 마크업 구조 변경 등을 구분하기 위함 - 이 문자열 자체는 화면에 노출되지 않고
+    // 실패 시 최종적으로 market 응답의 kospiMapError/kosdaqMapError로만 전달됨)
+    const htmlSnippet = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 150);
+    naverFailReason = `네이버 파싱 실패 (행 ${rows.length}개, 응답: "${htmlSnippet}")`;
+
     // 파싱 실패 시 네이버 JSON API 시도 (이 경로는 marketCap을 못 채우므로 맵차트에는 부적합 → top10만 채움)
     const jsonUrl = `https://m.stock.naver.com/api/stock/marketValue/${market}?page=1&pageSize=10`;
     const jr = await fetch(jsonUrl, {
@@ -897,14 +927,14 @@ async function fetchMarketCap(sosok) {
       }
     }
 
-    return fetchMarketCapFallback(sosok);
+    return fetchMarketCapFallback(sosok, naverFailReason);
   } catch(e) {
     console.error('fetchMarketCap error:', e.message);
-    return fetchMarketCapFallback(sosok);
+    return fetchMarketCapFallback(sosok, `네이버 예외: ${e.message}`);
   }
 }
 
-async function fetchMarketCapFallback(sosok) {
+async function fetchMarketCapFallback(sosok, naverFailReason) {
   const kospiCodes = ['005930.KS','000660.KS','373220.KS','207940.KS','005380.KS','000270.KS','068270.KS','105560.KS','055550.KS','006400.KS'];
   const kosdaqCodes = ['196170.KQ','247540.KQ','086520.KQ','028300.KQ','058470.KQ','068760.KQ','214150.KQ','240810.KQ','277810.KQ','003780.KQ'];
   const kospiNames = ['삼성전자','SK하이닉스','LG에너지솔루션','삼성바이오로직스','현대차','기아','셀트리온','KB금융','신한지주','삼성SDI'];
@@ -912,16 +942,19 @@ async function fetchMarketCapFallback(sosok) {
   const codes = sosok === 0 ? kospiCodes : kosdaqCodes;
   const names = sosok === 0 ? kospiNames : kosdaqNames;
   try {
-    const results = await Promise.allSettled(codes.map(code =>
-      fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${code}?interval=1d&range=5d`, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-      }).then(r => r.json())
-    ));
+    const results = await Promise.allSettled(codes.map(code => fetchYahooChart(code, { interval: '1d', range: '5d' })));
+    let yahooFailReason = null;
     const list = results.map((r, i) => {
-      if (r.status !== 'fulfilled') return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
-      const result = r.value?.chart?.result?.[0];
-      const meta = result?.meta;
-      if (!meta) return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
+      const chartResult = r.status === 'fulfilled' ? r.value : null;
+      if (!chartResult?.ok) {
+        if (!yahooFailReason) yahooFailReason = (chartResult && chartResult.error) || (r.status !== 'fulfilled' ? r.reason?.message : null) || 'Yahoo 조회 실패';
+        return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
+      }
+      const meta = chartResult.result?.meta;
+      if (!meta) {
+        if (!yahooFailReason) yahooFailReason = 'Yahoo meta 없음';
+        return { rank: i+1, name: names[i], price: 0, pct: '0%', pctNum: 0, isUp: false, marketCap: null };
+      }
       const cur = Math.round(meta.regularMarketPrice);
       const prev = meta.chartPreviousClose || meta.previousClose || cur;
       const change = cur - prev;
@@ -942,15 +975,20 @@ async function fetchMarketCapFallback(sosok) {
       };
     });
     const capSum = list.reduce((sum, s) => sum + (s.marketCap || 0), 0);
-    return { top10: list, mapList: list, totalMarketCap: capSum > 0 ? capSum : null };
-  } catch { return { top10: [], mapList: [], totalMarketCap: null }; }
+    const totalMarketCap = capSum > 0 ? capSum : null;
+    // ✅ 진단용: 네이버(1차)와 Yahoo(폴백) 둘 다 실패했을 때만, 두 원인을 합쳐서 error로 전달
+    const error = (totalMarketCap === null && (naverFailReason || yahooFailReason))
+      ? `1차(네이버): ${naverFailReason || '성공'} / 폴백(Yahoo): ${yahooFailReason || '성공'}`
+      : undefined;
+    return { top10: list, mapList: list, totalMarketCap, error };
+  } catch (e) {
+    return { top10: [], mapList: [], totalMarketCap: null, error: `1차(네이버): ${naverFailReason || '성공'} / 폴백 예외: ${e.message}` };
+  }
 }
 
 async function fetchIntraday(symbol) {
   try {
-    const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=1d`, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    const data = await r.json();
-    const result = data?.chart?.result?.[0];
+    const { result } = await fetchYahooChart(symbol, { interval: '5m', range: '1d' });
     if (!result?.timestamp) return [];
     const ts = result.timestamp;
     const closes = result.indicators?.quote?.[0]?.close || [];
