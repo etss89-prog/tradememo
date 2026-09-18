@@ -513,13 +513,16 @@ export default async function handler(req, res) {
     }
 
     // ✅ 삼성전자(+우선주)+SK하이닉스 시총 집중도 히스토리 (코스피 전체 시총 대비 비율, 날짜별)
-    // ⚠️ 근사치 계산임 - "오늘" 시총 스냅샷만 구할 수 있고 과거 일별 시총은 구할 방법이 없어서, 다음 방식으로 근사함:
-    //  · 삼성전자/삼성전자우/SK하이닉스: "오늘" KIS 시가총액(fetchMarketCap 재사용) ÷ 오늘 종가로 상장주식수를 역산하고
-    //    (상장주식수는 기간 내 거의 불변으로 가정), 이를 그날그날의 종가(Yahoo 과거 시세)에 곱해서 그날의 시가총액을 계산
-    //  · 코스피 전체: "오늘" 코스피 전체 시가총액 근사값(fetchMarketCap의 KIS 시장비중 역산치) × (그날 지수 ÷ 오늘 지수)로 근사
+    // ⚠️ 여전히 근사치 계산임 - "오늘" 시총 스냅샷만 구할 수 있고 과거 일별 시총은 구할 방법이 없어서, 다음 방식으로 근사함:
+    //  · 삼성전자/삼성전자우/SK하이닉스: KRX 공개 데이터(fetchMarketCap 재사용)가 주는 "오늘" 상장주식수(LIST_SHRS,
+    //    정확한 값, 더 이상 추정 아님)를 그날그날의 종가(Yahoo 과거 시세)에 곱해서 그날의 시가총액을 계산
+    //  · 코스피 전체: "오늘" 코스피 전체 시가총액(fetchMarketCap이 KRX 전종목 데이터를 전부 합산한 정확한 값,
+    //    더 이상 비중 필드 역산 추정치 아님) × (그날 지수 ÷ 오늘 지수)로 근사
     //    (지수 산출용 나눗값이 종목 교체 등으로 미세하게 바뀔 수 있어 100% 정확하진 않음)
     // ✅ 삼성전자 우선주(삼성전자우, 005935)를 포함해서 계산함 - 실제 언론 보도(2026.6.25 피크 기준 보통주만 57.11%,
     // 우선주 포함 59.69%)와 비교했을 때 우선주를 빼면 실제보다 낮게 나온다는 걸 확인하고 사용자 요청으로 포함시킴.
+    // ✅ KIS(한투) API는 이제 이 계산에 전혀 쓰이지 않음 - fetchMarketCap이 KRX 공개 데이터만 사용하므로,
+    // 로그인 시 자동으로 뜨는 이 화면이 더 이상 한투 API를 호출하지 않음(원래 의도했던 동작으로 복원).
     if (type === 'concentrationHistory') {
       try {
         const range = req.body.range || '6mo';
@@ -528,7 +531,7 @@ export default async function handler(req, res) {
           fetchYahooChart('005935.KS', { interval: '1d', range }), // ✅ 삼성전자우
           fetchYahooChart('000660.KS', { interval: '1d', range }),
           fetchYahooChart('%5EKS11', { interval: '1d', range }),
-          fetchMarketCap(0), // ✅ 코스피 시총 TOP30 스냅샷 재사용 (삼성전자/삼성전자우/SK하이닉스는 항상 top30 안에 있음)
+          fetchMarketCap(0), // ✅ 코스피 전종목 스냅샷 재사용 (all 필드로 top30 밖 종목도 찾을 수 있음, 예: 삼성전자우)
         ]);
         const samsungData = samsungR.data, samsungPrefData = samsungPrefR.data, hynixData = hynixR.data, kospiData = kospiR.data;
 
@@ -549,14 +552,16 @@ export default async function handler(req, res) {
         const hynix = parseSeries(hynixData);
         const kospi = parseSeries(kospiData);
 
-        // ✅ 상장주식수를 오늘 시가총액(억원) ÷ 오늘 종가로 역산
-        const kospiRows = kospiCapNow?.mapList || [];
+        // ✅ KRX가 주는 전종목 데이터(top30 제한 없는 'all')에서 찾음 - 삼성전자우는 시총 순위가 top30 밖일 수 있어서
+        // mapList(top30)만 보면 못 찾을 수 있음. 상장주식수(LIST_SHRS)도 KRX가 정확한 값을 직접 주므로
+        // 더 이상 "시총÷가격" 역산이 필요 없음(오차 요인 하나 제거).
+        const kospiRows = kospiCapNow?.all || kospiCapNow?.mapList || [];
         const samsungRow = kospiRows.find(s => s.name === '삼성전자');
         const samsungPrefRow = kospiRows.find(s => s.name === '삼성전자우');
         const hynixRow = kospiRows.find(s => s.name === 'SK하이닉스');
-        const samsungShares = (samsungRow?.marketCap && samsungRow.price) ? samsungRow.marketCap * 100000000 / samsungRow.price : null;
-        const samsungPrefShares = (samsungPrefRow?.marketCap && samsungPrefRow.price) ? samsungPrefRow.marketCap * 100000000 / samsungPrefRow.price : null;
-        const hynixShares = (hynixRow?.marketCap && hynixRow.price) ? hynixRow.marketCap * 100000000 / hynixRow.price : null;
+        const samsungShares = samsungRow?.shares || ((samsungRow?.marketCap && samsungRow.price) ? samsungRow.marketCap * 100000000 / samsungRow.price : null);
+        const samsungPrefShares = samsungPrefRow?.shares || ((samsungPrefRow?.marketCap && samsungPrefRow.price) ? samsungPrefRow.marketCap * 100000000 / samsungPrefRow.price : null);
+        const hynixShares = hynixRow?.shares || ((hynixRow?.marketCap && hynixRow.price) ? hynixRow.marketCap * 100000000 / hynixRow.price : null);
 
         if (!samsungShares || !hynixShares) {
           return res.status(200).json({ data: [], error: `상장주식수 조회 실패 (${kospiCapNow?.error || 'KIS 데이터 없음'})` });
@@ -577,8 +582,8 @@ export default async function handler(req, res) {
         const kospiSeriesAdj = kospi.series.map(d => ({ date: d.date, close: needsDivide ? d.close / 10 : d.close }));
         const kospiIndexLast = kospiSeriesAdj[kospiSeriesAdj.length - 1]?.close;
 
-        // ✅ 코스피 "전체" 시가총액 오늘 값 - fetchMarketCap(0)이 KIS의 "시장 전체 대비 비중" 필드를 거꾸로 풀어
-        // 이미 근사 계산해서 돌려줌 (kospiCapNow.totalMarketCap, 억원 단위).
+        // ✅ 코스피 "전체" 시가총액 오늘 값 - fetchMarketCap(0)이 KRX 전종목 데이터를 전부 합산한 정확한 값
+        // (kospiCapNow.totalMarketCap, 억원 단위). 더 이상 일부 종목 비중 필드로 역산한 추정치가 아님.
         const kospiTotalNow = kospiCapNow?.totalMarketCap;
         if (!kospiTotalNow || !kospiIndexLast) {
           return res.status(200).json({ data: [], error: `코스피 전체 시총 기준값 조회 실패 (${kospiCapNow?.error || ''})` });
@@ -608,7 +613,8 @@ export default async function handler(req, res) {
     }
 
     // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트 + 맵차트)
-    // fetchMarketCap이 KIS 시가총액 순위 API로 시장당 1번의 호출로 TOP30을 받아오므로 별도 스크래핑이 필요 없음.
+    // fetchMarketCap이 KRX 공개 데이터(data.krx.co.kr)로 시장당 1번의 호출로 전종목 시세를 받아오므로
+    // 별도 스크래핑이나 KIS(한투) API 호출이 필요 없음 - 로그인 시 이 화면이 떠도 한투 API는 전혀 호출되지 않음.
     if (type === 'market') {
       const results = await Promise.all([
         fetchMarketIndex(),
@@ -635,15 +641,15 @@ export default async function handler(req, res) {
         // ── 맵차트용 필드 (TOP 30) ──
         kospiMap: kospiCap.mapList || [],
         kosdaqMap: kosdaqCap.mapList || [],
-        // ⚠️ otherCount는 항상 null: KIS 랭킹 API가 최대 30건까지만 줘서 31위 이후 "종목 수"는 알 수 없음
-        // (합산 시가총액은 시장 전체 비중 필드로 근사 가능해서 otherMarketCap엔 값이 들어감)
+        // ✅ KRX가 전종목 데이터를 한 번에 주기 때문에 이제 otherCount/otherMarketCap/totalMarketCap 모두 정확한 값임
+        // (예전 KIS 랭킹 API는 top30까지만 줘서 otherCount가 항상 null이었음)
         kospiMapOtherCount: kospiCap.otherCount,
         kosdaqMapOtherCount: kosdaqCap.otherCount,
-        kospiMapOtherCap: kospiCap.otherMarketCap ?? null,   // ✅ "기타" 종목들의 시가총액 합 (억원, 근사치)
+        kospiMapOtherCap: kospiCap.otherMarketCap ?? null,   // ✅ "기타" 종목들의 시가총액 합 (억원, 정확한 합산치)
         kosdaqMapOtherCap: kosdaqCap.otherMarketCap ?? null,
         kospiMapTotal: kospiCap.totalMarketCap ?? null,      // 하위호환용 (기존 필드명 유지)
         kosdaqMapTotal: kosdaqCap.totalMarketCap ?? null,
-        kospiTotalMarketCap: kospiCap.totalMarketCap ?? null, // ✅ 코스피 시장 전체 시가총액 (근사, 비중 필드 기반 역산)
+        kospiTotalMarketCap: kospiCap.totalMarketCap ?? null, // ✅ 코스피 시장 전체 시가총액 (KRX 전종목 합산, 정확한 값)
         kosdaqTotalMarketCap: kosdaqCap.totalMarketCap ?? null,
         kospiMapError,                                        // ✅ 맵차트 데이터가 비었을 때만 채워지는 진단 메시지
         kosdaqMapError,
@@ -749,78 +755,117 @@ async function fetchMarketIndex() {
   } catch { return { kospi: null, kosdaq: null }; }
 }
 
-// ✅ v: 3번째 재설계. 네이버(스크래핑 사망) → Yahoo(상장주식수 불안정) → KIS 개별종목 반복호출(토큰 경쟁+알림 스팸)
-// → data.krx.co.kr 공개 API(HTTP 400 - 세션/파라미터 요구사항이 문서와 달라 즉시 실패, 살아있는 서비스 아니었음)
-// 순서로 전부 실패. → 이번엔 KIS(한국투자증권) Open API 안에 있는 "국내주식 시가총액 상위" 전용 순위 조회
-// 엔드포인트(TR_ID: FHPST01740000)로 교체. 이미 이 앱에서 검증되어 잘 동작 중인 토큰 발급(getAccessToken)을
-// 그대로 재사용하고, 종목별로 반복 호출하지 않고 시장(코스피/코스닥)당 딱 1번 호출로 상위 30개를 한 번에 받음
-// (이 API 자체가 최대 30건까지만 주는 구조라 "TOP30" 요구사항과 정확히 맞음) → KIS 토큰 경쟁/알림 스팸 문제
-// 원천 차단, TOP10/맵차트가 항상 같은 배열에서 나와 서로 어긋날 일도 없음.
+// ✅ v: 4번째 재설계. 네이버(스크래핑 사망) → Yahoo(상장주식수 불안정) → KIS 개별종목 반복호출(토큰 경쟁+알림 스팸)
+// → data.krx.co.kr 공개 API를 JSON body로 호출(HTTP 400) → KIS "시가총액 상위" 랭킹 API(TR_ID FHPST01740000,
+// top30 한정, 정상 동작은 했으나 로그인 시 자동으로 KIS를 호출하게 되어버려 "현재가 갱신 버튼을 눌러야만 한투 API가
+// 호출되어야 한다"는 원래 요구사항과 충돌) 순서로 시도.
+// → 재조사 결과 data.krx.co.kr의 HTTP 400은 서비스가 죽은 게 아니라 요청 형식이 잘못됐던 것으로 확인됨:
+//   이 엔드포인트는 JSON body가 아니라 application/x-www-form-urlencoded 폼 데이터를 기대하고,
+//   Referer/X-Requested-With 헤더가 없으면 거부함. 세션/쿠키/OTP는 필요 없음(로그인 없이 누구나 호출 가능한
+//   공개 통계 조회 API, KRX 정보데이터시스템의 "전종목시세" 화면이 그대로 쓰는 엔드포인트).
+// → 최종: KRX data.krx.co.kr의 "전종목시세"(bld: MDCSTAT01501)를 폼 데이터로 정확히 호출. 시장(코스피/코스닥)당
+// 딱 1번 호출로 그 시장의 "전체" 종목 시세+시가총액+상장주식수를 한 번에 받아옴(KIS처럼 top30 제한이 없어서
+// 시장 전체 시가총액/기타 종목 수/기타 시가총액을 전부 정확히 계산 가능 - 예전처럼 비중 필드로 역산 추정할 필요 없음).
+// KIS(한투) API는 이제 이 파일 어디에서도 로그인/새로고침 시 자동으로 호출되지 않고, 포트폴리오 탭의
+// "현재가 갱신" 버튼(맨 아래 tickers 핸들러)에서만 getAccessToken/getCurrentPrice가 호출됨 - 원래 의도했던 구조로 복원.
+
+// KST(UTC+9) 기준 YYYYMMDD 문자열. offsetDays만큼 과거 날짜로 이동(주말/공휴일이라 데이터가 없을 때 하루씩 거슬러 올라가기 위함).
+function getKstDateStr(offsetDays = 0) {
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  kst.setUTCDate(kst.getUTCDate() - offsetDays);
+  const y = kst.getUTCFullYear();
+  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(kst.getUTCDate()).padStart(2, '0');
+  return `${y}${m}${d}`;
+}
+
+// KRX 정보데이터시스템 "전종목시세" 원시 조회 (mktId: 'STK'=코스피, 'KSQ'=코스닥)
+async function fetchKrxMarketRows(mktId, trdDd) {
+  const body = new URLSearchParams({
+    bld: 'dbms/MDC/STAT/standard/MDCSTAT01501',
+    mktId,
+    trdDd,
+  });
+  const res = await fetch('https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'Referer': 'https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json().catch(() => null);
+  return data?.OutBlock_1 || null;
+}
+
 async function fetchMarketCap(sosok) {
-  const iscd = sosok === 0 ? '0001' : '1001'; // 0001=코스피(거래소), 1001=코스닥
+  const mktId = sosok === 0 ? 'STK' : 'KSQ'; // STK=코스피(유가증권), KSQ=코스닥
   try {
-    const token = await getAccessToken();
-    const url = `https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/ranking/market-cap?fid_cond_mrkt_div_code=J&fid_cond_scr_div_code=20174&fid_div_cls_code=0&fid_input_iscd=${iscd}&fid_trgt_cls_code=0&fid_trgt_exls_cls_code=0&fid_input_price_1=&fid_input_price_2=&fid_vol_cnt=`;
-    const res = await fetch(url, {
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-        appkey: process.env.KIS_APP_KEY,
-        appsecret: process.env.KIS_APP_SECRET,
-        tr_id: 'FHPST01740000',
-      },
-    });
-    const data = await res.json().catch(() => null);
-    const rows = data?.output;
-    if (!Array.isArray(rows) || rows.length === 0) {
-      const reason = data?.msg1 || `HTTP ${res.status}`;
-      return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: reason };
+    let rows = null;
+    let lastErr = '';
+    // 오늘부터 최대 10일 전까지 거슬러 올라가며 데이터가 있는 최근 거래일을 찾음 (주말/공휴일 대비)
+    for (let offset = 0; offset < 10; offset++) {
+      const trdDd = getKstDateStr(offset);
+      try {
+        const r = await fetchKrxMarketRows(mktId, trdDd);
+        if (Array.isArray(r) && r.length > 0) { rows = r; break; }
+        lastErr = `${trdDd}: 데이터 없음(비거래일 추정)`;
+      } catch (e) {
+        lastErr = `${trdDd}: ${e.message}`;
+      }
+    }
+    if (!rows) {
+      return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: `KRX 조회 실패 (${lastErr})`, all: [] };
     }
 
-    // KIS 표준 등락 부호 코드: 1=상한 2=상승 3=보합 4=하락 5=하한 (raw 필드 자체엔 부호가 없을 수 있어 이걸로 재적용)
+    // KRX 대비기호(FLUC_TP_CD): 1=상한 2=상승 3=보합 4=하락 5=하한 (KIS와 동일한 코드 체계)
     const parsed = rows.map(r => {
-      const signCode = String(r.prdy_vrss_sign || '');
+      const signCode = String(r.FLUC_TP_CD || '');
       const isDown = signCode === '4' || signCode === '5';
-      const changeAbs = Math.abs(parseInt(r.prdy_vrss) || 0);
-      const pctAbs = Math.abs(parseFloat(r.prdy_ctrt) || 0);
+      const changeAbs = Math.abs(parseInt(String(r.CMPPREVDD_PRC || '0').replace(/,/g, '')) || 0);
+      const pctAbs = Math.abs(parseFloat(String(r.FLUC_RT || '0').replace(/,/g, '')) || 0);
       const change = isDown ? -changeAbs : changeAbs;
       const pctNum = isDown ? -pctAbs : pctAbs;
-      // ⚠️ stck_avls 단위는 억원으로 추정(공식 문서에서 이 필드 하나만 콕 집어 확인은 못함, 같은 API 계열의
-      // 다른 필드들이 억원 단위인 사례로 유추). 배포 후 삼성전자 시총이 대략 400만(=400조원) 근처로 보이는지 확인 필요.
-      const marketCap = r.stck_avls ? Math.round(Number(r.stck_avls)) : null;
-      const marketShare = r.mrkt_whol_avls_rlim ? parseFloat(r.mrkt_whol_avls_rlim) : null; // 시장 전체 대비 비중(%)
+      const marketCapRaw = Number(String(r.MKTCAP || '0').replace(/,/g, '')); // 원 단위 원시값
+      const marketCap = marketCapRaw ? Math.round(marketCapRaw / 100000000) : null; // 억원으로 환산
+      const sharesRaw = Number(String(r.LIST_SHRS || '0').replace(/,/g, '')); // 상장주식수 (정확한 값, 추정 아님)
       return {
-        rank: Number(r.data_rank) || 0,
-        name: r.hts_kor_isnm || '',
-        price: parseInt(r.stck_prpr) || 0,
+        rank: 0,
+        name: r.ISU_ABBRV || '',
+        code: r.ISU_SRT_CD || '',
+        price: parseInt(String(r.TDD_CLSPRC || '0').replace(/,/g, '')) || 0,
         change,
         pct: (pctNum >= 0 ? '+' : '') + pctNum.toFixed(2) + '%',
         pctNum,
         isUp: pctNum >= 0,
         marketCap,
-        _marketShare: marketShare,
+        shares: sharesRaw || null,
       };
     }).filter(s => s.name && s.price > 0)
       .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
       .map((s, i) => ({ ...s, rank: i + 1 }));
 
-    const mapList = parsed.slice(0, 30).map(({ _marketShare, ...rest }) => rest);
+    const mapList = parsed.slice(0, 30);
     const top10 = mapList.slice(0, 10);
 
-    // ✅ "시장 전체 시가총액"은 이 API가 안 주지만, mrkt_whol_avls_rlim(이 종목이 시장 전체에서 차지하는 비중 %)를
-    // 거꾸로 풀면 유추 가능: 전체 = 이 종목 시총 ÷ (비중/100). 여러 종목으로 각각 구해 평균 내서 오차를 줄임.
-    const totalEstimates = parsed.filter(s => s.marketCap && s._marketShare).map(s => s.marketCap / (s._marketShare / 100));
-    const totalMarketCap = totalEstimates.length ? Math.round(totalEstimates.reduce((a, b) => a + b, 0) / totalEstimates.length) : null;
+    // ✅ KRX가 시장 전체 종목을 다 주기 때문에 전체 시가총액/기타 종목 수/기타 시가총액을 전부 정확히 합산 가능
+    // (예전 KIS 랭킹 API는 top30까지만 줘서 비중 필드로 추정할 수밖에 없었음)
+    const totalMarketCap = parsed.reduce((sum, s) => sum + (s.marketCap || 0), 0) || null;
     const top30Sum = mapList.reduce((sum, s) => sum + (s.marketCap || 0), 0);
+    const otherCount = parsed.length > 30 ? parsed.length - 30 : 0;
     const otherMarketCap = (totalMarketCap && totalMarketCap > top30Sum) ? totalMarketCap - top30Sum : null;
-    // ✅ 이 API는 최대 30건만 주기 때문에 31위 이후 "종목 수"는 알 수 없음(합계 시총만 근사 가능) - null로 명시
     const errOut = mapList.every(s => !s.marketCap)
-      ? `KIS 응답에 시가총액 필드 없음 (샘플: ${JSON.stringify(rows[0]).slice(0, 200)})`
+      ? `KRX 응답에 시가총액 필드 없음 (샘플: ${JSON.stringify(rows[0]).slice(0, 200)})`
       : undefined;
 
-    return { top10, mapList, otherCount: null, otherMarketCap, totalMarketCap, error: errOut };
+    // all: top30 제한 없는 전체 목록 (concentrationHistory에서 삼성전자우처럼 top30 밖 종목을 찾을 때 사용, 'market' 응답엔 포함 안 함)
+    return { top10, mapList, otherCount, otherMarketCap, totalMarketCap, error: errOut, all: parsed };
   } catch (e) {
-    return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: `예외: ${e.message}` };
+    return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: `예외: ${e.message}`, all: [] };
   }
 }
 
