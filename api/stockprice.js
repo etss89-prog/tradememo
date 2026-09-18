@@ -781,6 +781,9 @@ function getKstDateStr(offsetDays = 0) {
 }
 
 // KRX 정보데이터시스템 "전종목시세" 원시 조회 (mktId: 'STK'=코스피, 'KSQ'=코스닥)
+// 실제 브라우저가 이 페이지를 열 때 보내는 요청과 최대한 비슷하게 헤더를 채워서, KRX 쪽 봇 차단(WAF)에
+// 걸릴 확률을 줄임. HTTP 상태코드 자체가 비정상(400 등)이면 "요청이 거부당한 것"이므로 별도 Error를 던지고,
+// 정상 응답인데 그냥 내용이 비어있으면(주말/공휴일 등 비거래일) null을 돌려줘서 호출부가 이 둘을 구분하게 함.
 async function fetchKrxMarketRows(mktId, trdDd) {
   const body = new URLSearchParams({
     bld: 'dbms/MDC/STAT/standard/MDCSTAT01501',
@@ -790,25 +793,40 @@ async function fetchKrxMarketRows(mktId, trdDd) {
   const res = await fetch('https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      'Referer': 'https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd',
+      'Origin': 'https://data.krx.co.kr',
+      'Referer': 'https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd?fromModuleCd=MDC0201020101',
       'X-Requested-With': 'XMLHttpRequest',
     },
     body,
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`); // 요청 자체가 거부됨 (WAF/차단 의심) - 재시도해도 같은 날짜면 의미 없음
   const data = await res.json().catch(() => null);
-  return data?.OutBlock_1 || null;
+  return data?.OutBlock_1 || null; // 정상 응답이지만 비어있으면 null (비거래일 등)
 }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ✅ KRX가 가끔(주로 서버리스 IP가 일시적으로 WAF에 걸릴 때) HTTP 400을 내뱉는 게 관찰됨 - 몇 분 뒤 재시도하면
+// 성공하는 걸로 봐서 영구 차단이 아니라 일시적 현상으로 보임. 프론트가 5분마다 자동으로 market 데이터를 다시
+// 불러오기 때문에 "새로고침 직후엔 데이터 없음 → 5~10분 뒤엔 떠 있음" 패턴이 생김. 이걸 사용자가 기다리지 않아도
+// 되게, 직전에 성공한 결과를 메모리에 캐시해뒀다가 이번 조회가 실패하면 그 캐시를 대신 돌려줌(완전히 최신은
+// 아니어도 "데이터 없음"보다 훨씬 나음). 서버리스 특성상 이 캐시는 같은 함수 인스턴스가 재사용될 때만 유지됨.
+const marketCapLastGood = { 0: null, 1: null }; // { data, cachedAt } per 시장
 
 async function fetchMarketCap(sosok) {
   const mktId = sosok === 0 ? 'STK' : 'KSQ'; // STK=코스피(유가증권), KSQ=코스닥
   try {
     let rows = null;
     let lastErr = '';
-    // 오늘부터 최대 10일 전까지 거슬러 올라가며 데이터가 있는 최근 거래일을 찾음 (주말/공휴일 대비)
-    for (let offset = 0; offset < 10; offset++) {
+    let hardFail = false; // 실제 HTTP 오류(요청 거부)를 만난 적이 있으면 true - 캐시 폴백 사유 표시용
+    // 오늘부터 최대 5일 전까지 거슬러 올라가며 데이터가 있는 최근 거래일을 찾음 (주말/공휴일 대비).
+    // ⚠️ "빈 응답"(비거래일 추정)일 때만 하루씩 더 거슬러 올라감 - HTTP 오류(400 등, 요청 자체가 거부됨)를
+    // 만나면 날짜를 바꿔봐야 소용없으므로 즉시 멈춤(불필요한 연속 요청으로 차단을 더 유발하지 않기 위함).
+    for (let offset = 0; offset < 5; offset++) {
       const trdDd = getKstDateStr(offset);
       try {
         const r = await fetchKrxMarketRows(mktId, trdDd);
@@ -816,9 +834,17 @@ async function fetchMarketCap(sosok) {
         lastErr = `${trdDd}: 데이터 없음(비거래일 추정)`;
       } catch (e) {
         lastErr = `${trdDd}: ${e.message}`;
+        hardFail = true;
+        break;
       }
+      await sleep(200); // 연속 요청 사이 살짝 간격을 둬서 짧은 시간에 몰아치지 않게 함
     }
     if (!rows) {
+      const cached = marketCapLastGood[sosok];
+      if (cached) {
+        const ageMin = Math.round((Date.now() - cached.cachedAt) / 60000);
+        return { ...cached.data, error: `KRX 최신 조회 실패(${hardFail ? '요청 거부' : '데이터 없음'}: ${lastErr}) - ${ageMin}분 전 캐시 표시 중` };
+      }
       return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: `KRX 조회 실패 (${lastErr})`, all: [] };
     }
 
@@ -863,8 +889,15 @@ async function fetchMarketCap(sosok) {
       : undefined;
 
     // all: top30 제한 없는 전체 목록 (concentrationHistory에서 삼성전자우처럼 top30 밖 종목을 찾을 때 사용, 'market' 응답엔 포함 안 함)
-    return { top10, mapList, otherCount, otherMarketCap, totalMarketCap, error: errOut, all: parsed };
+    const result = { top10, mapList, otherCount, otherMarketCap, totalMarketCap, error: errOut, all: parsed };
+    if (!errOut) marketCapLastGood[sosok] = { data: result, cachedAt: Date.now() }; // 다음 실패 시 폴백용으로 저장
+    return result;
   } catch (e) {
+    const cached = marketCapLastGood[sosok];
+    if (cached) {
+      const ageMin = Math.round((Date.now() - cached.cachedAt) / 60000);
+      return { ...cached.data, error: `KRX 조회 중 예외(${e.message}) - ${ageMin}분 전 캐시 표시 중` };
+    }
     return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: `예외: ${e.message}`, all: [] };
   }
 }
