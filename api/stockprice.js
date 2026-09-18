@@ -512,22 +512,25 @@ export default async function handler(req, res) {
       }
     }
 
-    // ✅ 삼성전자+SK하이닉스 시총 집중도 히스토리 (코스피 전체 시총 대비 비율, 날짜별)
+    // ✅ 삼성전자(+우선주)+SK하이닉스 시총 집중도 히스토리 (코스피 전체 시총 대비 비율, 날짜별)
     // ⚠️ 근사치 계산임 - "오늘" 시총 스냅샷만 구할 수 있고 과거 일별 시총은 구할 방법이 없어서, 다음 방식으로 근사함:
-    //  · 삼성전자/SK하이닉스: "오늘" KIS 시가총액(fetchMarketCap 재사용) ÷ 오늘 종가로 상장주식수를 역산하고
+    //  · 삼성전자/삼성전자우/SK하이닉스: "오늘" KIS 시가총액(fetchMarketCap 재사용) ÷ 오늘 종가로 상장주식수를 역산하고
     //    (상장주식수는 기간 내 거의 불변으로 가정), 이를 그날그날의 종가(Yahoo 과거 시세)에 곱해서 그날의 시가총액을 계산
     //  · 코스피 전체: "오늘" 코스피 전체 시가총액 근사값(fetchMarketCap의 KIS 시장비중 역산치) × (그날 지수 ÷ 오늘 지수)로 근사
     //    (지수 산출용 나눗값이 종목 교체 등으로 미세하게 바뀔 수 있어 100% 정확하진 않음)
+    // ✅ 삼성전자 우선주(삼성전자우, 005935)를 포함해서 계산함 - 실제 언론 보도(2026.6.25 피크 기준 보통주만 57.11%,
+    // 우선주 포함 59.69%)와 비교했을 때 우선주를 빼면 실제보다 낮게 나온다는 걸 확인하고 사용자 요청으로 포함시킴.
     if (type === 'concentrationHistory') {
       try {
         const range = req.body.range || '6mo';
-        const [samsungR, hynixR, kospiR, kospiCapNow] = await Promise.all([
+        const [samsungR, samsungPrefR, hynixR, kospiR, kospiCapNow] = await Promise.all([
           fetchYahooChart('005930.KS', { interval: '1d', range }),
+          fetchYahooChart('005935.KS', { interval: '1d', range }), // ✅ 삼성전자우
           fetchYahooChart('000660.KS', { interval: '1d', range }),
           fetchYahooChart('%5EKS11', { interval: '1d', range }),
-          fetchMarketCap(0), // ✅ 코스피 시총 TOP30 스냅샷 재사용 (삼성전자/SK하이닉스는 1·2위라 항상 포함됨)
+          fetchMarketCap(0), // ✅ 코스피 시총 TOP30 스냅샷 재사용 (삼성전자/삼성전자우/SK하이닉스는 항상 top30 안에 있음)
         ]);
-        const samsungData = samsungR.data, hynixData = hynixR.data, kospiData = kospiR.data;
+        const samsungData = samsungR.data, samsungPrefData = samsungPrefR.data, hynixData = hynixR.data, kospiData = kospiR.data;
 
         const parseSeries = (d) => {
           const result = d?.chart?.result?.[0];
@@ -542,18 +545,26 @@ export default async function handler(req, res) {
         };
 
         const samsung = parseSeries(samsungData);
+        const samsungPref = parseSeries(samsungPrefData);
         const hynix = parseSeries(hynixData);
         const kospi = parseSeries(kospiData);
 
-        // ✅ 상장주식수를 오늘 시가총액(억원) ÷ 오늘 종가로 역산 (samsung/hynix는 코스피 1·2위라 top30 안에 항상 있음)
+        // ✅ 상장주식수를 오늘 시가총액(억원) ÷ 오늘 종가로 역산
         const kospiRows = kospiCapNow?.mapList || [];
         const samsungRow = kospiRows.find(s => s.name === '삼성전자');
+        const samsungPrefRow = kospiRows.find(s => s.name === '삼성전자우');
         const hynixRow = kospiRows.find(s => s.name === 'SK하이닉스');
         const samsungShares = (samsungRow?.marketCap && samsungRow.price) ? samsungRow.marketCap * 100000000 / samsungRow.price : null;
+        const samsungPrefShares = (samsungPrefRow?.marketCap && samsungPrefRow.price) ? samsungPrefRow.marketCap * 100000000 / samsungPrefRow.price : null;
         const hynixShares = (hynixRow?.marketCap && hynixRow.price) ? hynixRow.marketCap * 100000000 / hynixRow.price : null;
 
         if (!samsungShares || !hynixShares) {
           return res.status(200).json({ data: [], error: `상장주식수 조회 실패 (${kospiCapNow?.error || 'KIS 데이터 없음'})` });
+        }
+        // 삼성전자우는 top30 밖으로 밀려나거나 일시적으로 못 잡힐 수 있으니, 그 경우엔 그냥 0으로 두고 계속 진행
+        // (전체를 에러로 막지 않음 - 보통주+하이닉스만이라도 보여주는 게 나음)
+        if (!samsungPrefShares) {
+          console.error('삼성전자우 상장주식수 조회 실패 - 우선주 제외하고 계산');
         }
         if (kospi.series.length === 0) {
           return res.status(200).json({ data: [], error: `코스피 지수 데이터 조회 실패 (${kospiR.error || 'Yahoo 데이터 없음'})` });
@@ -574,6 +585,7 @@ export default async function handler(req, res) {
         }
 
         const samsungMap = {}; samsung.series.forEach(d => { samsungMap[d.date] = d.close; });
+        const samsungPrefMap = {}; samsungPref.series.forEach(d => { samsungPrefMap[d.date] = d.close; });
         const hynixMap = {}; hynix.series.forEach(d => { hynixMap[d.date] = d.close; });
 
         const data = kospiSeriesAdj.map(kd => {
@@ -582,8 +594,10 @@ export default async function handler(req, res) {
           if (sPrice == null || hPrice == null || !kd.close) return null;
           const samsungCap = samsungShares * sPrice / 100000000; // 억원
           const hynixCap = hynixShares * hPrice / 100000000;
+          const sPrefPrice = samsungPrefMap[kd.date];
+          const samsungPrefCap = (samsungPrefShares && sPrefPrice != null) ? samsungPrefShares * sPrefPrice / 100000000 : 0;
           const kospiTotalEst = kospiTotalNow * (kd.close / kospiIndexLast);
-          const ratio = kospiTotalEst > 0 ? (samsungCap + hynixCap) / kospiTotalEst * 100 : null;
+          const ratio = kospiTotalEst > 0 ? (samsungCap + samsungPrefCap + hynixCap) / kospiTotalEst * 100 : null;
           return ratio !== null ? { date: kd.date, ratio: Math.round(ratio * 100) / 100 } : null;
         }).filter(Boolean);
 
