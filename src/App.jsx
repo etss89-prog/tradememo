@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.24";
+const VERSION = "v1.5.25";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -786,7 +786,7 @@ export default function App() {
     setConcentrationLoading(true);
     setConcentrationError(null);
     try {
-      const r = await fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'concentrationHistory', range: '6mo' }) });
+      const r = await fetch('/api/stockprice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'concentrationHistory', range: '1y' }) }); // ✅ v1.5.25: 6개월 → 1년
       const d = await r.json();
       setConcentrationData(d.data || []);
       if (d.error) setConcentrationError(d.error);
@@ -3209,18 +3209,25 @@ export default function App() {
                   const W = 320, H = useSectorView ? 400 : 300;
 
                   // 개별 종목 타일 렌더 (풀네임 → 축약이름 → 초축약이름 → 숨김, 박스가 작을수록 글씨도 축소) - 평면/업종별 모드 공용
+                  // ✅ v1.5.25: 작은 박스에서 종목명이 "기아","삼성","SK"처럼 2글자로만 잘려서 뭔지 알아보기 힘들다는
+                  // 피드백 → 글씨를 더 작게 쓰고 박스 안 여백(텍스트를 %줄과 분리하던 상하 offset)을 최소화해서,
+                  // 작은 박스에서도 최소 5글자까지는 보이도록 단계를 세분화함. 아주 작은 박스(예전엔 아무 글씨도
+                  // 안 보이던 크기)에도 3글자짜리 라벨을 추가로 넣어서 빈 칸으로 남는 타일을 줄임.
                   const renderStockTile = (t, key) => {
                     const clampedAbs = Math.abs(Math.max(-30, Math.min(30, t.pctNum || 0))) / 30;
                     const color = pctToColor(t.pctNum);
                     const textColor = clampedAbs > 0.4 ? "#ffffff" : "#1a1a1a";
                     const showFull = t.w > 50 && t.h > 32;
-                    const showMed = !showFull && t.w > 30 && t.h > 19;
-                    const showSmall = !showFull && !showMed && t.w > 15 && t.h > 12;
+                    const showMed = !showFull && t.w > 32 && t.h > 20;
+                    const showSmall = !showFull && !showMed && t.w > 18 && t.h > 13;
+                    const showMicro = !showFull && !showMed && !showSmall && t.w > 9 && t.h > 8;
                     const pctDecimals = showFull ? 2 : showMed ? 1 : 0;
                     const pctLabel = (t.pctNum >= 0 ? '+' : '') + t.pctNum.toFixed(pctDecimals) + '%';
-                    const fullName = t.isEtc ? t.name : (t.name.length > 7 ? t.name.slice(0,6)+'…' : t.name);
-                    const medName = t.isEtc ? t.name : (t.name.length > 4 ? t.name.slice(0,4)+'…' : t.name);
-                    const smallName = t.isEtc ? '기타' : t.name.slice(0, 2);
+                    const clip = (n) => t.isEtc ? t.name : (t.name.length > n ? t.name.slice(0, n) + '…' : t.name);
+                    const fullName = clip(7);
+                    const medName = clip(6);
+                    const smallName = clip(5);
+                    const microName = t.isEtc ? '기타' : t.name.slice(0, 3);
                     return (
                       <g key={key}>
                         <rect x={t.x} y={t.y} width={Math.max(t.w-0.6,0)} height={Math.max(t.h-0.6,0)} fill={color} />
@@ -3236,17 +3243,22 @@ export default function App() {
                         )}
                         {showMed && (
                           <>
-                            <text x={t.x + t.w/2} y={t.y + t.h/2 - 2} textAnchor="middle" fontSize="7.2" fontWeight="700" fill={textColor}>
+                            <text x={t.x + t.w/2} y={t.y + t.h/2 - 2} textAnchor="middle" fontSize="6.8" fontWeight="700" fill={textColor}>
                               {medName}
                             </text>
-                            <text x={t.x + t.w/2} y={t.y + t.h/2 + 7} textAnchor="middle" fontSize="6.5" fill={textColor}>
+                            <text x={t.x + t.w/2} y={t.y + t.h/2 + 6.5} textAnchor="middle" fontSize="6" fill={textColor}>
                               {t.isEtc ? '' : pctLabel}
                             </text>
                           </>
                         )}
                         {showSmall && (
-                          <text x={t.x + t.w/2} y={t.y + t.h/2 + 2} textAnchor="middle" fontSize="6" fontWeight="700" fill={textColor}>
+                          <text x={t.x + t.w/2} y={t.y + t.h/2 + 1.5} textAnchor="middle" fontSize="4.6" fontWeight="700" fill={textColor}>
                             {smallName}
+                          </text>
+                        )}
+                        {showMicro && (
+                          <text x={t.x + t.w/2} y={t.y + t.h/2 + 1} textAnchor="middle" fontSize="3.4" fontWeight="700" fill={textColor}>
+                            {microName}
                           </text>
                         )}
                       </g>
@@ -3327,9 +3339,9 @@ export default function App() {
                 })()}
               </div>
 
-              {/* ✅ v1.5.18: 삼성전자+SK하이닉스 시총 집중도 6개월 추이 차트 */}
+              {/* ✅ v1.5.18: 삼성전자+SK하이닉스 시총 집중도 추이 차트 (v1.5.25: 6개월 → 1년으로 확대) */}
               <div style={{ marginTop:8, background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:12, padding:"12px 10px" }}>
-                <div style={{ fontSize:12, fontWeight:800, color:T.text, marginBottom:8 }}>📊 삼성전자+SK하이닉스 시총 집중도 (6개월)</div>
+                <div style={{ fontSize:12, fontWeight:800, color:T.text, marginBottom:8 }}>📊 삼성전자+SK하이닉스 시총 집중도 (1년)</div>
                 {concentrationLoading ? (
                   <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>📈 불러오는 중...</div>
                 ) : (!concentrationData || concentrationData.length === 0) ? (
@@ -3364,23 +3376,27 @@ export default function App() {
                     return { y: pyVal2(v), label: v.toFixed(1) + '%' };
                   });
 
-                  const xLabels2 = [];
+                  // ✅ v1.5.25: 1월에만 연도를 붙이던 방식은 6개월짜리엔 괜찮았지만, 1년으로 늘리면서
+                  // "지금 보는 게 어느 해인지" 헷갈린다는 피드백이 있어서 매 라벨에 연도(2자리)를 항상 붙임.
+                  // 1년치라 라벨이 최대 12개까지 나올 수 있어서, 8개 넘으면 한 칸씩 걸러서 표시해 겹침을 막음.
+                  let xLabels2 = [];
                   let prevYm2 = '';
                   cd.forEach(d => {
                     const [yyyy, mm] = d.date.split('-');
                     const ym = `${yyyy}-${mm}`;
                     if (ym !== prevYm2) {
-                      xLabels2.push({ x: pxByDate2(d.date), label: mm === '01' ? `${yyyy.slice(2)}.${mm}` : `'${mm}` });
+                      xLabels2.push({ x: pxByDate2(d.date), label: `${yyyy.slice(2)}.${mm}` });
                       prevYm2 = ym;
                     }
                   });
+                  if (xLabels2.length > 8) xLabels2 = xLabels2.filter((_, i) => i % 2 === 0);
 
                   return (
                     <>
                       <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:8 }}>
                         <div style={{ fontSize:20, fontWeight:900, color:T.text }}>{last.ratio.toFixed(2)}%</div>
                         <div style={{ fontSize:11, fontWeight:700, color: delta >= 0 ? "#ef4444" : "#3b82f6" }}>
-                          {delta >= 0 ? '+' : ''}{delta.toFixed(2)}%p (6개월)
+                          {delta >= 0 ? '+' : ''}{delta.toFixed(2)}%p (1년)
                         </div>
                         <div style={{ fontSize:10, color:T.textMuted, marginLeft:"auto" }}>{last.date} 기준</div>
                       </div>
