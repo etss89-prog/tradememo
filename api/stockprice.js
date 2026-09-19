@@ -756,28 +756,29 @@ async function fetchMarketIndex() {
   } catch { return { kospi: null, kosdaq: null }; }
 }
 
-// ✅ v: 5번째 재설계. 네이버 구(舊) HTML 스크래핑(SPA 전환으로 사망) → Yahoo(상장주식수 불안정) →
-// KIS 개별종목 반복호출(토큰 경쟁+알림 스팸) → KIS "시가총액 상위" 랭킹 API(top30 한정, 정상 동작했으나
-// 로그인 시 자동으로 KIS를 호출하게 되어 "현재가 갱신 버튼을 눌러야만 한투 API가 호출되어야 한다"는 요구사항과 충돌)
-// → data.krx.co.kr 공개 API: 폼 데이터+헤더까지 정확히 맞췄지만 실배포에서 "LOGOUT" 응답으로 거부됨(단순 세션
-// 쿠키 문제가 아니라 더 강한 차단으로 판단, 세션 쿠키를 먼저 받아와도 동일하게 거부됨).
-// → 최종: 네이버의 "구" 페이지가 아니라, 네이버가 최근 리뉴얼한 stock.naver.com(Next.js 기반) 종목 목록 화면이
-// 실제로 내부적으로 호출하는 JSON API(stock.naver.com/api/domestic/market/stock/default, orderType=marketSum)를
-// 직접 호출. 이 API는 시가총액순 정렬 + 시가총액(marketSum) 필드를 그대로 내려주는, 화면 렌더링용 "진짜" 데이터
-// API라서 예전 HTML 스크래핑과 달리 SPA 전환의 영향을 받지 않음. KRX처럼 세션/쿠키도 필요 없음(네이버 자체
-// 페이지가 브라우저에서 그냥 fetch로 호출하는 공개 API).
+// ✅ v: 6번째 재설계. 네이버 구(舊) HTML 스크래핑(SPA 전환으로 사망) → Yahoo(상장주식수 불안정) →
+// KIS 개별종목 반복호출(토큰 경쟁+알림 스팸) → KIS "시가총액 상위" 랭킹 API(top30 한정, 로그인 시 자동으로
+// KIS를 호출하게 되어 요구사항과 충돌) → data.krx.co.kr 공개 API(세션 쿠키까지 맞췄지만 "LOGOUT"으로 거부됨)
+// → stock.naver.com의 실제 데이터 API를 찾아냈지만 pageSize=3000으로 한 번에 다 받으려다 네이버가 비정상
+// 데이터(정렬도 안 되고 시총도 말이 안 되는 값)를 돌려줌 → 사용자가 직접 pageSize=5로 raw 응답을 떠서 보내준
+// 덕분에 진짜 필드명/단위를 확인함:
+//   itemname(종목명) itemcode(종목코드) nowPrice(현재가) prevChangePrice(변동폭, 부호 없음)
+//   prevChangeRate(등락률, 부호 없음) upDownGb(등락 부호코드: 1상한 2상승 3보합 4하락 5하한 - KIS와 동일 체계)
+//   marketSum(시가총액, "원" 단위 그대로 - 억원 아님) listedStockCnt(상장주식수, 정확한 값)
+// → pageSize=5는 정상(정확히 시총순 정렬됨: 삼성전자→SK하이닉스→삼성전자우→SK스퀘어→삼성전기), pageSize=3000만
+// 비정상이었던 것으로 확인 → 안전하게 작동하는 최대 pageSize를 자동으로 찾도록(100→50→30→10→5 순서로 시도,
+// 1위 시총이 비정상적으로 작으면 다음 크기로 재시도) 캐스케이드 방식으로 변경.
 // KIS(한투) API는 이제 이 파일 어디에서도 로그인/새로고침 시 자동으로 호출되지 않고, 포트폴리오 탭의
 // "현재가 갱신" 버튼(맨 아래 tickers 핸들러)에서만 getAccessToken/getCurrentPrice가 호출됨 - 원래 의도했던 구조로 복원.
 
 const NAVER_STOCK_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-// 응답 껍데기(envelope) 구조가 정확히 확인되지 않아서, 객체를 재귀적으로 뒤져 종목 배열(itemcode 필드를 가진
-// 객체들의 배열)을 찾아냄 - {stocks:[...]}, {result:{stocks:[...]}}, 배열 그 자체 등 어떤 형태로 와도 대응 가능.
+// 응답 껍데기(envelope) 구조 변경에 대비해, 객체를 재귀적으로 뒤져 종목 배열(itemcode 필드를 가진
+// 객체들의 배열)을 찾아냄 - 배열 그 자체로 오는 것까지 실제로 확인됨.
 function findNaverStockRows(data, depth = 0) {
   if (depth > 4 || data == null) return null;
   if (Array.isArray(data)) {
-    if (data.length > 0 && typeof data[0] === 'object' && data[0] &&
-        ('itemcode' in data[0] || 'itemCode' in data[0] || 'code' in data[0])) {
+    if (data.length > 0 && typeof data[0] === 'object' && data[0] && 'itemcode' in data[0]) {
       return data;
     }
     for (const v of data) {
@@ -795,9 +796,12 @@ function findNaverStockRows(data, depth = 0) {
   return null;
 }
 
-// 네이버 종목 목록 원시 조회 (marketType: 'KOSPI'|'KOSDAQ', 시가총액순 정렬)
-async function fetchNaverMarketRows(marketType) {
-  const url = `https://stock.naver.com/api/domestic/market/stock/default?tradeType=KRX&marketType=${marketType}&orderType=marketSum&startIdx=0&pageSize=3000`;
+// 실제로 확인된 최소 시총 기준: 코스피/코스닥 1위 종목의 시가총액이 10조원(1e13원) 밑으로 나오면
+// "시총순 정렬이 아니라 이상한 데이터가 왔다"는 신호로 간주 (pageSize=3000에서 실제로 이렇게 깨졌었음).
+const NAVER_SANITY_MIN_TOP1_CAP = 1e13;
+
+async function fetchNaverPage(marketType, pageSize) {
+  const url = `https://stock.naver.com/api/domestic/market/stock/default?tradeType=KRX&marketType=${marketType}&orderType=marketSum&startIdx=0&pageSize=${pageSize}`;
   const res = await fetch(url, {
     headers: {
       'User-Agent': NAVER_STOCK_UA,
@@ -814,6 +818,32 @@ async function fetchNaverMarketRows(marketType) {
   return findNaverStockRows(data);
 }
 
+// 시장별로 "마지막에 성공했던 pageSize"를 기억해뒀다가 다음에도 그것부터 먼저 시도 (매번 캐스케이드 전부 돌지 않게).
+const naverGoodPageSize = { KOSPI: null, KOSDAQ: null };
+
+// pageSize를 큰 것부터 순서대로 시도하면서, 1위 종목 시총이 정상 범위인지(=제대로 정렬돼서 왔는지) 검증.
+// 비정상이면 다음(더 작은) pageSize로 자동 재시도 - 네이버가 어느 크기까지 정상 처리해주는지 몰라도 스스로 찾아냄.
+async function fetchNaverMarketRows(marketType) {
+  const sizes = [100, 50, 30, 10, 5];
+  const ordered = naverGoodPageSize[marketType]
+    ? [naverGoodPageSize[marketType], ...sizes.filter(s => s !== naverGoodPageSize[marketType])]
+    : sizes;
+  let lastErr = '';
+  for (const pageSize of ordered) {
+    try {
+      const rows = await fetchNaverPage(marketType, pageSize);
+      if (!Array.isArray(rows) || rows.length === 0) { lastErr = `pageSize=${pageSize}: 빈 응답`; continue; }
+      const top1Cap = Number(String(rows[0]?.marketSum || '0').replace(/,/g, ''));
+      if (top1Cap < NAVER_SANITY_MIN_TOP1_CAP) { lastErr = `pageSize=${pageSize}: 정렬 이상(1위 시총 ${top1Cap})`; continue; }
+      naverGoodPageSize[marketType] = pageSize; // 다음 호출은 이 크기부터 먼저 시도
+      return rows;
+    } catch (e) {
+      lastErr = `pageSize=${pageSize}: ${e.message}`;
+    }
+  }
+  throw new Error(lastErr || '알 수 없는 오류');
+}
+
 // ✅ 네이버 쪽이 일시적으로 실패해도(네트워크 오류, 응답 구조 변경 등) 화면이 완전히 빈 상태가 되지 않도록,
 // 직전에 성공한 결과를 메모리에 캐시해뒀다가 이번 조회가 실패하면 그 캐시를 대신 돌려줌. 서버리스 특성상
 // 이 캐시는 같은 함수 인스턴스가 재사용될 때만 유지됨(그래도 "데이터 없음"보다는 훨씬 나음).
@@ -823,35 +853,29 @@ async function fetchMarketCap(sosok) {
   const marketType = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
   try {
     const rows = await fetchNaverMarketRows(marketType);
-    if (!Array.isArray(rows) || rows.length === 0) {
-      const cached = marketCapLastGood[sosok];
-      if (cached) {
-        const ageMin = Math.round((Date.now() - cached.cachedAt) / 60000);
-        return { ...cached.data, error: `네이버 최신 조회 실패(응답에서 종목 배열을 못 찾음) - ${ageMin}분 전 캐시 표시 중` };
-      }
-      return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: '네이버 조회 실패 (응답에서 종목 배열을 못 찾음)', all: [] };
-    }
 
+    // KRX/KIS와 동일한 등락 부호 체계: 1=상한 2=상승 3=보합 4=하락 5=하한
     const parsed = rows.map(r => {
-      const name = r.itemname || r.itemName || r.name || '';
-      const code = r.itemcode || r.itemCode || r.code || '';
-      const price = parseInt(String(r.nowPrice ?? r.price ?? '0').replace(/,/g, '')) || 0;
-      // 등락률에 이미 부호(+/-)가 포함되어 오는 걸로 확인됨 (네이버 통합 API 공통 패턴)
-      const pctNum = parseFloat(String(r.prevChangeRate ?? r.changeRate ?? '0').replace(/,/g, '')) || 0;
-      // marketSum 단위가 원(raw)인지 억원인지 확실치 않아서, 자릿수로 자동 판별 (삼성전자 기준 원단위면 1e14대, 억원단위면 1e6대)
-      const marketSumRaw = Number(String(r.marketSum ?? r.marketValue ?? '0').replace(/,/g, ''));
-      const marketCap = marketSumRaw > 0 ? Math.round(marketSumRaw > 1e10 ? marketSumRaw / 1e8 : marketSumRaw) : null;
+      const signCode = String(r.upDownGb || '');
+      const isDown = signCode === '4' || signCode === '5';
+      const changeAbs = Math.abs(parseInt(String(r.prevChangePrice || '0').replace(/,/g, '')) || 0);
+      const pctAbs = Math.abs(parseFloat(String(r.prevChangeRate || '0').replace(/,/g, '')) || 0);
+      const change = isDown ? -changeAbs : changeAbs;
+      const pctNum = isDown ? -pctAbs : pctAbs;
+      const marketCapRaw = Number(String(r.marketSum || '0').replace(/,/g, '')); // 원 단위 원시값 (확인됨)
+      const marketCap = marketCapRaw ? Math.round(marketCapRaw / 100000000) : null; // 억원으로 환산
+      const sharesRaw = Number(String(r.listedStockCnt || '0').replace(/,/g, '')); // 상장주식수 (정확한 값)
       return {
         rank: 0,
-        name,
-        code,
-        price,
-        change: null, // 절대 변동폭 필드명 미확인 - 화면 표시엔 안 쓰여서 생략
+        name: r.itemname || '',
+        code: r.itemcode || '',
+        price: parseInt(String(r.nowPrice || '0').replace(/,/g, '')) || 0,
+        change,
         pct: (pctNum >= 0 ? '+' : '') + pctNum.toFixed(2) + '%',
         pctNum,
         isUp: pctNum >= 0,
         marketCap,
-        shares: null, // 네이버는 상장주식수를 직접 안 줌 - concentrationHistory에서 marketCap÷price로 역산해서 씀
+        shares: sharesRaw || null,
       };
     }).filter(s => s.name && s.price > 0)
       .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
@@ -860,9 +884,9 @@ async function fetchMarketCap(sosok) {
     const mapList = parsed.slice(0, 30);
     const top10 = mapList.slice(0, 10);
 
-    // ✅ pageSize=3000으로 사실상 시장 전체를 한 번에 받아오므로 전체 시가총액/기타 종목 수/기타 시가총액도 정확히 합산 가능.
-    // 혹시 네이버가 pageSize를 내부적으로 더 낮게 제한해서 일부만 왔다면(예: 100개 안팎), otherCount/otherMarketCap이
-    // 실제보다 적게 잡힐 수 있음 - 그래도 TOP10/맵차트(top30)의 정확도에는 영향 없음.
+    // ⚠️ 안전하게 작동하는 pageSize가 시장 전체 종목 수보다 작을 수 있어서(예: 100개), 전체 시가총액/기타
+    // 종목 수는 "받아온 만큼의 합"일 뿐 완전한 전체값이 아닐 수 있음(코스피 상위 100개면 실제 전체의 대부분을
+    // 차지하긴 하지만 100% 정확하진 않음) - 화면엔 이미 "추정치" 안내 문구가 있어서 이 정도 근사는 허용 범위.
     const totalMarketCap = parsed.reduce((sum, s) => sum + (s.marketCap || 0), 0) || null;
     const top30Sum = mapList.reduce((sum, s) => sum + (s.marketCap || 0), 0);
     const otherCount = parsed.length > 30 ? parsed.length - 30 : 0;
