@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.27";
+const VERSION = "v1.5.28";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2428,7 +2428,10 @@ export default function App() {
                     <div style={{ display:"flex", alignItems:"center", marginBottom:8 }}>
                       <div style={{ flex:2 }}>
                         <div style={{ fontSize:10, color:T.textMuted, marginBottom:3 }}>종목명</div>
-                        <span style={{ fontSize:14, fontWeight:700, color:T.text }}>{stock.ticker}</span>
+                        <span onClick={() => openChart({ ticker: stock.ticker, tickerCode: stock.tickerCode || null, isOverseas: stock.isOverseas || false, avgBuy: avgPrice || null })}
+                          style={{ fontSize:14, fontWeight:700, color:T.text, cursor:"pointer", textDecoration:"underline", textDecorationColor:T.textMuted, textUnderlineOffset:3, textDecorationStyle:"dotted" }}>
+                          {stock.ticker} <span style={{ fontSize:11 }}>📈</span>
+                        </span>
                       </div>
                       <div style={{ flex:1, textAlign:"center" }}>
                         <div style={{ fontSize:10, color:T.textMuted, marginBottom:3 }}>{historySubTab==="buy"?"매수비중":"매도비중"}</div>
