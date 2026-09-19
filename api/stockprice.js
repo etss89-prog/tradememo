@@ -514,14 +514,15 @@ export default async function handler(req, res) {
 
     // ✅ 삼성전자(+우선주)+SK하이닉스 시총 집중도 히스토리 (코스피 전체 시총 대비 비율, 날짜별)
     // ⚠️ 여전히 근사치 계산임 - "오늘" 시총 스냅샷만 구할 수 있고 과거 일별 시총은 구할 방법이 없어서, 다음 방식으로 근사함:
-    //  · 삼성전자/삼성전자우/SK하이닉스: KRX 공개 데이터(fetchMarketCap 재사용)가 주는 "오늘" 상장주식수(LIST_SHRS,
-    //    정확한 값, 더 이상 추정 아님)를 그날그날의 종가(Yahoo 과거 시세)에 곱해서 그날의 시가총액을 계산
-    //  · 코스피 전체: "오늘" 코스피 전체 시가총액(fetchMarketCap이 KRX 전종목 데이터를 전부 합산한 정확한 값,
-    //    더 이상 비중 필드 역산 추정치 아님) × (그날 지수 ÷ 오늘 지수)로 근사
+    //  · 삼성전자/삼성전자우/SK하이닉스: 네이버 공개 데이터(fetchMarketCap 재사용)가 주는 "오늘" 시가총액÷종가로
+    //    상장주식수를 역산하고(네이버는 상장주식수를 직접 안 줌), 이를 그날그날의 종가(Yahoo 과거 시세)에 곱해서
+    //    그날의 시가총액을 계산
+    //  · 코스피 전체: "오늘" 코스피 전체 시가총액(fetchMarketCap이 네이버 전종목 데이터를 합산한 값)
+    //    × (그날 지수 ÷ 오늘 지수)로 근사
     //    (지수 산출용 나눗값이 종목 교체 등으로 미세하게 바뀔 수 있어 100% 정확하진 않음)
     // ✅ 삼성전자 우선주(삼성전자우, 005935)를 포함해서 계산함 - 실제 언론 보도(2026.6.25 피크 기준 보통주만 57.11%,
     // 우선주 포함 59.69%)와 비교했을 때 우선주를 빼면 실제보다 낮게 나온다는 걸 확인하고 사용자 요청으로 포함시킴.
-    // ✅ KIS(한투) API는 이제 이 계산에 전혀 쓰이지 않음 - fetchMarketCap이 KRX 공개 데이터만 사용하므로,
+    // ✅ KIS(한투) API는 이제 이 계산에 전혀 쓰이지 않음 - fetchMarketCap이 네이버 공개 데이터만 사용하므로,
     // 로그인 시 자동으로 뜨는 이 화면이 더 이상 한투 API를 호출하지 않음(원래 의도했던 동작으로 복원).
     if (type === 'concentrationHistory') {
       try {
@@ -552,9 +553,9 @@ export default async function handler(req, res) {
         const hynix = parseSeries(hynixData);
         const kospi = parseSeries(kospiData);
 
-        // ✅ KRX가 주는 전종목 데이터(top30 제한 없는 'all')에서 찾음 - 삼성전자우는 시총 순위가 top30 밖일 수 있어서
-        // mapList(top30)만 보면 못 찾을 수 있음. 상장주식수(LIST_SHRS)도 KRX가 정확한 값을 직접 주므로
-        // 더 이상 "시총÷가격" 역산이 필요 없음(오차 요인 하나 제거).
+        // ✅ 네이버가 주는 전종목 데이터(top30 제한 없는 'all')에서 찾음 - 삼성전자우는 시총 순위가 top30 밖일 수 있어서
+        // mapList(top30)만 보면 못 찾을 수 있음. 상장주식수는 네이버가 직접 안 줘서 시총÷가격으로 역산해서 씀
+        // (shares 필드가 null이면 자동으로 이 방식으로 폴백하도록 아래 코드가 되어있음).
         const kospiRows = kospiCapNow?.all || kospiCapNow?.mapList || [];
         const samsungRow = kospiRows.find(s => s.name === '삼성전자');
         const samsungPrefRow = kospiRows.find(s => s.name === '삼성전자우');
@@ -582,8 +583,8 @@ export default async function handler(req, res) {
         const kospiSeriesAdj = kospi.series.map(d => ({ date: d.date, close: needsDivide ? d.close / 10 : d.close }));
         const kospiIndexLast = kospiSeriesAdj[kospiSeriesAdj.length - 1]?.close;
 
-        // ✅ 코스피 "전체" 시가총액 오늘 값 - fetchMarketCap(0)이 KRX 전종목 데이터를 전부 합산한 정확한 값
-        // (kospiCapNow.totalMarketCap, 억원 단위). 더 이상 일부 종목 비중 필드로 역산한 추정치가 아님.
+        // ✅ 코스피 "전체" 시가총액 오늘 값 - fetchMarketCap(0)이 네이버 전종목 데이터를 전부 합산한 값
+        // (kospiCapNow.totalMarketCap, 억원 단위).
         const kospiTotalNow = kospiCapNow?.totalMarketCap;
         if (!kospiTotalNow || !kospiIndexLast) {
           return res.status(200).json({ data: [], error: `코스피 전체 시총 기준값 조회 실패 (${kospiCapNow?.error || ''})` });
@@ -613,7 +614,7 @@ export default async function handler(req, res) {
     }
 
     // ✅ 시장 현황 조회 (코스피/코스닥 지수 + 시총순위 + 1일차트 + 맵차트)
-    // fetchMarketCap이 KRX 공개 데이터(data.krx.co.kr)로 시장당 1번의 호출로 전종목 시세를 받아오므로
+    // fetchMarketCap이 네이버 공개 데이터(stock.naver.com)로 시장당 1번의 호출로 전종목 시세를 받아오므로
     // 별도 스크래핑이나 KIS(한투) API 호출이 필요 없음 - 로그인 시 이 화면이 떠도 한투 API는 전혀 호출되지 않음.
     if (type === 'market') {
       const results = await Promise.all([
@@ -641,7 +642,7 @@ export default async function handler(req, res) {
         // ── 맵차트용 필드 (TOP 30) ──
         kospiMap: kospiCap.mapList || [],
         kosdaqMap: kosdaqCap.mapList || [],
-        // ✅ KRX가 전종목 데이터를 한 번에 주기 때문에 이제 otherCount/otherMarketCap/totalMarketCap 모두 정확한 값임
+        // ✅ 네이버가 (사실상) 전종목 데이터를 한 번에 주기 때문에 otherCount/otherMarketCap/totalMarketCap도 계산 가능
         // (예전 KIS 랭킹 API는 top30까지만 줘서 otherCount가 항상 null이었음)
         kospiMapOtherCount: kospiCap.otherCount,
         kosdaqMapOtherCount: kosdaqCap.otherCount,
@@ -649,7 +650,7 @@ export default async function handler(req, res) {
         kosdaqMapOtherCap: kosdaqCap.otherMarketCap ?? null,
         kospiMapTotal: kospiCap.totalMarketCap ?? null,      // 하위호환용 (기존 필드명 유지)
         kosdaqMapTotal: kosdaqCap.totalMarketCap ?? null,
-        kospiTotalMarketCap: kospiCap.totalMarketCap ?? null, // ✅ 코스피 시장 전체 시가총액 (KRX 전종목 합산, 정확한 값)
+        kospiTotalMarketCap: kospiCap.totalMarketCap ?? null, // ✅ 코스피 시장 전체 시가총액 (네이버 전종목 합산)
         kosdaqTotalMarketCap: kosdaqCap.totalMarketCap ?? null,
         kospiMapError,                                        // ✅ 맵차트 데이터가 비었을 때만 채워지는 진단 메시지
         kosdaqMapError,
@@ -755,168 +756,102 @@ async function fetchMarketIndex() {
   } catch { return { kospi: null, kosdaq: null }; }
 }
 
-// ✅ v: 4번째 재설계. 네이버(스크래핑 사망) → Yahoo(상장주식수 불안정) → KIS 개별종목 반복호출(토큰 경쟁+알림 스팸)
-// → data.krx.co.kr 공개 API를 JSON body로 호출(HTTP 400) → KIS "시가총액 상위" 랭킹 API(TR_ID FHPST01740000,
-// top30 한정, 정상 동작은 했으나 로그인 시 자동으로 KIS를 호출하게 되어버려 "현재가 갱신 버튼을 눌러야만 한투 API가
-// 호출되어야 한다"는 원래 요구사항과 충돌) 순서로 시도.
-// → 재조사 결과 data.krx.co.kr의 HTTP 400은 서비스가 죽은 게 아니라 요청 형식이 잘못됐던 것으로 확인됨:
-//   이 엔드포인트는 JSON body가 아니라 application/x-www-form-urlencoded 폼 데이터를 기대하고,
-//   Referer/X-Requested-With 헤더가 없으면 거부함. 세션/쿠키/OTP는 필요 없음(로그인 없이 누구나 호출 가능한
-//   공개 통계 조회 API, KRX 정보데이터시스템의 "전종목시세" 화면이 그대로 쓰는 엔드포인트).
-// → 최종: KRX data.krx.co.kr의 "전종목시세"(bld: MDCSTAT01501)를 폼 데이터로 정확히 호출. 시장(코스피/코스닥)당
-// 딱 1번 호출로 그 시장의 "전체" 종목 시세+시가총액+상장주식수를 한 번에 받아옴(KIS처럼 top30 제한이 없어서
-// 시장 전체 시가총액/기타 종목 수/기타 시가총액을 전부 정확히 계산 가능 - 예전처럼 비중 필드로 역산 추정할 필요 없음).
+// ✅ v: 5번째 재설계. 네이버 구(舊) HTML 스크래핑(SPA 전환으로 사망) → Yahoo(상장주식수 불안정) →
+// KIS 개별종목 반복호출(토큰 경쟁+알림 스팸) → KIS "시가총액 상위" 랭킹 API(top30 한정, 정상 동작했으나
+// 로그인 시 자동으로 KIS를 호출하게 되어 "현재가 갱신 버튼을 눌러야만 한투 API가 호출되어야 한다"는 요구사항과 충돌)
+// → data.krx.co.kr 공개 API: 폼 데이터+헤더까지 정확히 맞췄지만 실배포에서 "LOGOUT" 응답으로 거부됨(단순 세션
+// 쿠키 문제가 아니라 더 강한 차단으로 판단, 세션 쿠키를 먼저 받아와도 동일하게 거부됨).
+// → 최종: 네이버의 "구" 페이지가 아니라, 네이버가 최근 리뉴얼한 stock.naver.com(Next.js 기반) 종목 목록 화면이
+// 실제로 내부적으로 호출하는 JSON API(stock.naver.com/api/domestic/market/stock/default, orderType=marketSum)를
+// 직접 호출. 이 API는 시가총액순 정렬 + 시가총액(marketSum) 필드를 그대로 내려주는, 화면 렌더링용 "진짜" 데이터
+// API라서 예전 HTML 스크래핑과 달리 SPA 전환의 영향을 받지 않음. KRX처럼 세션/쿠키도 필요 없음(네이버 자체
+// 페이지가 브라우저에서 그냥 fetch로 호출하는 공개 API).
 // KIS(한투) API는 이제 이 파일 어디에서도 로그인/새로고침 시 자동으로 호출되지 않고, 포트폴리오 탭의
 // "현재가 갱신" 버튼(맨 아래 tickers 핸들러)에서만 getAccessToken/getCurrentPrice가 호출됨 - 원래 의도했던 구조로 복원.
 
-// KST(UTC+9) 기준 YYYYMMDD 문자열. offsetDays만큼 과거 날짜로 이동(주말/공휴일이라 데이터가 없을 때 하루씩 거슬러 올라가기 위함).
-function getKstDateStr(offsetDays = 0) {
-  const now = new Date();
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  kst.setUTCDate(kst.getUTCDate() - offsetDays);
-  const y = kst.getUTCFullYear();
-  const m = String(kst.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(kst.getUTCDate()).padStart(2, '0');
-  return `${y}${m}${d}`;
-}
+const NAVER_STOCK_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-const KRX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
-const KRX_REFERER = 'https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd?fromModuleCd=MDC0201020101';
-
-// ⚠️ 실제로 배포해서 확인해보니 세션 쿠키 없이 바로 POST하면 KRX가 본문에 "LOGOUT"을 담아 HTTP 400으로 거부함
-// (지난번 리서치의 "세션/쿠키 불필요" 판단이 틀렸음 - 실기기 테스트로만 확인 가능했던 부분).
-// → 먼저 그 페이지를 실제로 한 번 GET해서 JSESSIONID 등 세션 쿠키를 받아온 뒤, 그 쿠키를 달고 POST해야 함
-// (브라우저가 이 페이지를 열 때 실제로 하는 동작 그대로). 세션은 몇 분간 재사용 가능해서 짧게 캐시해둠.
-let krxSessionCookie = null;
-let krxSessionCookieAt = 0;
-async function getKrxSessionCookie() {
-  if (krxSessionCookie && Date.now() - krxSessionCookieAt < 5 * 60 * 1000) return krxSessionCookie;
-  try {
-    const res = await fetch(KRX_REFERER, {
-      headers: {
-        'User-Agent': KRX_UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-      },
-    });
-    let cookies = [];
-    if (typeof res.headers.getSetCookie === 'function') {
-      cookies = res.headers.getSetCookie(); // Node 18+ (Vercel 런타임은 지원)
-    } else {
-      const single = res.headers.get('set-cookie');
-      if (single) cookies = [single];
+// 응답 껍데기(envelope) 구조가 정확히 확인되지 않아서, 객체를 재귀적으로 뒤져 종목 배열(itemcode 필드를 가진
+// 객체들의 배열)을 찾아냄 - {stocks:[...]}, {result:{stocks:[...]}}, 배열 그 자체 등 어떤 형태로 와도 대응 가능.
+function findNaverStockRows(data, depth = 0) {
+  if (depth > 4 || data == null) return null;
+  if (Array.isArray(data)) {
+    if (data.length > 0 && typeof data[0] === 'object' && data[0] &&
+        ('itemcode' in data[0] || 'itemCode' in data[0] || 'code' in data[0])) {
+      return data;
     }
-    const cookieHeader = cookies.map(c => c.split(';')[0]).filter(Boolean).join('; ');
-    if (cookieHeader) {
-      krxSessionCookie = cookieHeader;
-      krxSessionCookieAt = Date.now();
-      return cookieHeader;
+    for (const v of data) {
+      const found = findNaverStockRows(v, depth + 1);
+      if (found) return found;
     }
-  } catch (e) {
-    console.error('KRX 세션 쿠키 획득 실패:', e.message);
+    return null;
+  }
+  if (typeof data === 'object') {
+    for (const v of Object.values(data)) {
+      const found = findNaverStockRows(v, depth + 1);
+      if (found) return found;
+    }
   }
   return null;
 }
 
-// KRX 정보데이터시스템 "전종목시세" 원시 조회 (mktId: 'STK'=코스피, 'KSQ'=코스닥)
-// 실제 브라우저가 이 페이지를 열 때 보내는 요청과 최대한 비슷하게 헤더+세션 쿠키를 채워서, KRX 쪽 봇 차단(WAF)에
-// 걸릴 확률을 줄임. HTTP 상태코드 자체가 비정상(400 등)이면 "요청이 거부당한 것"이므로 별도 Error를 던지고,
-// 정상 응답인데 그냥 내용이 비어있으면(주말/공휴일 등 비거래일) null을 돌려줘서 호출부가 이 둘을 구분하게 함.
-async function fetchKrxMarketRows(mktId, trdDd) {
-  const cookie = await getKrxSessionCookie();
-  const body = new URLSearchParams({
-    bld: 'dbms/MDC/STAT/standard/MDCSTAT01501',
-    mktId,
-    trdDd,
-  });
-  const res = await fetch('https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd', {
-    method: 'POST',
+// 네이버 종목 목록 원시 조회 (marketType: 'KOSPI'|'KOSDAQ', 시가총액순 정렬)
+async function fetchNaverMarketRows(marketType) {
+  const url = `https://stock.naver.com/api/domestic/market/stock/default?tradeType=KRX&marketType=${marketType}&orderType=marketSum&startIdx=0&pageSize=3000`;
+  const res = await fetch(url, {
     headers: {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'User-Agent': NAVER_STOCK_UA,
+      'Accept': 'application/json, text/plain, */*',
       'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-      'User-Agent': KRX_UA,
-      'Origin': 'https://data.krx.co.kr',
-      'Referer': KRX_REFERER,
-      'X-Requested-With': 'XMLHttpRequest',
-      ...(cookie ? { 'Cookie': cookie } : {}),
+      'Referer': 'https://stock.naver.com/',
     },
-    body,
   });
   if (!res.ok) {
-    // ✅ 진단용: 400 등 오류일 때 실제 응답 본문을 살짝 붙여줌 - HTML(차단 안내 페이지)인지, KRX가 준 에러
-    // 메시지(JSON)인지 구분하기 위함. 이게 있어야 "왜" 거부당하는지(봇 차단 vs 세션 문제) 알 수 있음.
     const bodyText = await res.text().catch(() => '');
-    // 세션 쿠키가 만료/무효화됐을 수 있으니, "LOGOUT"류 응답이면 캐시된 쿠키를 버려서 다음 호출 땐 새로 받아오게 함
-    if (/logout/i.test(bodyText)) { krxSessionCookie = null; krxSessionCookieAt = 0; }
     throw new Error(`HTTP ${res.status} [${bodyText.replace(/\s+/g, ' ').trim().slice(0, 150)}]`);
   }
   const data = await res.json().catch(() => null);
-  return data?.OutBlock_1 || null; // 정상 응답이지만 비어있으면 null (비거래일 등)
+  return findNaverStockRows(data);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// ✅ KRX가 가끔(주로 서버리스 IP가 일시적으로 WAF에 걸릴 때) HTTP 400을 내뱉는 게 관찰됨 - 몇 분 뒤 재시도하면
-// 성공하는 걸로 봐서 영구 차단이 아니라 일시적 현상으로 보임. 프론트가 5분마다 자동으로 market 데이터를 다시
-// 불러오기 때문에 "새로고침 직후엔 데이터 없음 → 5~10분 뒤엔 떠 있음" 패턴이 생김. 이걸 사용자가 기다리지 않아도
-// 되게, 직전에 성공한 결과를 메모리에 캐시해뒀다가 이번 조회가 실패하면 그 캐시를 대신 돌려줌(완전히 최신은
-// 아니어도 "데이터 없음"보다 훨씬 나음). 서버리스 특성상 이 캐시는 같은 함수 인스턴스가 재사용될 때만 유지됨.
+// ✅ 네이버 쪽이 일시적으로 실패해도(네트워크 오류, 응답 구조 변경 등) 화면이 완전히 빈 상태가 되지 않도록,
+// 직전에 성공한 결과를 메모리에 캐시해뒀다가 이번 조회가 실패하면 그 캐시를 대신 돌려줌. 서버리스 특성상
+// 이 캐시는 같은 함수 인스턴스가 재사용될 때만 유지됨(그래도 "데이터 없음"보다는 훨씬 나음).
 const marketCapLastGood = { 0: null, 1: null }; // { data, cachedAt } per 시장
 
 async function fetchMarketCap(sosok) {
-  const mktId = sosok === 0 ? 'STK' : 'KSQ'; // STK=코스피(유가증권), KSQ=코스닥
+  const marketType = sosok === 0 ? 'KOSPI' : 'KOSDAQ';
   try {
-    let rows = null;
-    let lastErr = '';
-    let hardFail = false; // 실제 HTTP 오류(요청 거부)를 만난 적이 있으면 true - 캐시 폴백 사유 표시용
-    // 오늘부터 최대 5일 전까지 거슬러 올라가며 데이터가 있는 최근 거래일을 찾음 (주말/공휴일 대비).
-    // ⚠️ "빈 응답"(비거래일 추정)일 때만 하루씩 더 거슬러 올라감 - HTTP 오류(400 등, 요청 자체가 거부됨)를
-    // 만나면 날짜를 바꿔봐야 소용없으므로 즉시 멈춤(불필요한 연속 요청으로 차단을 더 유발하지 않기 위함).
-    for (let offset = 0; offset < 5; offset++) {
-      const trdDd = getKstDateStr(offset);
-      try {
-        const r = await fetchKrxMarketRows(mktId, trdDd);
-        if (Array.isArray(r) && r.length > 0) { rows = r; break; }
-        lastErr = `${trdDd}: 데이터 없음(비거래일 추정)`;
-      } catch (e) {
-        lastErr = `${trdDd}: ${e.message}`;
-        hardFail = true;
-        break;
-      }
-      await sleep(200); // 연속 요청 사이 살짝 간격을 둬서 짧은 시간에 몰아치지 않게 함
-    }
-    if (!rows) {
+    const rows = await fetchNaverMarketRows(marketType);
+    if (!Array.isArray(rows) || rows.length === 0) {
       const cached = marketCapLastGood[sosok];
       if (cached) {
         const ageMin = Math.round((Date.now() - cached.cachedAt) / 60000);
-        return { ...cached.data, error: `KRX 최신 조회 실패(${hardFail ? '요청 거부' : '데이터 없음'}: ${lastErr}) - ${ageMin}분 전 캐시 표시 중` };
+        return { ...cached.data, error: `네이버 최신 조회 실패(응답에서 종목 배열을 못 찾음) - ${ageMin}분 전 캐시 표시 중` };
       }
-      return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: `KRX 조회 실패 (${lastErr})`, all: [] };
+      return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: '네이버 조회 실패 (응답에서 종목 배열을 못 찾음)', all: [] };
     }
 
-    // KRX 대비기호(FLUC_TP_CD): 1=상한 2=상승 3=보합 4=하락 5=하한 (KIS와 동일한 코드 체계)
     const parsed = rows.map(r => {
-      const signCode = String(r.FLUC_TP_CD || '');
-      const isDown = signCode === '4' || signCode === '5';
-      const changeAbs = Math.abs(parseInt(String(r.CMPPREVDD_PRC || '0').replace(/,/g, '')) || 0);
-      const pctAbs = Math.abs(parseFloat(String(r.FLUC_RT || '0').replace(/,/g, '')) || 0);
-      const change = isDown ? -changeAbs : changeAbs;
-      const pctNum = isDown ? -pctAbs : pctAbs;
-      const marketCapRaw = Number(String(r.MKTCAP || '0').replace(/,/g, '')); // 원 단위 원시값
-      const marketCap = marketCapRaw ? Math.round(marketCapRaw / 100000000) : null; // 억원으로 환산
-      const sharesRaw = Number(String(r.LIST_SHRS || '0').replace(/,/g, '')); // 상장주식수 (정확한 값, 추정 아님)
+      const name = r.itemname || r.itemName || r.name || '';
+      const code = r.itemcode || r.itemCode || r.code || '';
+      const price = parseInt(String(r.nowPrice ?? r.price ?? '0').replace(/,/g, '')) || 0;
+      // 등락률에 이미 부호(+/-)가 포함되어 오는 걸로 확인됨 (네이버 통합 API 공통 패턴)
+      const pctNum = parseFloat(String(r.prevChangeRate ?? r.changeRate ?? '0').replace(/,/g, '')) || 0;
+      // marketSum 단위가 원(raw)인지 억원인지 확실치 않아서, 자릿수로 자동 판별 (삼성전자 기준 원단위면 1e14대, 억원단위면 1e6대)
+      const marketSumRaw = Number(String(r.marketSum ?? r.marketValue ?? '0').replace(/,/g, ''));
+      const marketCap = marketSumRaw > 0 ? Math.round(marketSumRaw > 1e10 ? marketSumRaw / 1e8 : marketSumRaw) : null;
       return {
         rank: 0,
-        name: r.ISU_ABBRV || '',
-        code: r.ISU_SRT_CD || '',
-        price: parseInt(String(r.TDD_CLSPRC || '0').replace(/,/g, '')) || 0,
-        change,
+        name,
+        code,
+        price,
+        change: null, // 절대 변동폭 필드명 미확인 - 화면 표시엔 안 쓰여서 생략
         pct: (pctNum >= 0 ? '+' : '') + pctNum.toFixed(2) + '%',
         pctNum,
         isUp: pctNum >= 0,
         marketCap,
-        shares: sharesRaw || null,
+        shares: null, // 네이버는 상장주식수를 직접 안 줌 - concentrationHistory에서 marketCap÷price로 역산해서 씀
       };
     }).filter(s => s.name && s.price > 0)
       .sort((a, b) => (b.marketCap || 0) - (a.marketCap || 0))
@@ -925,14 +860,15 @@ async function fetchMarketCap(sosok) {
     const mapList = parsed.slice(0, 30);
     const top10 = mapList.slice(0, 10);
 
-    // ✅ KRX가 시장 전체 종목을 다 주기 때문에 전체 시가총액/기타 종목 수/기타 시가총액을 전부 정확히 합산 가능
-    // (예전 KIS 랭킹 API는 top30까지만 줘서 비중 필드로 추정할 수밖에 없었음)
+    // ✅ pageSize=3000으로 사실상 시장 전체를 한 번에 받아오므로 전체 시가총액/기타 종목 수/기타 시가총액도 정확히 합산 가능.
+    // 혹시 네이버가 pageSize를 내부적으로 더 낮게 제한해서 일부만 왔다면(예: 100개 안팎), otherCount/otherMarketCap이
+    // 실제보다 적게 잡힐 수 있음 - 그래도 TOP10/맵차트(top30)의 정확도에는 영향 없음.
     const totalMarketCap = parsed.reduce((sum, s) => sum + (s.marketCap || 0), 0) || null;
     const top30Sum = mapList.reduce((sum, s) => sum + (s.marketCap || 0), 0);
     const otherCount = parsed.length > 30 ? parsed.length - 30 : 0;
     const otherMarketCap = (totalMarketCap && totalMarketCap > top30Sum) ? totalMarketCap - top30Sum : null;
     const errOut = mapList.every(s => !s.marketCap)
-      ? `KRX 응답에 시가총액 필드 없음 (샘플: ${JSON.stringify(rows[0]).slice(0, 200)})`
+      ? `네이버 응답에 시가총액 필드 없음 (샘플: ${JSON.stringify(rows[0]).slice(0, 200)})`
       : undefined;
 
     // all: top30 제한 없는 전체 목록 (concentrationHistory에서 삼성전자우처럼 top30 밖 종목을 찾을 때 사용, 'market' 응답엔 포함 안 함)
@@ -943,7 +879,7 @@ async function fetchMarketCap(sosok) {
     const cached = marketCapLastGood[sosok];
     if (cached) {
       const ageMin = Math.round((Date.now() - cached.cachedAt) / 60000);
-      return { ...cached.data, error: `KRX 조회 중 예외(${e.message}) - ${ageMin}분 전 캐시 표시 중` };
+      return { ...cached.data, error: `네이버 조회 중 예외(${e.message}) - ${ageMin}분 전 캐시 표시 중` };
     }
     return { top10: [], mapList: [], otherCount: null, otherMarketCap: null, totalMarketCap: null, error: `예외: ${e.message}`, all: [] };
   }
