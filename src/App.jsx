@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.26";
+const VERSION = "v1.5.27";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -429,7 +429,7 @@ export default function App() {
   const [perfDetailModal, setPerfDetailModal] = useState(false);
   const [indexChartData, setIndexChartData] = useState({}); // { range: { kospi: [...], kosdaq: [...] } }
   const [indexChartLoading, setIndexChartLoading] = useState(false);
-  const [miniTooltips, setMiniTooltips] = useState({}); // { [chartId]: { date, val, close } }
+  const [perfTooltip, setPerfTooltip] = useState(null); // { date, mainVal, aggVal, kospiVal, kosdaqVal, kospiClose, kosdaqClose }
   const [historySubTab, setHistorySubTab] = useState("buy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -2736,159 +2736,155 @@ export default function App() {
                     .map(d => ({ date: d, val: performance[d]?.accounts?.main?.cumulativeIndex }))
                     .filter(p => p.val !== undefined && p.val !== null);
 
-                  // 코스피/코스닥을 100 기준 정규화 (툴팁용 원본 종가 close도 함께 보관)
+                  // 코스피/코스닥 수익률 (기간 기준)
+                  const kospiRangePct = kospiLine.length >= 2
+                    ? ((kospiLine[kospiLine.length-1].close - kospiLine[0].close) / kospiLine[0].close * 100).toFixed(2)
+                    : lastPerf.kospiIndex ? (lastPerf.kospiIndex - 100).toFixed(2) : null;
+                  const kosdaqRangePct = kosdaqLine.length >= 2
+                    ? ((kosdaqLine[kosdaqLine.length-1].close - kosdaqLine[0].close) / kosdaqLine[0].close * 100).toFixed(2)
+                    : lastPerf.kosdaqIndex ? (lastPerf.kosdaqIndex - 100).toFixed(2) : null;
+                  // mine 모드: 첫 타점 기준 수익률
+                  const aggRangePct = aggPoints.length >= 1
+                    ? ((aggPoints[aggPoints.length-1].val / (perfRange === 'mine' ? aggPoints[0].val : 100) - 1) * 100).toFixed(2)
+                    : null;
+                  const mainRangePct = mainPoints.length >= 1
+                    ? ((mainPoints[mainPoints.length-1].val / (perfRange === 'mine' ? mainPoints[0].val : 100) - 1) * 100).toFixed(2)
+                    : null;
+
+                  // 차트 그리기
+                  const W = 340, H = 130, PAD = { l:42, r:8, t:8, b:22 };
+
+                  // 코스피/코스닥을 100 기준 정규화
                   const normalizeArr = (arr) => {
                     if (!arr || arr.length === 0) return [];
                     const base = arr[0].close;
-                    return arr.map((d) => ({ val: d.close / base * 100, date: d.date, close: d.close }));
+                    return arr.map((d, i) => ({ i, val: d.close / base * 100, date: d.date }));
                   };
-                  const kospiPoints = normalizeArr(kospiLine);
-                  const kosdaqPoints = normalizeArr(kosdaqLine);
+                  const kospiNorm = normalizeArr(kospiLine);
+                  const kosdaqNorm = normalizeArr(kosdaqLine);
 
-                  // 기간 수익률 (mine 모드는 첫 타점 기준, 그 외는 100 기준 절대 수익률)
-                  const rangePctOf = (points) => points.length >= 1
-                    ? ((points[points.length-1].val / (perfRange === 'mine' ? points[0].val : 100) - 1) * 100).toFixed(2)
-                    : null;
-                  const aggRangePct = rangePctOf(aggPoints);
-                  const mainRangePct = rangePctOf(mainPoints);
-                  const kospiRangePct = kospiPoints.length >= 2
-                    ? rangePctOf(kospiPoints)
-                    : lastPerf.kospiIndex ? (lastPerf.kospiIndex - 100).toFixed(2) : null;
-                  const kosdaqRangePct = kosdaqPoints.length >= 2
-                    ? rangePctOf(kosdaqPoints)
-                    : lastPerf.kosdaqIndex ? (lastPerf.kosdaqIndex - 100).toFixed(2) : null;
+                  // 전체합산/본계좌 타점도 동일한 값 형태로
+                  const aggNorm = aggPoints.map(p => ({ date: p.date, val: p.val }));
+                  const mainNorm = mainPoints.map(p => ({ date: p.date, val: p.val }));
 
-                  // X축 월별 라벨 (연도 포함, 8개 넘으면 격월 표시 - 집중도 차트와 동일한 규칙)
-                  const buildMonthLabels = (points, pxByDateFn) => {
-                    const labels = [];
-                    let prevYM = '';
-                    points.forEach((p) => {
-                      if (!p.date) return;
-                      const [yyyy, mm] = p.date.split('-');
-                      const ym = `${yyyy}-${mm}`;
-                      if (ym !== prevYM) {
-                        labels.push({ x: pxByDateFn(p.date), label: `${yyyy.slice(2)}.${mm}` });
-                        prevYM = ym;
-                      }
-                    });
-                    return labels.length > 8 ? labels.filter((_, i) => i % 2 === 0) : labels;
-                  };
+                  // 전체 데이터로 Y축 범위 계산
+                  const allVals = [
+                    ...kospiNorm.map(d => d.val),
+                    ...kosdaqNorm.map(d => d.val),
+                    ...aggNorm.map(d => d.val),
+                    ...mainNorm.map(d => d.val),
+                    100,
+                  ];
+                  const minV = Math.min(...allVals) * 0.998;
+                  const maxV = Math.max(...allVals) * 1.002;
+                  const vRange = maxV - minV || 1;
 
-                  // 미니 차트 1개를 그리는 재사용 함수 (본계좌/전체합산/코스피/코스닥 각각 독립 호출)
-                  const renderMiniChart = ({ id, label, color, points, rangePct, big, showDots, isMain }) => {
-                    const W = 340, H = big ? 130 : 92, PAD = { l:40, r:8, t:8, b:18 };
-                    const hasData = points && points.length > 0;
-                    const cardStyle = {
-                      background: isMain ? (darkMode ? "rgba(59,130,246,0.12)" : "#eff6ff") : T.section,
-                      border: isMain ? "1.5px solid #3b82f6" : `1px solid ${T.cardBorder}`,
-                      borderRadius: 10, padding: "8px 8px 6px", marginBottom: 8,
-                    };
-                    const rangeColor = rangePct >= 0 ? "#ef4444" : "#3b82f6";
-                    const header = (
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
-                        <div style={{ fontSize: isMain?12:11, fontWeight:800, color:T.text, display:"flex", alignItems:"center", gap:5 }}>
-                          <span style={{ width:7, height:7, borderRadius:"50%", background:color, display:"inline-block" }} />
-                          {label}
-                          {isMain && <span style={{ fontSize:9, fontWeight:700, color:"#3b82f6", background: darkMode?"rgba(59,130,246,0.2)":"#dbeafe", padding:"1px 6px", borderRadius:8 }}>메인</span>}
-                        </div>
-                        {hasData && (
-                          <div style={{ fontSize: isMain?14:12, fontWeight:900, color: rangeColor }}>
-                            {rangePct !== null ? `${rangePct >= 0 ? '+' : ''}${rangePct}%` : '-'}
-                          </div>
-                        )}
-                      </div>
-                    );
-                    if (!hasData) {
-                      return (
-                        <div key={id} style={cardStyle}>
-                          {header}
-                          <div style={{ textAlign:"center", padding:"14px 0", color:T.textMuted, fontSize:11 }}>
-                            {indexChartLoading ? "📈 불러오는 중..." : "데이터 없음"}
-                          </div>
-                        </div>
-                      );
+                  // X좌표는 "실제 날짜(시간)" 기준으로 계산 → 조회 범위가 달라도 서로 다른 날짜가 같은 자리에 겹치지 않음
+                  const toTime = (d) => new Date(d).getTime();
+                  const timeCandidates = [
+                    ...kospiNorm.map(d => toTime(d.date)),
+                    ...kosdaqNorm.map(d => toTime(d.date)),
+                    ...aggNorm.map(d => toTime(d.date)),
+                    ...mainNorm.map(d => toTime(d.date)),
+                  ];
+                  const minTime = timeCandidates.length ? Math.min(...timeCandidates) : Date.now();
+                  const maxTime = timeCandidates.length ? Math.max(...timeCandidates) : Date.now();
+                  const timeRange = (maxTime - minTime) || 1;
+                  const pxByDate = (dateStr) => PAD.l + (W - PAD.l - PAD.r) * (toTime(dateStr) - minTime) / timeRange;
+                  const pyVal = (v) => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / vRange);
+
+                  // 코스피/코스닥 path (날짜 기준 X좌표)
+                  const linePath = (arr) => arr.length < 2
+                    ? null
+                    : arr.map((d, i) => `${i===0?'M':'L'}${pxByDate(d.date)},${pyVal(d.val)}`).join(' ');
+
+                  // 특정 날짜 기준으로 가장 가까운(직전) 코스피 인덱스 찾기 (타점 클릭 시 코스피/코스닥 값 매칭용)
+                  const findNearestKospiIdx = (targetDate) => {
+                    if (kospiNorm.length === 0) return undefined;
+                    let idx;
+                    const tTime = toTime(targetDate);
+                    for (let k = 0; k < kospiNorm.length; k++) {
+                      if (toTime(kospiNorm[k].date) <= tTime) idx = kospiNorm[k].i;
+                      else break;
                     }
-                    const vals = points.map(p => p.val);
-                    const minV = Math.min(...vals, 100) * 0.998;
-                    const maxV = Math.max(...vals, 100) * 1.002;
-                    const vRange = maxV - minV || 1;
-                    const toTime = (d) => new Date(d).getTime();
-                    const times = points.map(p => toTime(p.date));
-                    const minTime = Math.min(...times);
-                    const maxTime = Math.max(...times);
-                    const timeRange = (maxTime - minTime) || 1;
-                    const pxByDate = (d) => PAD.l + (W - PAD.l - PAD.r) * (toTime(d) - minTime) / timeRange;
-                    const pyVal = (v) => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - minV) / vRange);
-                    const linePath = points.length < 2 ? null : points.map((p, i) => `${i===0?'M':'L'}${pxByDate(p.date)},${pyVal(p.val)}`).join(' ');
-                    const ySteps = 4;
-                    const yLabels = Array.from({ length: ySteps + 1 }, (_, i) => {
-                      const v = minV + (maxV - minV) * i / ySteps;
-                      return { y: pyVal(v), label: (v - 100).toFixed(1) + '%' };
-                    });
-                    const xLabels = buildMonthLabels(points, pxByDate);
-                    const tip = miniTooltips[id];
-                    const findNearest = (clickTime) => {
-                      let best = 0, bestDiff = Infinity;
-                      points.forEach((p, i) => {
-                        const diff = Math.abs(toTime(p.date) - clickTime);
-                        if (diff < bestDiff) { bestDiff = diff; best = i; }
-                      });
-                      return points[best];
-                    };
-                    const lastPt = points[points.length - 1];
-                    return (
-                      <div key={id} style={cardStyle}>
-                        {header}
-                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", cursor:"crosshair" }}
-                          onClick={e => {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const mx = (e.clientX - rect.left) / rect.width * W;
-                            const clickTime = minTime + (mx - PAD.l) / (W - PAD.l - PAD.r) * timeRange;
-                            const nearest = findNearest(clickTime);
-                            if (!nearest) return;
-                            setMiniTooltips(prev => ({ ...prev, [id]: prev[id]?.date === nearest.date ? null : nearest }));
-                          }}>
-                          {yLabels.map((yl, i) => (
-                            <g key={i}>
-                              <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth={i%2===0?"0.6":"0.3"} strokeDasharray="3,3" />
-                              {i%2===0 && <text x={PAD.l-3} y={yl.y+3} textAnchor="end" fontSize="7" fill={T.textMuted}>{yl.label}</text>}
-                            </g>
-                          ))}
-                          <line x1={PAD.l} y1={pyVal(100)} x2={W-PAD.r} y2={pyVal(100)} stroke={T.textMuted} strokeWidth="0.5" strokeDasharray="2,2" />
-                          {linePath && <path d={linePath} fill="none" stroke={color} strokeWidth={isMain?2:1.5} opacity="0.9" />}
-                          {showDots && points.map((p, i) => (
-                            <circle key={i} cx={pxByDate(p.date)} cy={pyVal(p.val)} r={isMain?3:2.2} fill={color} stroke="white" strokeWidth="0.8" />
-                          ))}
-                          {lastPt && (
-                            <text x={pxByDate(lastPt.date)} y={pyVal(lastPt.val) - (isMain?9:7)} textAnchor="middle" fontSize={isMain?8.5:7.5} fill={color} fontWeight="700">
-                              {lastPt.val >= 100 ? '+' : ''}{(lastPt.val - 100).toFixed(1)}%
-                            </text>
-                          )}
-                          {xLabels.map((xl, i) => (
-                            <text key={i} x={xl.x} y={H} textAnchor="middle" fontSize="7" fill={T.textMuted}>{xl.label}</text>
-                          ))}
-                        </svg>
-                        {tip && (
-                          <div style={{ marginTop:4, padding:"6px 10px", background:T.card, border:`1px solid ${T.border}`, borderRadius:8, fontSize:11, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                            <div style={{ fontWeight:700, color:T.text }}>{tip.date}</div>
-                            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
-                              {tip.close !== undefined && <span style={{ color:T.textMuted }}>{Math.round(tip.close).toLocaleString()}pt</span>}
-                              <span style={{ fontWeight:800, color: tip.val >= 100 ? "#ef4444" : "#3b82f6" }}>
-                                {tip.val >= 100 ? '+' : ''}{(tip.val - 100).toFixed(2)}%
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
+                    return idx !== undefined ? idx : kospiNorm[0].i;
                   };
+                  // 특정 날짜와 정확히 일치하는 타점 찾기 (전체합산/본계좌 상호 참조용)
+                  const findExact = (arr, targetDate) => arr.find(p => p.date === targetDate);
+
+                  const aggDots = aggNorm.map(p => ({
+                    x: pxByDate(p.date), y: pyVal(p.val), val: p.val, date: p.date, idx: findNearestKospiIdx(p.date),
+                  }));
+                  const mainDots = mainNorm.map(p => ({
+                    x: pxByDate(p.date), y: pyVal(p.val), val: p.val, date: p.date, idx: findNearestKospiIdx(p.date),
+                  }));
+
+                  // 특정 날짜의 툴팁 데이터 조립 (코스피/코스닥/전체합산/본계좌 값을 한 번에)
+                  const buildTooltip = (date, idx) => ({
+                    date,
+                    kospiVal: kospiNorm[idx]?.val,
+                    kosdaqVal: kosdaqNorm[idx]?.val,
+                    kospiClose: kospiLine[idx]?.close,
+                    kosdaqClose: kosdaqLine[idx]?.close,
+                    aggVal: findExact(aggNorm, date)?.val,
+                    mainVal: findExact(mainNorm, date)?.val,
+                  });
+
+                  // Y축 - 10칸
+                  const ySteps = 10;
+                  const yLabels = Array.from({length: ySteps + 1}, (_, i) => {
+                    const v = minV + (maxV - minV) * i / ySteps;
+                    return { y: pyVal(v), label: (v-100).toFixed(1)+'%' };
+                  });
+
+                  // X축 - 월별로 표시 (연도 포함, 8개 넘으면 격월 표시 - 집중도 차트와 동일한 규칙)
+                  const xLabels = [];
+                  let prevYearMonth = '';
+                  kospiNorm.forEach((d) => {
+                    if (!d.date) return;
+                    const [yyyy, mm] = d.date.split('-');
+                    const ym = `${yyyy}-${mm}`;
+                    if (ym !== prevYearMonth) {
+                      xLabels.push({ x: pxByDate(d.date), label: `${yyyy.slice(2)}.${mm}` });
+                      prevYearMonth = ym;
+                    }
+                  });
+                  const xLabelsFiltered = xLabels.length > 8 ? xLabels.filter((_, i) => i % 2 === 0) : xLabels;
 
                   return (
                     <div>
+                      {/* 기간 수익률 요약 카드 - 본계좌를 맨 앞에 강조 */}
+                      <div style={{ display:"grid", gridTemplateColumns:"1.15fr 1fr 1fr 1fr", gap:5, marginBottom:10 }}>
+                        <div style={{ background: darkMode?"rgba(59,130,246,0.14)":"#eff6ff", border:"1.3px solid #3b82f6", borderRadius:8, padding:"7px 4px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color:"#3b82f6", fontWeight:800, marginBottom:2 }}>● 본계좌</div>
+                          <div style={{ fontSize:14, fontWeight:900, color: mainRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {mainRangePct !== null ? `${mainRangePct >= 0 ? '+' : ''}${mainRangePct}%` : <span style={{fontSize:10,color:T.textMuted}}>타점 없음</span>}
+                          </div>
+                        </div>
+                        <div style={{ background:T.section, borderRadius:8, padding:"7px 4px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color:"#8b5cf6", fontWeight:700, marginBottom:2 }}>● 합산</div>
+                          <div style={{ fontSize:13, fontWeight:900, color: aggRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {aggRangePct !== null ? `${aggRangePct >= 0 ? '+' : ''}${aggRangePct}%` : <span style={{fontSize:10,color:T.textMuted}}>타점 없음</span>}
+                          </div>
+                        </div>
+                        <div style={{ background:T.section, borderRadius:8, padding:"7px 4px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color:"#f59e0b", fontWeight:700, marginBottom:2 }}>— 코스피</div>
+                          <div style={{ fontSize:13, fontWeight:900, color: kospiRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {kospiRangePct !== null ? `${kospiRangePct >= 0 ? '+' : ''}${kospiRangePct}%` : indexChartLoading ? '...' : '-'}
+                          </div>
+                        </div>
+                        <div style={{ background:T.section, borderRadius:8, padding:"7px 4px", textAlign:"center" }}>
+                          <div style={{ fontSize:9, color:"#22c55e", fontWeight:700, marginBottom:2 }}>— 코스닥</div>
+                          <div style={{ fontSize:13, fontWeight:900, color: kosdaqRangePct >= 0 ? "#ef4444" : "#3b82f6" }}>
+                            {kosdaqRangePct !== null ? `${kosdaqRangePct >= 0 ? '+' : ''}${kosdaqRangePct}%` : indexChartLoading ? '...' : '-'}
+                          </div>
+                        </div>
+                      </div>
+
                       {/* 기간 버튼 */}
-                      <div style={{ display:"flex", gap:4, marginBottom:10 }}>
+                      <div style={{ display:"flex", gap:4, marginBottom:8 }}>
                         {rangeButtons.map(r => (
-                          <button key={r.k} onClick={() => { setPerfRange(r.k); loadIndexChart(r.k); setMiniTooltips({}); }}
+                          <button key={r.k} onClick={() => { setPerfRange(r.k); loadIndexChart(r.k); setPerfTooltip(null); }}
                             style={{ flex:1, padding:"4px 0", fontSize:10, fontWeight:600, borderRadius:6, cursor:"pointer", border:"1px solid",
                               background: perfRange===r.k ? (darkMode?"#1e3a5f":"#dbeafe") : T.section,
                               borderColor: perfRange===r.k ? "#3b82f6" : T.border,
@@ -2898,14 +2894,152 @@ export default function App() {
                         ))}
                       </div>
 
-                      {/* 삼성증권 본계좌 - 메인 차트 (강조) */}
-                      {renderMiniChart({ id:'main', label:'삼성증권 본계좌', color:'#3b82f6', points:mainPoints, rangePct:mainRangePct, big:true, showDots:true, isMain:true })}
-                      {/* 전체합산 (전 계좌) */}
-                      {renderMiniChart({ id:'agg', label:'전체합산 (전 계좌)', color:'#8b5cf6', points:aggPoints, rangePct:aggRangePct, showDots:true })}
-                      {/* 코스피 */}
-                      {renderMiniChart({ id:'kospi', label:'코스피', color:'#f59e0b', points:kospiPoints, rangePct:kospiRangePct, showDots:false })}
-                      {/* 코스닥 */}
-                      {renderMiniChart({ id:'kosdaq', label:'코스닥', color:'#22c55e', points:kosdaqPoints, rangePct:kosdaqRangePct, showDots:false })}
+                      {/* 차트 - 본계좌/전체합산/코스피/코스닥 4개 선을 하나의 차트에 겹쳐서 표시 */}
+                      {indexChartLoading ? (
+                        <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:11 }}>📈 차트 불러오는 중...</div>
+                      ) : (
+                        <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display:"block", cursor:"crosshair" }}
+                          onClick={e => {
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const mx = (e.clientX - rect.left) / rect.width * W;
+                            if (kospiNorm.length === 0) { setPerfTooltip(null); return; }
+                            const clickTime = minTime + (mx - PAD.l) / (W - PAD.l - PAD.r) * timeRange;
+                            let clampedIdx = 0, bestDiff = Infinity;
+                            kospiNorm.forEach((d, i) => {
+                              const diff = Math.abs(toTime(d.date) - clickTime);
+                              if (diff < bestDiff) { bestDiff = diff; clampedIdx = i; }
+                            });
+                            const kd = kospiNorm[clampedIdx];
+                            if (!kd) { setPerfTooltip(null); return; }
+                            setPerfTooltip(buildTooltip(kd.date, clampedIdx));
+                          }}>
+                          {yLabels.map((yl, i) => (
+                            <g key={i}>
+                              <line x1={PAD.l} y1={yl.y} x2={W-PAD.r} y2={yl.y} stroke={T.cardBorder} strokeWidth={i%2===0?"0.6":"0.3"} strokeDasharray="3,3" />
+                              {i%2===0 && <text x={PAD.l-3} y={yl.y+3} textAnchor="end" fontSize="7" fill={T.textMuted}>{yl.label}</text>}
+                            </g>
+                          ))}
+                          <line x1={PAD.l} y1={pyVal(100)} x2={W-PAD.r} y2={pyVal(100)} stroke={T.textMuted} strokeWidth="0.5" strokeDasharray="2,2" />
+                          {/* 코스닥 연속 라인 (보조) */}
+                          {linePath(kosdaqNorm) && <path d={linePath(kosdaqNorm)} fill="none" stroke="#22c55e" strokeWidth="1.1" opacity="0.6" />}
+                          {/* 코스피 연속 라인 (보조) */}
+                          {linePath(kospiNorm) && <path d={linePath(kospiNorm)} fill="none" stroke="#f59e0b" strokeWidth="1.3" opacity="0.65" />}
+                          {/* 전체합산 연결선 (보조) */}
+                          {aggDots.length >= 2 && (
+                            <path d={aggDots.map((d, i) => `${i === 0 ? 'M' : 'L'}${d.x},${d.y}`).join(' ')}
+                              fill="none" stroke="#8b5cf6" strokeWidth="1.6" opacity="0.75" />
+                          )}
+                          {/* 본계좌 강조용 글로우(뒤에 두껍고 옅은 선을 깔아 시각적으로 도드라지게) */}
+                          {mainDots.length >= 2 && (
+                            <path d={mainDots.map((d, i) => `${i === 0 ? 'M' : 'L'}${d.x},${d.y}`).join(' ')}
+                              fill="none" stroke="#3b82f6" strokeWidth="5" opacity="0.18" strokeLinecap="round" />
+                          )}
+                          {/* 본계좌 연결선 (메인, 최상단 강조) */}
+                          {mainDots.length >= 2 && (
+                            <path d={mainDots.map((d, i) => `${i === 0 ? 'M' : 'L'}${d.x},${d.y}`).join(' ')}
+                              fill="none" stroke="#3b82f6" strokeWidth="2.2" opacity="1" />
+                          )}
+                          {/* 전체합산 타점 */}
+                          {aggDots.map((dot, i) => {
+                            return (
+                              <g key={'agg'+i} style={{ cursor:"pointer" }}
+                                onClick={e => { e.stopPropagation(); setPerfTooltip(prev => prev?.date === dot.date ? null : { ...buildTooltip(dot.date, dot.idx) }); }}>
+                                <circle cx={dot.x} cy={dot.y} r="10" fill="transparent" />
+                                <circle cx={dot.x} cy={dot.y} r="2.2" fill="#8b5cf6" stroke="white" strokeWidth="0.7" opacity="0.9" />
+                              </g>
+                            );
+                          })}
+                          {/* 본계좌 타점 (더 크고 진하게 강조) */}
+                          {mainDots.map((dot, i) => {
+                            const isSelected = perfTooltip?.date === dot.date;
+                            return (
+                              <g key={'main'+i} style={{ cursor:"pointer" }}
+                                onClick={e => { e.stopPropagation(); setPerfTooltip(prev => prev?.date === dot.date ? null : { ...buildTooltip(dot.date, dot.idx) }); }}>
+                                <circle cx={dot.x} cy={dot.y} r="12" fill="transparent" />
+                                {isSelected && <circle cx={dot.x} cy={dot.y} r="6.5" fill="none" stroke="#3b82f6" strokeWidth="1.3" opacity="0.5" />}
+                                <circle cx={dot.x} cy={dot.y} r="3.4" fill={isSelected ? "#1d4ed8" : "#3b82f6"} stroke="white" strokeWidth="1" />
+                                {i === mainDots.length - 1 && !isSelected && (
+                                  <text x={dot.x} y={dot.y - 8} textAnchor="middle" fontSize="8.5" fill="#3b82f6" fontWeight="800">
+                                    {dot.val >= 100 ? '+' : ''}{(dot.val - 100).toFixed(1)}%
+                                  </text>
+                                )}
+                              </g>
+                            );
+                          })}
+                          {xLabelsFiltered.map((xl, i) => (
+                            <text key={i} x={xl.x} y={H} textAnchor="middle" fontSize="7" fill={T.textMuted}>{xl.label}</text>
+                          ))}
+                        </svg>
+                      )}
+
+                      {/* 툴팁 */}
+                      {perfTooltip && (
+                        <div style={{ margin:"6px 0 4px", padding:"10px 12px", background:T.section, border:`1px solid ${T.border}`, borderRadius:10, fontSize:12 }}>
+                          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                            <div style={{ fontWeight:700, color:T.text, fontSize:13 }}>{perfTooltip.date}</div>
+                            <button onClick={() => setPerfTooltip(null)} style={{ background:"none", border:"none", color:T.textMuted, fontSize:14, cursor:"pointer", lineHeight:1 }}>✕</button>
+                          </div>
+                          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:5 }}>
+                            {/* 본계좌 */}
+                            <div style={{ textAlign:"center", background: perfTooltip.mainVal !== undefined ? (darkMode?"rgba(59,130,246,0.14)":"#eff6ff") : T.card, border: perfTooltip.mainVal !== undefined ? "1px solid #3b82f6" : "1px solid transparent", borderRadius:6, padding:"6px 3px", opacity: perfTooltip.mainVal !== undefined ? 1 : 0.4 }}>
+                              <div style={{ fontSize:9, color:"#3b82f6", fontWeight:800 }}>● 본계좌</div>
+                              {perfTooltip.mainVal !== undefined
+                                ? <div style={{ fontSize:12, fontWeight:800, color: perfTooltip.mainVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                    {perfTooltip.mainVal >= 100 ? '+' : ''}{(perfTooltip.mainVal - 100).toFixed(2)}%
+                                  </div>
+                                : <div style={{ fontSize:10, color:T.textMuted }}>-</div>
+                              }
+                            </div>
+                            {/* 전체합산 */}
+                            <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 3px", opacity: perfTooltip.aggVal !== undefined ? 1 : 0.4 }}>
+                              <div style={{ fontSize:9, color:"#8b5cf6", fontWeight:700 }}>● 합산</div>
+                              {perfTooltip.aggVal !== undefined
+                                ? <div style={{ fontSize:12, fontWeight:800, color: perfTooltip.aggVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                    {perfTooltip.aggVal >= 100 ? '+' : ''}{(perfTooltip.aggVal - 100).toFixed(2)}%
+                                  </div>
+                                : <div style={{ fontSize:10, color:T.textMuted }}>-</div>
+                              }
+                            </div>
+                            {/* 코스피 */}
+                            <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 3px" }}>
+                              <div style={{ fontSize:9, color:"#f59e0b", fontWeight:700 }}>— 코스피</div>
+                              {perfTooltip.kospiVal !== undefined
+                                ? <>
+                                    {perfTooltip.kospiClose && <div style={{ fontSize:10, fontWeight:700, color:T.text }}>{Math.round(perfTooltip.kospiClose).toLocaleString()}pt</div>}
+                                    <div style={{ fontSize:10, color: perfTooltip.kospiVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                      {perfTooltip.kospiVal >= 100 ? '+' : ''}{(perfTooltip.kospiVal - 100).toFixed(2)}%
+                                    </div>
+                                  </>
+                                : <div style={{ fontSize:10, color:T.textMuted }}>-</div>}
+                            </div>
+                            {/* 코스닥 */}
+                            <div style={{ textAlign:"center", background:T.card, borderRadius:6, padding:"6px 3px" }}>
+                              <div style={{ fontSize:9, color:"#22c55e", fontWeight:700 }}>— 코스닥</div>
+                              {perfTooltip.kosdaqVal !== undefined
+                                ? <>
+                                    {perfTooltip.kosdaqClose && <div style={{ fontSize:10, fontWeight:700, color:T.text }}>{Math.round(perfTooltip.kosdaqClose).toLocaleString()}pt</div>}
+                                    <div style={{ fontSize:10, color: perfTooltip.kosdaqVal >= 100 ? "#ef4444" : "#3b82f6" }}>
+                                      {perfTooltip.kosdaqVal >= 100 ? '+' : ''}{(perfTooltip.kosdaqVal - 100).toFixed(2)}%
+                                    </div>
+                                  </>
+                                : <div style={{ fontSize:10, color:T.textMuted }}>-</div>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 범례 */}
+                      <div style={{ display:"flex", gap:8, justifyContent:"center", marginTop:4, flexWrap:"wrap" }}>
+                        {[{color:"#3b82f6",label:"본계좌",dot:true,bold:true},{color:"#8b5cf6",label:"전체합산",dot:true},{color:"#f59e0b",label:"코스피"},{color:"#22c55e",label:"코스닥"}].map((l,i) => (
+                          <div key={i} style={{ display:"flex", alignItems:"center", gap:4, fontSize:9, color:T.textMuted, fontWeight: l.bold ? 800 : 400 }}>
+                            {l.dot
+                              ? <div style={{ width: l.bold?9:8, height: l.bold?9:8, borderRadius:"50%", background:l.color, border:"1.5px solid white", outline:`1px solid ${l.color}` }} />
+                              : <div style={{ width:16, height:2, background:l.color, borderRadius:1 }} />
+                            }
+                            {l.label}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   );
                 })()}
