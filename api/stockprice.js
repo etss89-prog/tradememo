@@ -803,7 +803,12 @@ async function fetchKrxMarketRows(mktId, trdDd) {
     },
     body,
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`); // 요청 자체가 거부됨 (WAF/차단 의심) - 재시도해도 같은 날짜면 의미 없음
+  if (!res.ok) {
+    // ✅ 진단용: 400 등 오류일 때 실제 응답 본문을 살짝 붙여줌 - HTML(차단 안내 페이지)인지, KRX가 준 에러
+    // 메시지(JSON)인지 구분하기 위함. 이게 있어야 "왜" 거부당하는지(봇 차단 vs 파라미터 문제) 알 수 있음.
+    const bodyText = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} [${bodyText.replace(/\s+/g, ' ').trim().slice(0, 150)}]`);
+  }
   const data = await res.json().catch(() => null);
   return data?.OutBlock_1 || null; // 정상 응답이지만 비어있으면 null (비거래일 등)
 }
