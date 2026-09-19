@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.23";
+const VERSION = "v1.5.24";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -3039,7 +3039,7 @@ export default function App() {
             <div style={{ textAlign:"center", padding:"20px", color:T.textMuted, fontSize:12 }}>📊 시장 데이터 불러오는 중...</div>
           )}
           {marketData && (() => {
-            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart, kospiMap, kosdaqMap, kospiMapTotal, kosdaqMapTotal, kospiTotalMarketCap, kosdaqTotalMarketCap } = marketData;
+            const { indices, kospiTop, kosdaqTop, kospiChart, kosdaqChart, kospiMap, kosdaqMap, kospiMapTotal, kosdaqMapTotal, kospiTotalMarketCap, kosdaqTotalMarketCap, kospiMapError, kosdaqMapError } = marketData;
 
             // 영역 차트 그리기 함수
             const renderAreaChart = (data, label, indexInfo) => {
@@ -3094,8 +3094,14 @@ export default function App() {
               return v.toLocaleString() + '억';
             };
 
-            const renderStockList = (stocks) => {
-              if (!stocks || stocks.length === 0) return <div style={{ color:T.textMuted, fontSize:11, textAlign:"center", padding:"8px" }}>데이터 없음</div>;
+            // ✅ v1.5.24: TOP10/맵차트가 비었을 때도 집중도 섹션처럼 실패 사유(errorMsg)를 바로 화면에 보여줌
+            // - 예전엔 "데이터 없음"만 뜨고 진짜 이유는 집중도 섹션에서만 볼 수 있어서 캡처를 여러 번 왔다갔다해야 했음
+            const renderStockList = (stocks, errorMsg) => {
+              if (!stocks || stocks.length === 0) return (
+                <div style={{ color:T.textMuted, fontSize:11, textAlign:"center", padding:"8px" }}>
+                  데이터 없음{errorMsg ? ` (${errorMsg})` : ''}
+                </div>
+              );
               return stocks.map((s, i) => (
                 <div key={i} style={{ display:"flex", alignItems:"center", padding:"5px 0", borderBottom: i < stocks.length-1 ? `1px solid ${T.cardBorder}` : "none", gap:4 }}>
                   <span style={{ fontSize:10, color:T.textMuted, minWidth:16, flexShrink:0 }}>{s.rank}</span>
@@ -3114,6 +3120,7 @@ export default function App() {
             const activeMapTotal = treemapMarket === 'kospi' ? kospiMapTotal : kosdaqMapTotal;
             // ✅ v1.5.12: 시장 "전체" 시가총액 (파싱 성공 시). 실패하면 null → 기존 "상위 N개 합"으로 자동 폴백
             const activeOfficialTotal = treemapMarket === 'kospi' ? kospiTotalMarketCap : kosdaqTotalMarketCap;
+            const activeMapError = treemapMarket === 'kospi' ? kospiMapError : kosdaqMapError; // ✅ v1.5.24
             const { items: treemapItems, total: treemapTotal } = buildTreemapItems(activeMapList);
 
             // ✅ v1.5.17: 상위 2개 종목 시총 집중도 코멘트 (예: "삼성전자+SK하이닉스가 코스피의 X%")
@@ -3146,7 +3153,7 @@ export default function App() {
                   </div>
                   {renderAreaChart(kospiChart, "코스피", indices?.kospi)}
                   <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
-                  {renderStockList(kospiTop)}
+                  {renderStockList(kospiTop, kospiMapError)}
                 </div>
 
                 {/* 코스닥 */}
@@ -3166,7 +3173,7 @@ export default function App() {
                   </div>
                   {renderAreaChart(kosdaqChart, "코스닥", indices?.kosdaq)}
                   <div style={{ fontSize:10, fontWeight:700, color:T.textMuted, margin:"8px 0 4px" }}>시총 TOP10</div>
-                  {renderStockList(kosdaqTop)}
+                  {renderStockList(kosdaqTop, kosdaqMapError)}
                 </div>
               </div>
 
@@ -3194,7 +3201,9 @@ export default function App() {
                 </div>
 
                 {(!treemapItems || treemapItems.length === 0) ? (
-                  <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>맵차트 데이터 없음</div>
+                  <div style={{ textAlign:"center", padding:"24px", color:T.textMuted, fontSize:12 }}>
+                    맵차트 데이터 없음{activeMapError ? ` (${activeMapError})` : ''}
+                  </div>
                 ) : (() => {
                   const useSectorView = showSectorView && sectorMap;
                   const W = 320, H = useSectorView ? 400 : 300;
