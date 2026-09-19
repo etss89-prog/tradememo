@@ -780,11 +780,50 @@ function getKstDateStr(offsetDays = 0) {
   return `${y}${m}${d}`;
 }
 
+const KRX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const KRX_REFERER = 'https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd?fromModuleCd=MDC0201020101';
+
+// ⚠️ 실제로 배포해서 확인해보니 세션 쿠키 없이 바로 POST하면 KRX가 본문에 "LOGOUT"을 담아 HTTP 400으로 거부함
+// (지난번 리서치의 "세션/쿠키 불필요" 판단이 틀렸음 - 실기기 테스트로만 확인 가능했던 부분).
+// → 먼저 그 페이지를 실제로 한 번 GET해서 JSESSIONID 등 세션 쿠키를 받아온 뒤, 그 쿠키를 달고 POST해야 함
+// (브라우저가 이 페이지를 열 때 실제로 하는 동작 그대로). 세션은 몇 분간 재사용 가능해서 짧게 캐시해둠.
+let krxSessionCookie = null;
+let krxSessionCookieAt = 0;
+async function getKrxSessionCookie() {
+  if (krxSessionCookie && Date.now() - krxSessionCookieAt < 5 * 60 * 1000) return krxSessionCookie;
+  try {
+    const res = await fetch(KRX_REFERER, {
+      headers: {
+        'User-Agent': KRX_UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+    });
+    let cookies = [];
+    if (typeof res.headers.getSetCookie === 'function') {
+      cookies = res.headers.getSetCookie(); // Node 18+ (Vercel 런타임은 지원)
+    } else {
+      const single = res.headers.get('set-cookie');
+      if (single) cookies = [single];
+    }
+    const cookieHeader = cookies.map(c => c.split(';')[0]).filter(Boolean).join('; ');
+    if (cookieHeader) {
+      krxSessionCookie = cookieHeader;
+      krxSessionCookieAt = Date.now();
+      return cookieHeader;
+    }
+  } catch (e) {
+    console.error('KRX 세션 쿠키 획득 실패:', e.message);
+  }
+  return null;
+}
+
 // KRX 정보데이터시스템 "전종목시세" 원시 조회 (mktId: 'STK'=코스피, 'KSQ'=코스닥)
-// 실제 브라우저가 이 페이지를 열 때 보내는 요청과 최대한 비슷하게 헤더를 채워서, KRX 쪽 봇 차단(WAF)에
+// 실제 브라우저가 이 페이지를 열 때 보내는 요청과 최대한 비슷하게 헤더+세션 쿠키를 채워서, KRX 쪽 봇 차단(WAF)에
 // 걸릴 확률을 줄임. HTTP 상태코드 자체가 비정상(400 등)이면 "요청이 거부당한 것"이므로 별도 Error를 던지고,
 // 정상 응답인데 그냥 내용이 비어있으면(주말/공휴일 등 비거래일) null을 돌려줘서 호출부가 이 둘을 구분하게 함.
 async function fetchKrxMarketRows(mktId, trdDd) {
+  const cookie = await getKrxSessionCookie();
   const body = new URLSearchParams({
     bld: 'dbms/MDC/STAT/standard/MDCSTAT01501',
     mktId,
@@ -796,17 +835,20 @@ async function fetchKrxMarketRows(mktId, trdDd) {
       'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       'Accept': 'application/json, text/javascript, */*; q=0.01',
       'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'User-Agent': KRX_UA,
       'Origin': 'https://data.krx.co.kr',
-      'Referer': 'https://data.krx.co.kr/contents/MDC/MDI/outerLoader/index.cmd?fromModuleCd=MDC0201020101',
+      'Referer': KRX_REFERER,
       'X-Requested-With': 'XMLHttpRequest',
+      ...(cookie ? { 'Cookie': cookie } : {}),
     },
     body,
   });
   if (!res.ok) {
     // ✅ 진단용: 400 등 오류일 때 실제 응답 본문을 살짝 붙여줌 - HTML(차단 안내 페이지)인지, KRX가 준 에러
-    // 메시지(JSON)인지 구분하기 위함. 이게 있어야 "왜" 거부당하는지(봇 차단 vs 파라미터 문제) 알 수 있음.
+    // 메시지(JSON)인지 구분하기 위함. 이게 있어야 "왜" 거부당하는지(봇 차단 vs 세션 문제) 알 수 있음.
     const bodyText = await res.text().catch(() => '');
+    // 세션 쿠키가 만료/무효화됐을 수 있으니, "LOGOUT"류 응답이면 캐시된 쿠키를 버려서 다음 호출 땐 새로 받아오게 함
+    if (/logout/i.test(bodyText)) { krxSessionCookie = null; krxSessionCookieAt = 0; }
     throw new Error(`HTTP ${res.status} [${bodyText.replace(/\s+/g, ' ').trim().slice(0, 150)}]`);
   }
   const data = await res.json().catch(() => null);
