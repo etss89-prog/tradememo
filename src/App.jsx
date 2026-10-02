@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.28";
+const VERSION = "v1.5.29";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2728,7 +2728,8 @@ export default function App() {
                   const kospiLine = (perfRange === 'mine' && mineAnchor) ? rawKospiLine.filter(d => d.date >= mineAnchor) : rawKospiLine;
                   const kosdaqLine = (perfRange === 'mine' && mineAnchor) ? rawKosdaqLine.filter(d => d.date >= mineAnchor) : rawKosdaqLine;
 
-                  // 전체합산 타점 (기간 필터)
+                  // 전체합산 타점 (기간 필터) - cumulativeIndex는 "맨 처음 기록일"을 100으로 고정한 누적 지수라서
+                  // 그대로 쓰면 1개월/3개월/6개월 탭에서도 추적 시작일부터의 전체 누적 수익률이 섞여 나와 버림
                   const aggPoints = filteredDates.map(d => ({
                     date: d,
                     val: performance[d]?.cumulativeIndex || 100,
@@ -2746,18 +2747,11 @@ export default function App() {
                   const kosdaqRangePct = kosdaqLine.length >= 2
                     ? ((kosdaqLine[kosdaqLine.length-1].close - kosdaqLine[0].close) / kosdaqLine[0].close * 100).toFixed(2)
                     : lastPerf.kosdaqIndex ? (lastPerf.kosdaqIndex - 100).toFixed(2) : null;
-                  // mine 모드: 첫 타점 기준 수익률
-                  const aggRangePct = aggPoints.length >= 1
-                    ? ((aggPoints[aggPoints.length-1].val / (perfRange === 'mine' ? aggPoints[0].val : 100) - 1) * 100).toFixed(2)
-                    : null;
-                  const mainRangePct = mainPoints.length >= 1
-                    ? ((mainPoints[mainPoints.length-1].val / (perfRange === 'mine' ? mainPoints[0].val : 100) - 1) * 100).toFixed(2)
-                    : null;
 
                   // 차트 그리기
                   const W = 340, H = 130, PAD = { l:42, r:8, t:8, b:22 };
 
-                  // 코스피/코스닥을 100 기준 정규화
+                  // 코스피/코스닥을 100 기준 정규화 (조회 범위의 "첫 타점"이 항상 0%에서 출발)
                   const normalizeArr = (arr) => {
                     if (!arr || arr.length === 0) return [];
                     const base = arr[0].close;
@@ -2766,9 +2760,19 @@ export default function App() {
                   const kospiNorm = normalizeArr(kospiLine);
                   const kosdaqNorm = normalizeArr(kosdaqLine);
 
-                  // 전체합산/본계좌 타점도 동일한 값 형태로
-                  const aggNorm = aggPoints.map(p => ({ date: p.date, val: p.val }));
-                  const mainNorm = mainPoints.map(p => ({ date: p.date, val: p.val }));
+                  // ✅ 전체합산/본계좌도 코스피/코스닥과 동일한 방식으로 "선택된 기간의 첫 타점"을 100(0%)
+                  // 기준으로 다시 정규화 → 1개월/3개월/6개월/전체/내 기록 어느 탭을 눌러도 네 선 모두
+                  // 같은 출발점(0%)에서 시작해 그 구간 안에서의 수익률만 비교할 수 있도록 함
+                  const rebaseToFirst = (points) => {
+                    if (!points || points.length === 0) return [];
+                    const base = points[0].val;
+                    if (!base) return points.map(p => ({ date: p.date, val: p.val }));
+                    return points.map(p => ({ date: p.date, val: p.val / base * 100 }));
+                  };
+                  const aggNorm = rebaseToFirst(aggPoints);
+                  const mainNorm = rebaseToFirst(mainPoints);
+                  const aggRangePct = aggNorm.length >= 1 ? (aggNorm[aggNorm.length-1].val - 100).toFixed(2) : null;
+                  const mainRangePct = mainNorm.length >= 1 ? (mainNorm[mainNorm.length-1].val - 100).toFixed(2) : null;
 
                   // 전체 데이터로 Y축 범위 계산
                   const allVals = [
