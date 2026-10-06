@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.29";
+const VERSION = "v1.5.30";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -392,6 +392,7 @@ export default function App() {
   const [chartData, setChartData] = useState([]);
   const [chartLoading, setChartLoading] = useState(false);
   const [showTrades, setShowTrades] = useState(true);
+  const [chartError, setChartError] = useState(null); // 서버가 알려준 차트 실패 이유
   const [chartTimeframe, setChartTimeframe] = useState('day');
   const [chartRange, setChartRange] = useState('3mo'); // 기간 선택
   const [chartTooltip, setChartTooltip] = useState(null); // { x, y, candle }
@@ -826,6 +827,7 @@ export default function App() {
     setChartLoading(true);
     setChartData([]);
     setChartTooltip(null);
+    setChartError(null);
     try {
       const res = await fetch('/api/chart', {
         method: 'POST',
@@ -842,6 +844,8 @@ export default function App() {
       const data = await res.json();
       if (data.candles && data.candles.length > 0) {
         setChartData(data.candles);
+      } else {
+        setChartError(data.error || '서버가 빈 데이터를 돌려줬어요');
       }
       // chart.js에서 보정 비율 반환 시 avgBuy도 보정
       if (data.scale && data.scale !== 1 && chartModal?.avgBuy) {
@@ -849,6 +853,7 @@ export default function App() {
       }
     } catch (e) {
       console.error('차트 로드 실패:', e);
+      setChartError(`요청 실패: ${e.message}`);
     }
     setChartLoading(false);
   }
@@ -1537,7 +1542,7 @@ export default function App() {
                 <div style={{ textAlign:"center", padding:"40px", color:T.textMuted }}>
                   <div style={{ fontSize:24, marginBottom:8 }}>😞</div>
                   <div>차트 데이터를 불러올 수 없어요</div>
-                  <div style={{ fontSize:11, marginTop:4 }}>종목코드를 확인해주세요</div>
+                  <div style={{ fontSize:11, marginTop:4 }}>{chartError || '종목코드를 확인해주세요'}</div>
                 </div>
               )}
               {!chartLoading && chartData.length > 0 && (() => {
