@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.30";
+const VERSION = "v1.5.31";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -2433,7 +2433,11 @@ export default function App() {
                     <div style={{ display:"flex", alignItems:"center", marginBottom:8 }}>
                       <div style={{ flex:2 }}>
                         <div style={{ fontSize:10, color:T.textMuted, marginBottom:3 }}>종목명</div>
-                        <span onClick={() => openChart({ ticker: stock.ticker, tickerCode: stock.tickerCode || null, isOverseas: stock.isOverseas || false, avgBuy: avgPrice || null })}
+                        <span onClick={() => {
+                          // 포트폴리오에 같은 이름의 종목이 있으면 거기 입력해둔 종목코드/해외여부를 우선 사용
+                          const pf = Object.values(portfolios).flatMap(pp => pp.stocks || []).find(st => st.ticker === stock.ticker);
+                          openChart({ ticker: stock.ticker, tickerCode: stock.tickerCode || pf?.tickerCode || null, isOverseas: stock.isOverseas || pf?.isOverseas || false, avgBuy: avgPrice || null });
+                        }}
                           style={{ fontSize:14, fontWeight:700, color:T.text, cursor:"pointer", textDecoration:"underline", textDecorationColor:T.textMuted, textUnderlineOffset:3, textDecorationStyle:"dotted" }}>
                           {stock.ticker} <span style={{ fontSize:11 }}>📈</span>
                         </span>
