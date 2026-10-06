@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.31";
+const VERSION = "v1.5.32";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -843,7 +843,29 @@ export default function App() {
       });
       const data = await res.json();
       if (data.candles && data.candles.length > 0) {
-        setChartData(data.candles);
+        let candles = data.candles;
+        // ✅ v1.5.32: 야후 일봉은 최근 거래일 캔들이 하루~며칠 늦게 반영되는 경우가 있음. 그러면 그 날짜에
+        // 한 매수/매도 타점이 찍힐 캔들 자체가 없어 표시가 안 됐음. 마지막 캔들보다 "나중 날짜"의 내 체결이
+        // 있으면, 그날 실제 체결가로 임시 캔들(synthetic)을 붙여서 타점이 보이게 함 (야후가 따라잡으면 진짜 캔들로 대체됨).
+        if (timeframe === 'day') {
+          const lastDate = candles[candles.length - 1].date;
+          const byDate = {};
+          allRecords.flatMap(r => r.result?.stocks || [])
+            .filter(s => s.ticker === stock.ticker)
+            .flatMap(s => s.trades || [])
+            .filter(t => t.date > lastDate && t.price > 0)
+            .forEach(t => { (byDate[t.date] = byDate[t.date] || []).push(t); });
+          const extra = Object.keys(byDate).sort().map(date => {
+            const ts = byDate[date];
+            const prices = ts.map(t => t.price);
+            const qty = ts.reduce((s, t) => s + (t.quantity || 0), 0);
+            const amt = ts.reduce((s, t) => s + t.price * (t.quantity || 0), 0);
+            const avg = qty > 0 ? Math.round(amt / qty) : prices[0];
+            return { date, open: avg, high: Math.max(...prices), low: Math.min(...prices), close: avg, volume: 0, synthetic: true };
+          });
+          if (extra.length) candles = [...candles, ...extra];
+        }
+        setChartData(candles);
       } else {
         setChartError(data.error || '서버가 빈 데이터를 돌려줬어요');
       }
@@ -1595,8 +1617,10 @@ export default function App() {
                 const vy = v => VH * (1 - v / maxV) + 4;
 
                 // 현재가 (마지막 캔들)
-                const lastCandle = chartData[chartData.length - 1];
-                const prevCandle = chartData[chartData.length - 2];
+                // (체결가로 임시로 붙인 synthetic 캔들은 현재가 계산에서 제외 - 실제 시세 캔들만 사용)
+                const realCandles = chartData.filter(c => !c.synthetic);
+                const lastCandle = realCandles[realCandles.length - 1] || chartData[chartData.length - 1];
+                const prevCandle = realCandles[realCandles.length - 2];
                 const priceChange = prevCandle ? lastCandle.close - prevCandle.close : 0;
                 const pctChange = prevCandle ? (priceChange / prevCandle.close * 100) : 0;
                 const priceColor = priceChange >= 0 ? "#ef4444" : "#3b82f6";
