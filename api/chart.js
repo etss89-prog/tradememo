@@ -34,40 +34,61 @@ const KOSDAQ_CODES = new Set([
 const dynamicCache = {}; // 서버 인스턴스가 살아있는 동안 유지 (찾은 코드 재사용)
 const normName = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').toLowerCase();
 
-// 네이버 자동완성: 응답 구조가 불확실해서(항목 순서가 [이름,코드] 또는 [코드,이름]일 수 있음)
-// 항목 안의 모든 문자열을 펼쳐서 "6자리 숫자 = 코드", "종목명과 정확히 일치하는 문자열 = 이름"으로 판별.
+// 검색 API들의 응답 구조가 제각각이라, 응답 전체를 재귀로 훑어서
+// "6자리 숫자(코드)와 종목명이 정확히 일치하는 문자열이 같은 항목에 들어있는 경우"를 찾는다.
 // 유사 종목은 절대 사용하지 않고 이름이 정확히 일치할 때만 반환.
-function pickCodeFromNaverAc(data, tickerName) {
+function pickCodeGeneric(data, tickerName) {
   const target = normName(tickerName);
-  const groups = Array.isArray(data?.items) ? data.items : [];
-  for (const group of groups) {
-    if (!Array.isArray(group)) continue;
-    for (const entry of group) {
-      const strs = (Array.isArray(entry) ? entry.flat(Infinity) : [entry]).filter(v => typeof v === 'string');
-      const code = strs.find(v => /^\d{6}$/.test(v));
-      if (code && strs.some(v => v !== code && normName(v) === target)) return code;
+  const codeOf = (v) => {
+    if (typeof v !== 'string') return null;
+    const m = v.match(/^(\d{6})(?:\.(?:KS|KQ))?$/i); // "322310" 또는 "322310.KQ"
+    return m ? m[1] : null;
+  };
+  const walk = (node, depth) => {
+    if (node == null || depth > 7) return null;
+    if (Array.isArray(node) || typeof node === 'object') {
+      const children = Array.isArray(node) ? node : Object.values(node);
+      const strs = children.flat(Infinity).filter(v => typeof v === 'string');
+      const code = strs.map(codeOf).find(Boolean);
+      if (code && strs.some(v => !codeOf(v) && normName(v) === target)) return code;
+      for (const ch of children) {
+        const found = walk(ch, depth + 1);
+        if (found) return found;
+      }
     }
-  }
+    return null;
+  };
+  const found = walk(data, 0);
+  if (found) return found;
   // 이전 stockprice.js 방식: items[0]=이름 목록, items[1]=코드 목록
-  const names = groups[0], codes = groups[1];
+  const names = data?.items?.[0], codes = data?.items?.[1];
   if (Array.isArray(names) && Array.isArray(codes)) {
     for (let i = 0; i < names.length; i++) {
       const n = Array.isArray(names[i]) ? names[i][0] : names[i];
-      const c = Array.isArray(codes[i]) ? codes[i][0] : codes[i];
-      if (n && c && /^\d{6}$/.test(String(c)) && normName(n) === target) return String(c);
+      const c2 = Array.isArray(codes[i]) ? codes[i][0] : codes[i];
+      if (n && c2 && /^\d{6}$/.test(String(c2)) && normName(n) === target) return String(c2);
     }
   }
   return null;
 }
 
-async function findCodeFromNaver(tickerName) {
-  const url = `https://ac.finance.naver.com/ac?q=${encodeURIComponent(tickerName)}&q_enc=UTF-8&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1&run=2&rev=4`;
-  const res = await fetch(url, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://finance.naver.com/' },
-    signal: AbortSignal.timeout(6000),
-  });
+// 종목 검색 후보들 (서버 환경에 따라 막히는 곳이 있을 수 있어 여러 곳을 동시에 시도)
+const SEARCH_SOURCES = [
+  { name: '네이버모바일', url: (q) => `https://m.stock.naver.com/front-api/search/autoComplete?query=${q}&target=stock`, referer: 'https://m.stock.naver.com/' },
+  { name: '네이버AC', url: (q) => `https://ac.stock.naver.com/ac?q=${q}&target=stock`, referer: 'https://m.stock.naver.com/' },
+  { name: '네이버구AC', url: (q) => `https://ac.finance.naver.com/ac?q=${q}&q_enc=UTF-8&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1&run=2&rev=4`, referer: 'https://finance.naver.com/' },
+  { name: '야후검색', url: (q) => `https://query1.finance.yahoo.com/v1/finance/search?q=${q}&lang=ko-KR&region=KR&quotesCount=10&newsCount=0`, referer: null },
+];
+
+async function searchOne(src, tickerName) {
+  const headers = { 'Accept': 'application/json, text/plain, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', 'Accept-Language': 'ko-KR,ko;q=0.9' };
+  if (src.referer) headers['Referer'] = src.referer;
+  const res = await fetch(src.url(encodeURIComponent(tickerName)), { headers, signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = JSON.parse(await res.text());
-  return pickCodeFromNaverAc(data, tickerName);
+  const code = pickCodeGeneric(data, tickerName);
+  if (!code) throw new Error('일치 종목 없음');
+  return code;
 }
 
 // KRX KIND 상장종목 목록 (한글 인코딩이 EUC-KR인 경우가 많아 바이트로 받아 직접 디코딩)
@@ -76,7 +97,7 @@ async function loadKrxMap() {
   if (krxMap && Date.now() - krxLoadedAt < 3600000) return krxMap;
   const res = await fetch('https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13', {
     headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://kind.krx.co.kr' },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(6000),
   });
   const buf = await res.arrayBuffer();
   const ct = res.headers.get('content-type') || '';
@@ -94,29 +115,34 @@ async function loadKrxMap() {
     }
   }
   if (Object.keys(map).length > 100) { krxMap = map; krxLoadedAt = Date.now(); return map; }
-  return null;
+  throw new Error(`목록 파싱 실패(${Object.keys(map).length}개, charset=${charset}, ${buf.byteLength}bytes)`);
 }
 async function findCodeFromKrx(tickerName) {
   const map = await loadKrxMap();
-  return map ? (map[normName(tickerName)] || null) : null;
+  const hit = map[normName(tickerName)];
+  if (hit) return hit;
+  const head = normName(tickerName).slice(0, 3);
+  const similar = Object.keys(map).filter(n => n.includes(head)).slice(0, 3);
+  throw new Error(`목록 ${Object.keys(map).length}개 중 일치 없음${similar.length ? ` (유사: ${similar.join(',')})` : ''}`);
 }
 
+// 여러 후보를 동시에 시도해서 가장 먼저 성공한 코드를 사용 (실패 이유는 모두 모아서 반환)
 async function resolveCode(ticker, tickerCode) {
   if (tickerCode) return { code: tickerCode, how: 'given' };
   if (TICKER_MAP[ticker]) return { code: TICKER_MAP[ticker], how: 'map' };
   if (dynamicCache[ticker]) return { code: dynamicCache[ticker], how: 'cache' };
   const reasons = [];
+  const attempts = [
+    ...SEARCH_SOURCES.map(src => searchOne(src, ticker).catch(e => { reasons.push(`${src.name}: ${e.message}`); throw e; })),
+    findCodeFromKrx(ticker).catch(e => { reasons.push(`KRX: ${e.message}`); throw e; }),
+  ];
   try {
-    const c = await findCodeFromNaver(ticker);
-    if (c) { dynamicCache[ticker] = c; return { code: c, how: 'naver' }; }
-    reasons.push('네이버: 일치 종목 없음');
-  } catch (e) { reasons.push(`네이버: ${e.message}`); }
-  try {
-    const c = await findCodeFromKrx(ticker);
-    if (c) { dynamicCache[ticker] = c; return { code: c, how: 'krx' }; }
-    reasons.push('KRX: 일치 종목 없음');
-  } catch (e) { reasons.push(`KRX: ${e.message}`); }
-  return { code: null, reasons };
+    const code = await Promise.any(attempts);
+    dynamicCache[ticker] = code;
+    return { code, how: 'search' };
+  } catch {
+    return { code: null, reasons };
+  }
 }
 
 export default async function handler(req, res) {
@@ -164,7 +190,7 @@ export default async function handler(req, res) {
     if (!code) {
       return res.status(200).json({
         candles: [], scale: 1,
-        error: `종목코드를 찾지 못했어요: ${ticker} (${(resolved.reasons || []).join(' / ')})`,
+        error: `종목코드를 찾지 못했어요: ${ticker} (${(resolved.reasons || []).join(' | ')})`,
       });
     }
 
