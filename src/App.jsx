@@ -1116,8 +1116,10 @@ export default function App() {
     } catch(e) { alert("오류: " + e.message); }
     setPortfolioLoading(null);
   }
-  async function fetchLivePrices(stocks) {
-    if (!stocks || stocks.length === 0) return;
+  async function fetchLivePrices(stocksIn) {
+    // 예수금(현금)은 주식이 아니라 시세 조회 대상이 아님 → 서버로 보내지 않음
+    const stocks = (stocksIn || []).filter(s => !s.isCash);
+    if (stocks.length === 0) return;
     setPriceLoading(true);
     try {
       const tickers = stocks.map(s => s.ticker);
