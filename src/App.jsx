@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.32";
+const VERSION = "v1.5.33";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -393,6 +393,7 @@ export default function App() {
   const [chartLoading, setChartLoading] = useState(false);
   const [showTrades, setShowTrades] = useState(true);
   const [chartError, setChartError] = useState(null); // 서버가 알려준 차트 실패 이유
+  const [priceFailures, setPriceFailures] = useState({}); // { 종목명: 현재가 갱신 실패 이유 }
   const [chartTimeframe, setChartTimeframe] = useState('day');
   const [chartRange, setChartRange] = useState('3mo'); // 기간 선택
   const [chartTooltip, setChartTooltip] = useState(null); // { x, y, candle }
@@ -1122,6 +1123,7 @@ export default function App() {
       const tickers = stocks.map(s => s.ticker);
       const res = await fetch("/api/stockprice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tickers, stocks }) });
       const data = await res.json();
+      setPriceFailures(data.failures || {});
       if (data.prices) {
         const processed = {};
         Object.entries(data.prices).forEach(([name, val]) => { processed[name] = (val && typeof val === "object" && val.isOverseas) ? val.krw : val; });
@@ -2347,6 +2349,14 @@ export default function App() {
                       </div>
                     </div>
                     {priceLoading && <div style={{ fontSize: 11, color: "#60a5fa", marginTop: 6, textAlign: "right" }}>잠시만 기다려주세요, 현재 가격을 갱신 중입니다.</div>}
+                    {!priceLoading && Object.keys(priceFailures).length > 0 && (
+                      <div style={{ marginTop: 8, padding: "8px 10px", background: darkMode ? "#2d1515" : "#fee2e2", border: "1px solid #ef4444", borderRadius: 8, fontSize: 11, color: "#ef4444", lineHeight: 1.6 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 2 }}>⚠️ 현재가를 못 가져온 종목 {Object.keys(priceFailures).length}개</div>
+                        {Object.entries(priceFailures).map(([name, why]) => (
+                          <div key={name}><b>{name}</b> — {why}</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   {showWealth && (
                     <div style={{ background: darkMode ? "#0f1f0f" : "#dcfce7", border: "1px solid #166534", borderRadius: 12, padding: "12px 16px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
