@@ -408,8 +408,122 @@ async function getCurrentPrice(token, code) {
     return price2 > 0 ? price2 : null;
   }
 
-  return price > 0 ? price : null;
+  if (price > 0) return price;
+  // 실패 이유를 호출한 쪽(핸들러)이 화면에 보여줄 수 있도록 한투가 준 메시지를 예외로 전달
+  throw new Error(`한투 응답: ${data.msg1 || data.msg_cd || ('rt_cd=' + data.rt_cd)} (가격 없음)`);
 }
+
+// ✅ 종목코드 자동 검색 (chart.js와 동일 로직) - 여러 검색처를 동시에 시도하고 실패 이유도 모아서 돌려줌
+const normName = (s) => String(s || '').replace(/<[^>]+>/g, '').replace(/\s/g, '').toLowerCase();
+
+// 검색 API들의 응답 구조가 제각각이라, 응답 전체를 재귀로 훑어서
+// "6자리 숫자(코드)와 종목명이 정확히 일치하는 문자열이 같은 항목에 들어있는 경우"를 찾는다.
+// 유사 종목은 절대 사용하지 않고 이름이 정확히 일치할 때만 반환.
+function pickCodeGeneric(data, tickerName) {
+  const target = normName(tickerName);
+  const codeOf = (v) => {
+    if (typeof v !== 'string') return null;
+    const m = v.match(/^(\d{6})(?:\.(?:KS|KQ))?$/i); // "322310" 또는 "322310.KQ"
+    return m ? m[1] : null;
+  };
+  const walk = (node, depth) => {
+    if (node == null || depth > 7) return null;
+    if (Array.isArray(node) || typeof node === 'object') {
+      const children = Array.isArray(node) ? node : Object.values(node);
+      const strs = children.flat(Infinity).filter(v => typeof v === 'string');
+      const code = strs.map(codeOf).find(Boolean);
+      if (code && strs.some(v => !codeOf(v) && normName(v) === target)) return code;
+      for (const ch of children) {
+        const found = walk(ch, depth + 1);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  const found = walk(data, 0);
+  if (found) return found;
+  // 이전 stockprice.js 방식: items[0]=이름 목록, items[1]=코드 목록
+  const names = data?.items?.[0], codes = data?.items?.[1];
+  if (Array.isArray(names) && Array.isArray(codes)) {
+    for (let i = 0; i < names.length; i++) {
+      const n = Array.isArray(names[i]) ? names[i][0] : names[i];
+      const c2 = Array.isArray(codes[i]) ? codes[i][0] : codes[i];
+      if (n && c2 && /^\d{6}$/.test(String(c2)) && normName(n) === target) return String(c2);
+    }
+  }
+  return null;
+}
+
+// 종목 검색 후보들 (서버 환경에 따라 막히는 곳이 있을 수 있어 여러 곳을 동시에 시도)
+const SEARCH_SOURCES = [
+  { name: '네이버모바일', url: (q) => `https://m.stock.naver.com/front-api/search/autoComplete?query=${q}&target=stock`, referer: 'https://m.stock.naver.com/' },
+  { name: '네이버AC', url: (q) => `https://ac.stock.naver.com/ac?q=${q}&target=stock`, referer: 'https://m.stock.naver.com/' },
+  { name: '네이버구AC', url: (q) => `https://ac.finance.naver.com/ac?q=${q}&q_enc=UTF-8&st=111&frm=stock&r_format=json&r_enc=UTF-8&r_unicode=0&t_koreng=1&run=2&rev=4`, referer: 'https://finance.naver.com/' },
+  { name: '야후검색', url: (q) => `https://query1.finance.yahoo.com/v1/finance/search?q=${q}&lang=ko-KR&region=KR&quotesCount=10&newsCount=0`, referer: null },
+];
+
+async function searchOne(src, tickerName) {
+  const headers = { 'Accept': 'application/json, text/plain, */*', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36', 'Accept-Language': 'ko-KR,ko;q=0.9' };
+  if (src.referer) headers['Referer'] = src.referer;
+  const res = await fetch(src.url(encodeURIComponent(tickerName)), { headers, signal: AbortSignal.timeout(5000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = JSON.parse(await res.text());
+  const code = pickCodeGeneric(data, tickerName);
+  if (!code) throw new Error('일치 종목 없음');
+  return code;
+}
+
+// KRX KIND 상장종목 목록 (한글 인코딩이 EUC-KR인 경우가 많아 바이트로 받아 직접 디코딩)
+let krxMap2 = null, krxLoadedAt2 = 0;
+async function loadKrxMap2() {
+  if (krxMap2 && Date.now() - krxLoadedAt2 < 3600000) return krxMap2;
+  const res = await fetch('https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13', {
+    headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://kind.krx.co.kr' },
+    signal: AbortSignal.timeout(6000),
+  });
+  const buf = await res.arrayBuffer();
+  const ct = res.headers.get('content-type') || '';
+  const charset = (ct.match(/charset=([\w-]+)/i) || [])[1] || 'euc-kr';
+  let text;
+  try { text = new TextDecoder(charset).decode(buf); } catch { text = new TextDecoder('utf-8').decode(buf); }
+  const map = {};
+  const rows = text.match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
+  for (const row of rows) {
+    const cells = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+    if (cells.length >= 2) {
+      const name = cells[0].replace(/<[^>]+>/g, '').trim();
+      const code = cells[1].replace(/<[^>]+>/g, '').trim();
+      if (name && /^\d{6}$/.test(code)) map[normName(name)] = code;
+    }
+  }
+  if (Object.keys(map).length > 100) { krxMap2 = map; krxLoadedAt2 = Date.now(); return map; }
+  throw new Error(`목록 파싱 실패(${Object.keys(map).length}개, charset=${charset}, ${buf.byteLength}bytes)`);
+}
+async function findCodeFromKrx2(tickerName) {
+  const map = await loadKrxMap2();
+  const hit = map[normName(tickerName)];
+  if (hit) return hit;
+  const head = normName(tickerName).slice(0, 3);
+  const similar = Object.keys(map).filter(n => n.includes(head)).slice(0, 3);
+  throw new Error(`목록 ${Object.keys(map).length}개 중 일치 없음${similar.length ? ` (유사: ${similar.join(',')})` : ''}`);
+}
+
+// 여러 후보를 동시에 시도해서 가장 먼저 성공한 코드를 사용 (실패 이유는 모두 모아서 반환)
+async function resolveCodeMulti(ticker) {
+  const reasons = [];
+  const attempts = [
+    ...SEARCH_SOURCES.map(src => searchOne(src, ticker).catch(e => { reasons.push(`${src.name}: ${e.message}`); throw e; })),
+    findCodeFromKrx2(ticker).catch(e => { reasons.push(`KRX: ${e.message}`); throw e; }),
+  ];
+  try {
+    const code = await Promise.any(attempts);
+    dynamicCache[ticker] = code;
+    return { code, how: 'search' };
+  } catch {
+    return { code: null, reasons };
+  }
+}
+
 
 async function guessTickerCode(tickerName) {
   if (dynamicCache[tickerName]) return dynamicCache[tickerName];
@@ -695,6 +809,7 @@ export default async function handler(req, res) {
     const domesticTickers = tickers.filter(name => !overseasMap[name]);
     const token = await getAccessToken();
 
+    const failures = {}; // { 종목명: 실패 이유 } - App이 "현재가 갱신 실패 종목"을 보여주는 데 사용
     for (const name of domesticTickers) {
       // ✅ 최종 우선순위:
       // 1) TICKER_MAP: 사람이 검증한 코드 (가장 신뢰)
@@ -702,17 +817,37 @@ export default async function handler(req, res) {
       // 3) dynamicCache: 이전 조회 캐시
       // 4) KRX/네이버 API: 완전히 새로운 종목에만
       let code = TICKER_MAP[name] || savedCodes[name] || dynamicCache[name];
+      const fromVerified = !!TICKER_MAP[name]; // 사람이 검증한 코드면 재검색하지 않음
 
       if (!code) {
-        code = await guessTickerCode(name); // 네이버 API는 완전 새 종목에만
+        const found = await resolveCodeMulti(name); // 여러 검색처 동시 시도 (새 종목)
+        code = found.code;
+        if (!code) {
+          failures[name] = `종목코드를 찾지 못했어요 (${(found.reasons || []).join(' | ')})`;
+          prices[name] = null;
+          continue;
+        }
       }
-      if (code) dynamicCache[name] = code;
-      if (!code) { prices[name] = null; continue; }
+      dynamicCache[name] = code;
 
       try {
         prices[name] = await getCurrentPrice(token, code);
         await new Promise(r => setTimeout(r, 100));
-      } catch { prices[name] = null; }
+      } catch (e) {
+        prices[name] = null;
+        failures[name] = `코드 ${code}: ${e.message}`;
+        // ✅ 이미지/수동 입력으로 저장돼 있던 코드가 틀렸을 수 있으니(오염 가능성), 검증된 코드가 아니면
+        // 종목명으로 다시 검색해서 다른 코드가 나오면 그 코드로 한 번 더 시도
+        if (!fromVerified) {
+          try {
+            const found = await resolveCodeMulti(name);
+            if (found.code && found.code !== code) {
+              const retry = await getCurrentPrice(token, found.code);
+              if (retry) { prices[name] = retry; dynamicCache[name] = found.code; delete failures[name]; }
+            }
+          } catch (e2) { failures[name] += ` / 재검색 코드 시도 실패: ${e2.message}`; }
+        }
+      }
     }
 
     // resolvedCodes: 이번에 실제로 사용한 종목코드 매핑 (App.jsx가 다음 저장 시 tickerCode로 캐싱하도록)
@@ -722,7 +857,7 @@ export default async function handler(req, res) {
       if (c) resolvedCodes[name] = c;
     }
 
-    return res.status(200).json({ prices, usdKrwRate, resolvedCodes });
+    return res.status(200).json({ prices, usdKrwRate, resolvedCodes, failures });
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
