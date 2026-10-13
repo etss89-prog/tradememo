@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.33";
+const VERSION = "v1.5.34";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -1117,7 +1117,8 @@ export default function App() {
     setPortfolioLoading(null);
   }
   async function fetchLivePrices(stocksIn) {
-    // 예수금(현금)은 주식이 아니라 시세 조회 대상이 아님 → 서버로 보내지 않음
+    // ✅ v1.5.34: 예수금(현금)은 주식이 아니라 종목코드/시세가 없음 → 서버로 보내지 않음
+    // (예전엔 같이 보내져서 "코드를 찾지 못했어요" 의미 없는 경고가 항상 떴음)
     const stocks = (stocksIn || []).filter(s => !s.isCash);
     if (stocks.length === 0) return;
     setPriceLoading(true);
