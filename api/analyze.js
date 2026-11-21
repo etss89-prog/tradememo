@@ -1,6 +1,10 @@
 export const config = {
   api: { bodySizeLimit: '10mb' },
 };
+// ✅ 이 API는 호출할 때마다 Anthropic 크레딧이 차감되므로 관리자 PIN이 있어야만 동작하게 함
+// (App.jsx의 ADMIN_PIN과 같은 값. Vercel 환경변수 ADMIN_PIN이 있으면 그 값을 우선 사용)
+const ADMIN_PIN = process.env.ADMIN_PIN || '4254';
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -8,7 +12,8 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try {
-    const { image } = req.body;
+    const { image, pin } = req.body || {};
+    if (pin !== ADMIN_PIN) return res.status(401).json({ error: '관리자 로그인이 필요해요. (PIN 인증 실패)' });
     if (!image) return res.status(400).json({ error: 'No image provided' });
     const SYSTEM = `You are a Korean stock trading record analyzer. Extract ALL trading records from the image.
 CRITICAL RULE - DATE EXTRACTION:
