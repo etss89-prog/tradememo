@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const ADMIN_PIN = "4254";
 const VIEWER_PIN = "2026";
-const VERSION = "v1.5.34";
+const VERSION = "v1.5.35";
 
 // ✅ 테마 팔레트 - 다크(원본)/라이트(베이지) 두 가지
 const DARK = {
@@ -930,11 +930,61 @@ export default function App() {
 
   async function addAccount() {
     const name = newAccName.trim(); if (!name) return alert("계좌명을 입력해주세요.");
-    const id = "acc_" + Date.now();
+    // ✅ v1.5.35: "삼성증권 본계좌"는 투자성과 차트(본계좌 선)가 고정 id "main"의 기록을 읽음.
+    // 삭제 후 다시 만들 때 새 id(acc_...)가 붙으면 성과 기록이 끊기므로, 본계좌는 원래 id를 되살려서 만든다.
+    const isMainName = name.replace(/\s/g, "") === "삼성증권본계좌";
+    const id = (isMainName && !accounts.some(a => a.id === "main")) ? "main" : "acc_" + Date.now();
     const newAccounts = [...accounts, { id, name }];
     setAccounts(newAccounts); setNewAccName(""); setAddAccModal(false);
     await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios, accounts: newAccounts, mainText }) });
   }
+  // ✅ v1.5.35: 계좌 순서 변경 (▲/▼). accounts 배열 순서가 곧 업로드 목록·포트폴리오 탭 순서
+  async function moveAccount(accountId, dir) {
+    const i = accounts.findIndex(a => a.id === accountId);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= accounts.length) return;
+    const newAccounts = [...accounts];
+    [newAccounts[i], newAccounts[j]] = [newAccounts[j], newAccounts[i]];
+    setAccounts(newAccounts);
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin: sessionStorage.getItem('jb_pin')||"", records: allRecords, portfolios, accounts: newAccounts, mainText }) });
+  }
+
+  // ✅ v1.5.35: 본계좌를 삭제 후 다시 만들어서 id가 acc_...로 바뀐 경우, 원래 id "main"으로 되돌리고
+  // 그 사이 쌓인 성과 기록도 이어 붙임 (그래야 투자성과 차트의 본계좌 선이 계속 이어짐)
+  const mainRecoverCandidate = (!accounts.some(a => a.id === "main"))
+    ? accounts.find(a => a.name.replace(/\s/g, "") === "삼성증권본계좌") : null;
+  async function recoverMainAccount() {
+    const cand = mainRecoverCandidate; if (!cand) return;
+    if (!window.confirm(`"${cand.name}" 계좌를 원래 본계좌(main)로 연결해서, 투자성과 차트의 본계좌 기록이 이어지게 할까요?`)) return;
+    const oldId = cand.id;
+    const newAccounts = accounts.map(a => a.id === oldId ? { ...a, id: "main" } : a);
+    const newPortfolios = { ...portfolios };
+    if (newPortfolios[oldId]) { newPortfolios.main = newPortfolios[oldId]; delete newPortfolios[oldId]; }
+    const newPerf = {};
+    const dates = Object.keys(performance).sort();
+    // 삭제 전 마지막 본계좌 누적지수 → 새 id 기록은 100부터 다시 시작했으므로 이 값을 곱해 이어 붙임
+    let lastMainIdx = null;
+    for (const d of dates) { const m = performance[d]?.accounts?.main; if (m?.cumulativeIndex) lastMainIdx = m.cumulativeIndex; }
+    const factor = lastMainIdx ? lastMainIdx / 100 : 1;
+    dates.forEach(d => {
+      const day = performance[d];
+      const accs = day?.accounts;
+      if (accs && accs[oldId]) {
+        const na = { ...accs };
+        if (!na.main) {
+          na.main = { ...accs[oldId], cumulativeIndex: parseFloat(((accs[oldId].cumulativeIndex || 100) * factor).toFixed(4)) };
+        }
+        delete na[oldId];
+        newPerf[d] = { ...day, accounts: na };
+      } else newPerf[d] = day;
+    });
+    setAccounts(newAccounts); setPortfolios(newPortfolios); setPerformance(newPerf);
+    if (activeAccount === oldId) setActiveAccount("main");
+    const pin = sessionStorage.getItem('jb_pin') || '';
+    await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, records: allRecords, portfolios: newPortfolios, accounts: newAccounts, mainText, memos, performance: newPerf }) });
+    alert("✅ 본계좌 연결을 복구했어요.");
+  }
+
   async function deleteAccount(accountId) {
     const acc = accounts.find(a => a.id === accountId);
     if (!window.confirm(`⚠️ "${acc?.name}" 계좌를 완전히 삭제할까요?\n\n계좌와 포트폴리오 내역이 모두 삭제됩니다.`)) return;
@@ -1093,7 +1143,7 @@ export default function App() {
     setPortfolioLoading(accountId);
     try {
       const base64 = await compressImage(file, 800);
-      const res = await fetch("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64 }) });
+      const res = await fetch("/api/portfolio", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64, pin: sessionStorage.getItem('jb_pin') || "" }) });
       const data = await res.json(); if (data.error) throw new Error(data.error);
       const existing = portfolios[accountId];
       let allStocks = [...(data.stocks || [])];
@@ -1150,7 +1200,7 @@ export default function App() {
         // ✅ v1.5.19: 매매내역 표(특히 2자리 이상 수량 숫자)가 800px 압축 과정에서 흐려져서
         // AI가 "19"를 "1"로 잘못 읽는 등의 오인식이 발생 → 해상도를 높여 숫자 인식 정확도 개선
         const base64 = await compressImage(item.file, 1400);
-        const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64 }) });
+        const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: base64, pin: sessionStorage.getItem('jb_pin') || "" }) });
         const result = await res.json(); if (result.error) throw new Error(result.error);
         setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, result } : i));
       } catch(e) { setImages(prev => prev.map(i => i.id === item.id ? { ...i, loading: false, error: e.message } : i)); }
@@ -1394,7 +1444,7 @@ export default function App() {
                         <div style={{ borderTop:`1px solid ${T.cardBorder}`, paddingTop:8 }}>
                           <div style={{ fontSize:10, color:T.textMuted, marginBottom:4 }}>계좌별 (일간 · 누적)</div>
                           <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                            {Object.entries(p.accounts).map(([accId, acc]) => {
+                            {Object.entries(p.accounts).sort(([a], [b]) => { const ia = accounts.findIndex(x => x.id === a), ib = accounts.findIndex(x => x.id === b); return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib); }).map(([accId, acc]) => {
                               const accName = accounts.find(a => a.id === accId)?.name || accId;
                               const accCum = (acc.cumulativeIndex - 100).toFixed(2);
                               // dailyReturn은 신규 저장분부터 저장돼 있음. 그 이전 기록들은 저장된 값이 없으므로
@@ -2252,9 +2302,21 @@ export default function App() {
               <div style={{ fontSize: 12, color: T.textMuted }}>📈 계좌별 포트폴리오 업로드</div>
               <button style={{ background: darkMode ? "#1a2a1a" : "#dcfce7", border: "1px solid #166534", borderRadius: 8, color: "#4ade80", padding: "4px 10px", fontSize: 12, cursor: "pointer" }} onClick={() => setAddAccModal(true)}>➕ 계좌 추가</button>
             </div>
+            {mainRecoverCandidate && (
+              <div style={{ marginBottom: 8, padding: "8px 10px", background: darkMode ? "#1a1500" : "#fffbeb", border: "1px solid #b45309", borderRadius: 8, fontSize: 11, color: "#f59e0b", display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ flex: 1 }}>⚠️ "{mainRecoverCandidate.name}"이 원래 본계좌와 연결이 끊겨 있어요. 투자성과의 본계좌 선이 이어지지 않아요.</span>
+                <button onClick={recoverMainAccount} style={{ background: T.card, border: "1px solid #b45309", borderRadius: 6, color: "#f59e0b", padding: "4px 10px", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>🔗 연결 복구</button>
+              </div>
+            )}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {accounts.map(acc => (
+              {accounts.map((acc, accIdx) => (
                 <div key={acc.id} style={{ display: "flex", alignItems: "center", gap: 8, background: T.section, border: `1px solid ${T.sectionBorder}`, borderRadius: 10, padding: "10px 14px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                    <button title="위로" disabled={accIdx === 0} onClick={() => moveAccount(acc.id, -1)}
+                      style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: accIdx === 0 ? T.textMuted : T.textSub, opacity: accIdx === 0 ? 0.35 : 1, padding: "1px 7px", fontSize: 10, lineHeight: 1.3, cursor: accIdx === 0 ? "default" : "pointer" }}>▲</button>
+                    <button title="아래로" disabled={accIdx === accounts.length - 1} onClick={() => moveAccount(acc.id, 1)}
+                      style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 5, color: accIdx === accounts.length - 1 ? T.textMuted : T.textSub, opacity: accIdx === accounts.length - 1 ? 0.35 : 1, padding: "1px 7px", fontSize: 10, lineHeight: 1.3, cursor: accIdx === accounts.length - 1 ? "default" : "pointer" }}>▼</button>
+                  </div>
                   <div style={{ flex: 1 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{acc.name}</span>
                     {portfolios[acc.id] && (
